@@ -23,7 +23,7 @@ github:
     - observability
     - apm
     - service-mesh
-    - eBPF
+    - ebpf
     - profile
     - network
   enabled_merge_buttons:
