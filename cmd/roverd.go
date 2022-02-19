@@ -17,8 +17,10 @@
 
 package main
 
-import "fmt"
+import (
+	"github.com/apache/skywalking-rover/pkg/logger"
+)
 
 func main() {
-	fmt.Printf("OK")
+	logger.GetLogger("roverd").Infof("OK")
 }
