@@ -208,3 +208,31 @@ notices and license terms. Your use of the source code for the these
 subcomponents is subject to the terms and conditions of the following
 licenses.
 
+========================================================================
+MIT licenses
+========================================================================
+
+The following components are provided under the MIT License. See project link for details.
+The text of each license is also included at licenses/license-[project].txt.
+
+    github.com-sirupsen-logrus v1.8.1 https://github.com/sirupsen/logrus MIT
+    github.com-stretchr-testify v1.2.2 https://github.com/stretchr/testify MIT
+
+========================================================================
+BSD licenses
+========================================================================
+
+The following components are provided under a BSD license. See project link for details.
+The text of each license is also included at licenses/license-[project].txt.
+
+    golang.org-x-sys v0.0.0 https://golang.org/x/sys BSD-3-Clause
+    github.com-pmezard-go-difflib v1.0.0 https://github.com/pmezard/go-difflib BSD-3-Clause
+
+========================================================================
+ISC Licenses
+========================================================================
+
+The following components are provided under the ISC license. See project link for details.
+The text of each license is also included at licenses/license-[project].txt.
+
+    github.com-davecgh-go-spew v1.1.1 https://github.com/davecgh/go-spew ISC

@@ -15,12 +15,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package logger
 
 import (
-	"github.com/apache/skywalking-rover/pkg/logger"
+	"strings"
+	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
-func main() {
-	logger.GetLogger("roverd").Infof("OK")
+var (
+	root = initializeDefaultLogger()
+	once sync.Once
+)
+
+type Config struct {
+	Level string
+}
+
+type Logger struct {
+	*logrus.Entry
+	module []string
+}
+
+// SetupLogger when Bootstrap
+func SetupLogger(config *Config) (err error) {
+	once.Do(func() {
+		err = updateLogger(root, config)
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetLogger for the module
+func GetLogger(modules ...string) *Logger {
+	moduleString := ""
+	if len(modules) > 0 {
+		moduleString = strings.Join(modules, ".")
+	}
+	return &Logger{Entry: root.WithField("module", moduleString), module: modules}
 }
