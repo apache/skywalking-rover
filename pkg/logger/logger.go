@@ -38,6 +38,7 @@ type Logger struct {
 	module []string
 }
 
+// SetupLogger when Bootstrap
 func SetupLogger(config *Config) (err error) {
 	once.Do(func() {
 		err = updateLogger(root, config)
@@ -48,7 +49,7 @@ func SetupLogger(config *Config) (err error) {
 	return nil
 }
 
-// GetLogger from the sub-module name
+// GetLogger for the module
 func GetLogger(modules ...string) *Logger {
 	moduleString := ""
 	if len(modules) > 0 {
