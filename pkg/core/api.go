@@ -17,10 +17,10 @@
 
 package core
 
-import "github.com/apache/skywalking-rover/pkg/core/client/grpc"
+import "github.com/apache/skywalking-rover/pkg/core/backend"
 
 // Operator when the other module operate with core module
 type Operator interface {
-	// GrpcClientOperator for operate with grpc client
-	GrpcClientOperator() grpc.Operator
+	// GrpcClientOperator for operate with backend client
+	GrpcClientOperator() backend.Operator
 }

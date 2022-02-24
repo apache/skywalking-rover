@@ -20,7 +20,7 @@ package core
 import (
 	"context"
 
-	"github.com/apache/skywalking-rover/pkg/core/client/grpc"
+	"github.com/apache/skywalking-rover/pkg/core/backend"
 	"github.com/apache/skywalking-rover/pkg/module"
 
 	"github.com/hashicorp/go-multierror"
@@ -31,7 +31,7 @@ const ModuleName = "core"
 type Module struct {
 	config *Config
 
-	grpcClient *grpc.Client
+	backendClient *backend.Client
 }
 
 func NewModule() *Module {
@@ -51,10 +51,10 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
-	// grpc client
-	if m.config.GrpcClientConfig != nil {
-		m.grpcClient = grpc.NewClient(m.config.GrpcClientConfig)
-		if err := m.grpcClient.Start(ctx); err != nil {
+	// backend client
+	if m.config.BackendConfig != nil {
+		m.backendClient = backend.NewClient(m.config.BackendConfig)
+		if err := m.backendClient.Start(ctx); err != nil {
 			return err
 		}
 	}
@@ -63,15 +63,15 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 
 func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
 	var result *multierror.Error
-	if m.grpcClient != nil {
-		result = multierror.Append(result, m.grpcClient.Stop())
+	if m.backendClient != nil {
+		result = multierror.Append(result, m.backendClient.Stop())
 	}
 	return result.ErrorOrNil()
 }
 
-func (m *Module) ClientGrpcOperator() grpc.Operator {
-	if m.grpcClient == nil {
+func (m *Module) ClientGrpcOperator() backend.Operator {
+	if m.backendClient == nil {
 		return nil
 	}
-	return m.grpcClient
+	return m.backendClient
 }

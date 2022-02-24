@@ -18,7 +18,7 @@
 package core
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core/client/grpc"
+	"github.com/apache/skywalking-rover/pkg/core/backend"
 	"github.com/apache/skywalking-rover/pkg/module"
 )
 
@@ -26,8 +26,8 @@ type Config struct {
 	// module common config
 	module.Config `mapstructure:",squash"`
 
-	// clients
-	GrpcClientConfig *grpc.Config `mapstructure:"client_grpc"`
+	// backend connection
+	BackendConfig *backend.Config `mapstructure:"backend"`
 }
 
 func (c *Config) IsActive() bool {

@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package grpc
+package backend
 
 type Config struct {
-	ServerAddr string `mapstructure:"server_addr"` // Server address
+	Addr string `mapstructure:"addr"` // Server address
 	// TLS settings
 	EnableTLS          bool   `mapstructure:"enable_tls"`           // Enable TLS connect to server
 	ClientPemPath      string `mapstructure:"client_pem_path"`      // The file path of client.pem. The config only works when opening the TLS switch.

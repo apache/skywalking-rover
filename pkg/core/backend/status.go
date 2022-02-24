@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package grpc
+package backend
 
 import (
 	"context"

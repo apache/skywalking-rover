@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package grpc
+package backend
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func NewClient(config *Config) *Client {
 	return &Client{config: config}
 }
 
-// Start the grpc client and connect to server
+// Start the backend client and connect to server
 func (c *Client) Start(parent context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(parent)
 	// build config
@@ -55,7 +55,7 @@ func (c *Client) Start(parent context.Context) error {
 	}
 
 	// build connection
-	addr := c.config.ServerAddr
+	addr := c.config.Addr
 	conn, err := grpc.Dial(addr, options...)
 	if err != nil {
 		return err

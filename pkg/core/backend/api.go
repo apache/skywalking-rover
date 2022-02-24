@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package grpc
+package backend
 
 import "google.golang.org/grpc"
 
@@ -28,7 +28,7 @@ const (
 )
 
 type Operator interface {
-	// GetConnection of rover to server
+	// GetConnection of rover to backend server
 	GetConnection() grpc.ClientConnInterface
 	// GetConnectionStatus of connection
 	GetConnectionStatus() ConnectionStatus
