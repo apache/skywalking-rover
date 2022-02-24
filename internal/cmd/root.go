@@ -15,18 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package cmd
 
-import (
-	"fmt"
-	"os"
+import "github.com/spf13/cobra"
 
-	"github.com/apache/skywalking-rover/internal/cmd"
-)
-
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+func NewRoot() *cobra.Command {
+	cmd := &cobra.Command{
+		Short: "Rover is an observability collector",
+		Long: "Rover is a collector based on eBPF technology, " +
+			"deployed in the target monitoring system to collect metrics, perf profiling, network optimization, etc.",
 	}
+	cmd.AddCommand(newStartCmd())
+	return cmd
 }

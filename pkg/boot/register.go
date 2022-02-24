@@ -15,18 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package boot
 
 import (
-	"fmt"
-	"os"
-
-	"github.com/apache/skywalking-rover/internal/cmd"
+	"github.com/apache/skywalking-rover/pkg/core"
+	"github.com/apache/skywalking-rover/pkg/module"
 )
 
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func init() {
+	// register all active module
+	module.Register(core.NewModule())
 }
