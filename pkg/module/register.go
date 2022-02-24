@@ -15,18 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package module
 
-import (
-	"fmt"
-	"os"
+var moduleRegister = make(map[string]Module)
 
-	"github.com/apache/skywalking-rover/internal/cmd"
-)
+func Register(module Module) {
+	moduleRegister[module.Name()] = module
+}
 
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func FindModule(name string) Module {
+	return moduleRegister[name]
 }

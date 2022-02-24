@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package module
 
-import (
-	"fmt"
-	"os"
+type ConfigInterface interface {
+	IsActive() bool
+}
 
-	"github.com/apache/skywalking-rover/internal/cmd"
-)
+type Config struct {
+	// Active module
+	Active bool `mapstructure:"active"`
+}
 
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func (c *Config) IsActive() bool {
+	return c.Active
 }

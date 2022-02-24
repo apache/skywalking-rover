@@ -15,18 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package sharing
 
 import (
-	"fmt"
-	"os"
+	"context"
 
-	"github.com/apache/skywalking-rover/internal/cmd"
+	"github.com/apache/skywalking-rover/pkg/module"
 )
 
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+const ModuleName = "sharing"
+
+type Module struct {
+	config *Config
+}
+
+func NewModule() *Module {
+	return &Module{config: &Config{}}
+}
+
+func (m *Module) Name() string {
+	return ModuleName
+}
+
+func (m *Module) RequiredModules() []string {
+	return nil
+}
+
+func (m *Module) Config() module.ConfigInterface {
+	return m.config
+}
+
+func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	return nil
+}
+
+func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+	return nil
 }

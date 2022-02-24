@@ -15,18 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package cmd
 
 import (
-	"fmt"
-	"os"
+	"context"
 
-	"github.com/apache/skywalking-rover/internal/cmd"
+	"github.com/spf13/cobra"
+
+	"github.com/apache/skywalking-rover/pkg/boot"
+	"github.com/apache/skywalking-rover/pkg/logger"
 )
 
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+func newStartCmd() *cobra.Command {
+	logConfig := &logger.Config{}
+	configPath := ""
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "start the rover",
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			// setup logger
+			return logger.SetupLogger(logConfig)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
+			// run modules
+			return boot.RunModules(ctx, configPath)
+		},
 	}
+
+	cmd.Flags().StringVarP(&logConfig.Level, "verbosity", "v", "info", "the level of logger")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/rover_configs.yaml", "the rover config file path")
+	return cmd
 }

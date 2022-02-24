@@ -15,18 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package module
 
-import (
-	"fmt"
-	"os"
+type Manager struct {
+	moduleMap      map[string]Module
+	shutdownNotify func(err error)
+}
 
-	"github.com/apache/skywalking-rover/internal/cmd"
-)
-
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+func NewManager(modules []Module, shutdownNotify func(err error)) *Manager {
+	moduleMap := make(map[string]Module)
+	for _, m := range modules {
+		moduleMap[m.Name()] = m
 	}
+	return &Manager{moduleMap: moduleMap, shutdownNotify: shutdownNotify}
+}
+
+// FindModule instance by module name
+func (m *Manager) FindModule(name string) Module {
+	return m.moduleMap[name]
+}
+
+// ShutdownModules means close the rover instance dynamically
+func (m *Manager) ShutdownModules(err error) {
+	m.shutdownNotify(err)
 }

@@ -15,18 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package sharing
 
-import (
-	"fmt"
-	"os"
+import "github.com/apache/skywalking-rover/pkg/module"
 
-	"github.com/apache/skywalking-rover/internal/cmd"
-)
-
-func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+type Config struct {
+	// module common config
+	module.Config `mapstructure:",squash"`
 }
