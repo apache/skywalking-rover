@@ -20,13 +20,18 @@ package core
 import (
 	"context"
 
+	"github.com/apache/skywalking-rover/pkg/core/backend"
 	"github.com/apache/skywalking-rover/pkg/module"
+
+	"github.com/hashicorp/go-multierror"
 )
 
 const ModuleName = "core"
 
 type Module struct {
 	config *Config
+
+	backendClient *backend.Client
 }
 
 func NewModule() *Module {
@@ -46,9 +51,27 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	// backend client
+	if m.config.BackendConfig != nil {
+		m.backendClient = backend.NewClient(m.config.BackendConfig)
+		if err := m.backendClient.Start(ctx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
-	return nil
+	var result *multierror.Error
+	if m.backendClient != nil {
+		result = multierror.Append(result, m.backendClient.Stop())
+	}
+	return result.ErrorOrNil()
+}
+
+func (m *Module) ClientGrpcOperator() backend.Operator {
+	if m.backendClient == nil {
+		return nil
+	}
+	return m.backendClient
 }

@@ -17,19 +17,10 @@
 
 package core
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core/backend"
-	"github.com/apache/skywalking-rover/pkg/module"
-)
+import "github.com/apache/skywalking-rover/pkg/core/backend"
 
-type Config struct {
-	// module common config
-	module.Config `mapstructure:",squash"`
-
-	// backend connection
-	BackendConfig *backend.Config `mapstructure:"backend"`
-}
-
-func (c *Config) IsActive() bool {
-	return true
+// Operator when the other module operate with core module
+type Operator interface {
+	// BackendOperator for operate with backend client
+	BackendOperator() backend.Operator
 }
