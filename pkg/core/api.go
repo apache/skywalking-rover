@@ -17,19 +17,10 @@
 
 package core
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core/client/grpc"
-	"github.com/apache/skywalking-rover/pkg/module"
-)
+import "github.com/apache/skywalking-rover/pkg/core/client/grpc"
 
-type Config struct {
-	// module common config
-	module.Config `mapstructure:",squash"`
-
-	// clients
-	GrpcClientConfig *grpc.Config `mapstructure:"client_grpc"`
-}
-
-func (c *Config) IsActive() bool {
-	return true
+// Operator when the other module operate with core module
+type Operator interface {
+	// GrpcClientOperator for operate with grpc client
+	GrpcClientOperator() grpc.Operator
 }

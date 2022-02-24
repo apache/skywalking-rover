@@ -20,13 +20,18 @@ package core
 import (
 	"context"
 
+	"github.com/apache/skywalking-rover/pkg/core/client/grpc"
 	"github.com/apache/skywalking-rover/pkg/module"
+
+	"github.com/hashicorp/go-multierror"
 )
 
 const ModuleName = "core"
 
 type Module struct {
 	config *Config
+
+	grpcClient *grpc.Client
 }
 
 func NewModule() *Module {
@@ -46,9 +51,27 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	// grpc client
+	if m.config.GrpcClientConfig != nil {
+		m.grpcClient = grpc.NewClient(m.config.GrpcClientConfig)
+		if err := m.grpcClient.Start(ctx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
-	return nil
+	var result *multierror.Error
+	if m.grpcClient != nil {
+		result = multierror.Append(result, m.grpcClient.Stop())
+	}
+	return result.ErrorOrNil()
+}
+
+func (m *Module) ClientGrpcOperator() grpc.Operator {
+	if m.grpcClient == nil {
+		return nil
+	}
+	return m.grpcClient
 }

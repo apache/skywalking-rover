@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package core
+package grpc
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core/client/grpc"
-	"github.com/apache/skywalking-rover/pkg/module"
+import "google.golang.org/grpc"
+
+type ConnectionStatus int8
+
+const (
+	_ ConnectionStatus = iota
+	Connected
+	Disconnect
 )
 
-type Config struct {
-	// module common config
-	module.Config `mapstructure:",squash"`
-
-	// clients
-	GrpcClientConfig *grpc.Config `mapstructure:"client_grpc"`
-}
-
-func (c *Config) IsActive() bool {
-	return true
+type Operator interface {
+	// GetConnection of rover to server
+	GetConnection() grpc.ClientConnInterface
+	// GetConnectionStatus of connection
+	GetConnectionStatus() ConnectionStatus
+	// RegisterListener of connection status change
+	RegisterListener() chan<- ConnectionStatus
 }
