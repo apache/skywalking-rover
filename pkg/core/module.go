@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package sharing
+package core
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 )
 
-const ModuleName = "sharing"
+const ModuleName = "core"
 
 type Module struct {
 	config *Config

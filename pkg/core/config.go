@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package sharing
+package core
 
 import "github.com/apache/skywalking-rover/pkg/module"
 

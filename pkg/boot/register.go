@@ -18,11 +18,11 @@
 package boot
 
 import (
+	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/sharing"
 )
 
 func init() {
 	// register all active module
-	module.Register(sharing.NewModule())
+	module.Register(core.NewModule())
 }
