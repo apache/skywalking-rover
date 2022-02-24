@@ -16,4 +16,3 @@
 #
 
 core:
-  active: ${ROVER_SHARING_ACTIVE:true}

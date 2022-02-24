@@ -23,3 +23,7 @@ type Config struct {
 	// module common config
 	module.Config `mapstructure:",squash"`
 }
+
+func (c *Config) IsActive() bool {
+	return true
+}
