@@ -37,6 +37,9 @@ type Module interface {
 	// The module needs to return the start result after startup is completed
 	Start(ctx context.Context, mgr *Manager) error
 
+	// NotifyStartSuccess when all module have been start success
+	NotifyStartSuccess()
+
 	// Shutdown module, the sequence of shutdown is the reverse of the module Start
 	// The shutdown would trigger in the following cases
 	// 1. If other modules fail to start

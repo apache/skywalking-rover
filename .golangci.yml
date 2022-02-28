@@ -56,6 +56,13 @@ linters-settings:
   whitespace:
     multi-if: false
     multi-func: false
+  gosec:
+    includes:
+      - G401
+      - G306
+      - G101
+    excludes:
+      - G204
 
 linters:
   enable:

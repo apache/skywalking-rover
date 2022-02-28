@@ -15,16 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package process
 
 import (
+	"context"
+
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
+	"github.com/apache/skywalking-rover/pkg/process/finders"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+const ModuleName = "process_discovery"
+
+type Module struct {
+	config *Config
+
+	manager *finders.ProcessManager
+}
+
+func NewModule() *Module {
+	return &Module{config: &Config{}}
+}
+
+func (m *Module) Name() string {
+	return ModuleName
+}
+
+func (m *Module) RequiredModules() []string {
+	return []string{core.ModuleName}
+}
+
+func (m *Module) Config() module.ConfigInterface {
+	return m.config
+}
+
+func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	processManager, err := finders.NewProcessManager(ctx, mgr, m.config.HeartbeatPeriod, m.config.VM)
+	if err != nil {
+		return err
+	}
+	m.manager = processManager
+
+	return nil
+}
+
+func (m *Module) NotifyStartSuccess() {
+	// notify all finder to report processes
+	m.manager.Start()
+}
+
+func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+	return m.manager.Shutdown()
 }

@@ -33,3 +33,27 @@ core:
     check_period: ${ROVER_BACKEND_CHECK_PERIOD:5}
     # The auth value when send request
     authentication: ${ROVER_BACKEND_AUTHENTICATION:""}
+
+process_discovery:
+  active: ${ROVER_PROCESS_DISCOVERY_ACTIVE:true}
+  # The period of report or keep alive process(second)
+  heartbeat_period: ${ROVER_PROCESS_DISCOVERY_HEARTBEAT_PERIOD:20}
+  # Detect processes in VM mode
+  vm:
+    # Is active the VM mode to detect processes
+    active: ${ROVER_PROCESS_DISCOVERY_VM_ACTIVE:true}
+    # The period to detect the process(second)
+    period: ${ROVER_PROCESS_DISCOVERY_VM_PERIOD:15}
+    finders:
+      # Use regex string to locate the processes
+      # Duplicate entities cannot be reported. If multiple entity are generated, only one process will be report
+      # If the multiple finders could match the same one process, only the first finder could be selected and report
+      - match_cmd_regex: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_MATCH_CMD_REGEX:rover}
+        # The Layer need to relate to the process entity
+        layer: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER:VM}
+        # The Service Name need to relate to the process entity
+        service_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME:rover}
+        # The Service Instance Name need to relate to the process entity
+        instance_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_INSTANCE_NAME:{{.Rover.HostIP}}}
+        # The Process Name need to relate to the process entity
+        process_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_NAME:{{.Process.ExeName}}}

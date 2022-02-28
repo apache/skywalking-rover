@@ -156,6 +156,9 @@ func TestRun(t *testing.T) {
 			startSequence: []string{
 				"test1", "test2",
 			},
+			startNotifySequence: []string{
+				"test1", "test2",
+			},
 			shutdownSequence: []string{
 				"test2", "test1",
 			},
@@ -173,6 +176,9 @@ func TestRun(t *testing.T) {
 				"test1", "test2",
 			},
 			startSequence: []string{
+				"test1", "test2",
+			},
+			startNotifySequence: []string{
 				"test1", "test2",
 			},
 			shutdownSequence: []string{
@@ -194,6 +200,9 @@ func TestRun(t *testing.T) {
 			startSequence: []string{
 				"test2", "test1",
 			},
+			startNotifySequence: []string{
+				"test2", "test1",
+			},
 			shutdownSequence: []string{
 				"test1", "test2",
 			},
@@ -211,12 +220,13 @@ func TestRun(t *testing.T) {
 }
 
 type testRunStruct struct {
-	name             string
-	dependencies     map[string][]string
-	modules          []string
-	startSequence    []string
-	shutdownSequence []string
-	triggerShutdown  func(ctx context.Context, cancel context.CancelFunc, starter *ModuleStarter)
+	name                string
+	dependencies        map[string][]string
+	modules             []string
+	startSequence       []string
+	startNotifySequence []string
+	shutdownSequence    []string
+	triggerShutdown     func(ctx context.Context, cancel context.CancelFunc, starter *ModuleStarter)
 }
 
 func testRun(run *testRunStruct, t *testing.T) {
@@ -265,18 +275,27 @@ func testRun(run *testRunStruct, t *testing.T) {
 		t.Fatalf("the module start sequence not right: \nexcept: \n%v\nactual:\n%v", run.startSequence, sequence.startSequence)
 	}
 
+	if !reflect.DeepEqual(sequence.startNotifySequence, run.startNotifySequence) {
+		t.Fatalf("the module start sequence not right: \nexcept: \n%v\nactual:\n%v", run.startSequence, sequence.startSequence)
+	}
+
 	if !reflect.DeepEqual(sequence.shutdownSequence, run.shutdownSequence) {
 		t.Fatalf("the module shutdown sequence not right: \nexcept: \n%v\nactual:\n%v", run.shutdownSequence, sequence.shutdownSequence)
 	}
 }
 
 type sequenceMonitor struct {
-	startSequence    []string
-	shutdownSequence []string
+	startSequence       []string
+	startNotifySequence []string
+	shutdownSequence    []string
 }
 
 func (s *sequenceMonitor) AddStartup(name string) {
 	s.startSequence = append(s.startSequence, name)
+}
+
+func (s *sequenceMonitor) AddNotifyStart(name string) {
+	s.startNotifySequence = append(s.startNotifySequence, name)
 }
 
 func (s *sequenceMonitor) AddShutdown(name string) {
@@ -304,6 +323,10 @@ func (t *testModule) Config() module.ConfigInterface {
 func (t *testModule) Start(ctx context.Context, mgr *module.Manager) error {
 	t.sequence.AddStartup(t.name)
 	return nil
+}
+
+func (t *testModule) NotifyStartSuccess() {
+	t.sequence.AddNotifyStart(t.name)
 }
 
 func (t *testModule) Shutdown(ctx context.Context, mgr *module.Manager) error {

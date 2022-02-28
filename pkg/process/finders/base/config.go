@@ -15,16 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package base
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-)
-
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+type FinderBaseConfig interface {
+	// ActiveFinder to detect process
+	ActiveFinder() bool
 }

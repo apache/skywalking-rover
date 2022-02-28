@@ -20,10 +20,12 @@ package core
 import (
 	"context"
 
-	"github.com/apache/skywalking-rover/pkg/core/backend"
-	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/google/uuid"
 
 	"github.com/hashicorp/go-multierror"
+
+	"github.com/apache/skywalking-rover/pkg/core/backend"
+	"github.com/apache/skywalking-rover/pkg/module"
 )
 
 const ModuleName = "core"
@@ -31,6 +33,7 @@ const ModuleName = "core"
 type Module struct {
 	config *Config
 
+	instanceID    string
 	backendClient *backend.Client
 }
 
@@ -51,6 +54,8 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	// generate instance id
+	m.instanceID = uuid.New().String()
 	// backend client
 	if m.config.BackendConfig != nil {
 		m.backendClient = backend.NewClient(m.config.BackendConfig)
@@ -61,6 +66,9 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 	return nil
 }
 
+func (m *Module) NotifyStartSuccess() {
+}
+
 func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
 	var result *multierror.Error
 	if m.backendClient != nil {
@@ -69,9 +77,13 @@ func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
 	return result.ErrorOrNil()
 }
 
-func (m *Module) ClientGrpcOperator() backend.Operator {
+func (m *Module) BackendOperator() backend.Operator {
 	if m.backendClient == nil {
 		return nil
 	}
 	return m.backendClient
+}
+
+func (m *Module) InstanceID() string {
+	return m.instanceID
 }
