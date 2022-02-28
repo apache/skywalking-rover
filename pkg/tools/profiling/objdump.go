@@ -44,7 +44,7 @@ func (o *ObjDump) IsSupport(filepath string) bool {
 }
 
 func (o *ObjDump) Analyze(filepath string) (*Info, error) {
-	resBytes, err := exec.Command(o.commandPath, "--syms", filepath).Output()
+	resBytes, err := exec.Command(o.commandPath, "--syms", filepath).Output() // #nosec G204
 	if err != nil {
 		return nil, err
 	}
