@@ -31,9 +31,27 @@ func init() {
 	host = queryHostInfo()
 }
 
-// HostIPAddress IP address of machine
-func HostIPAddress() string {
-	return host.ipAddr
+// DefaultHostIPAddress IP address of machine
+func DefaultHostIPAddress() string {
+	return host.defaultIPAddr
+}
+
+// HostIPAddressV4 found the IPV4 address from appoint net interface name
+func HostIPAddressV4(name string) string {
+	address := host.ipAddresses[name]
+	if address == nil {
+		return ""
+	}
+	return address.ipV4
+}
+
+// HostIPAddressV6 found the IPV6 address from appoint net interface name
+func HostIPAddressV6(name string) string {
+	address := host.ipAddresses[name]
+	if address == nil {
+		return ""
+	}
+	return address.ipV6
 }
 
 // Hostname of machine
@@ -45,11 +63,17 @@ type hostInfo struct {
 	// hostname
 	name string
 	// ip address
-	ipAddr string
+	ipAddresses   map[string]*hostIPAddress
+	defaultIPAddr string
+}
+
+type hostIPAddress struct {
+	ipV4 string
+	ipV6 string
 }
 
 func queryHostInfo() *hostInfo {
-	addr, err := localIPAddress0()
+	addresses, def, err := localIPAddress0()
 	if err != nil {
 		panic(err)
 	}
@@ -57,42 +81,73 @@ func queryHostInfo() *hostInfo {
 	if err != nil {
 		panic(err)
 	}
-	return &hostInfo{name: name, ipAddr: addr}
+	return &hostInfo{name: name, ipAddresses: addresses, defaultIPAddr: def}
 }
 
 func hostname0() (string, error) {
 	return os.Hostname()
 }
 
-func localIPAddress0() (string, error) {
+func localIPAddress0() (ipAddresses map[string]*hostIPAddress, defAddr string, err error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	// handle err
+	ipAddresses = make(map[string]*hostIPAddress)
+	var defV4, defV6 string
 	for _, i := range ifaces {
 		if i.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 		addrs, err := i.Addrs()
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
-		// handle err
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
+		ipv4, ipv6 := analyzeIPAddresses(addrs)
+
+		if ipv4 != "" || ipv6 != "" {
+			if defV4 == "" {
+				defV4 = ipv4
 			}
-			if ip.IsLoopback() || ip.To4() == nil {
-				continue
+			if defV6 == "" {
+				defV6 = ipv6
 			}
-			// process IP address
-			return ip.String(), nil
+			ipAddresses[i.Name] = &hostIPAddress{ipV4: ipv4, ipV6: ipv6}
 		}
 	}
-	return "", fmt.Errorf("IP not found")
+
+	if len(ipAddresses) == 0 {
+		return nil, "", fmt.Errorf("not found")
+	}
+
+	if defV4 != "" {
+		defAddr = defV4
+	} else {
+		defAddr = defV6
+	}
+
+	return ipAddresses, defAddr, nil
+}
+
+func analyzeIPAddresses(addrs []net.Addr) (ipv4, ipv6 string) {
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip.IsLoopback() {
+			continue
+		}
+		if ip.To4() != nil {
+			ipv4 = ip.To4().String()
+		}
+		if ip.To16() != nil {
+			ipv6 = ip.To16().String()
+		}
+	}
+	return ipv4, ipv6
 }

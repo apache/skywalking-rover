@@ -70,9 +70,22 @@ func (t *TemplateRover) InstanceID() string {
 	return t.instanceID
 }
 
-// HostIP ip address of local machine
-func (t *TemplateRover) HostIP() string {
-	return tools.HostIPAddress()
+// HostIPV4 ip v4 address of local machine from appoint net interface name
+func (t *TemplateRover) HostIPV4(name string) (string, error) {
+	v4 := tools.HostIPAddressV4(name)
+	if v4 == "" {
+		return "", fmt.Errorf("could not found the ip v4 address from %s", name)
+	}
+	return v4, nil
+}
+
+// HostIPV6 ip v6 address of local machine from appoint net interface name
+func (t *TemplateRover) HostIPV6(name string) (string, error) {
+	v6 := tools.HostIPAddressV6(name)
+	if v6 == "" {
+		return "", fmt.Errorf("could not found the ip v6 address from %s", name)
+	}
+	return v6, nil
 }
 
 // HostName name of local machine

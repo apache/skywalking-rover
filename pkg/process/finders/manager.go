@@ -20,6 +20,7 @@ package finders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 
@@ -35,8 +36,6 @@ var log = logger.GetLogger("process", "finder")
 // ProcessManager means Manage all Process
 type ProcessManager struct {
 	moduleManager *module.Manager
-	// report the process with interval
-	reportInterval int
 	// finders
 	finders map[base.FinderBaseConfig]base.ProcessFinder
 	// process storage
@@ -49,7 +48,7 @@ type ProcessManagerWithFinder struct {
 }
 
 func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
-	reportInterval int, configs ...base.FinderBaseConfig) (*ProcessManager, error) {
+	reportInterval time.Duration, configs ...base.FinderBaseConfig) (*ProcessManager, error) {
 	// locate all finders
 	confinedFinders := make(map[base.FinderBaseConfig]base.ProcessFinder)
 	fsList := make([]base.ProcessFinder, 0)
@@ -73,10 +72,9 @@ func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
 
 	// init all finders
 	manager := &ProcessManager{
-		reportInterval: reportInterval,
-		finders:        confinedFinders,
-		moduleManager:  moduleManager,
-		storage:        storage,
+		finders:       confinedFinders,
+		moduleManager: moduleManager,
+		storage:       storage,
 	}
 	for conf, finder := range confinedFinders {
 		processManager := &ProcessManagerWithFinder{ProcessManager: manager, finderType: finder.DetectType()}

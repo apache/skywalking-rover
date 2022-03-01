@@ -38,7 +38,7 @@ type ProcessStorage struct {
 	mutex     sync.Mutex
 
 	// working with backend
-	reportInterval int
+	reportInterval time.Duration
 	roverID        string
 	processClient  v3.EBPFProcessServiceClient
 	finders        map[api.ProcessDetectType]base.ProcessFinder
@@ -49,7 +49,7 @@ type ProcessStorage struct {
 }
 
 func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
-	reportInterval int, finderList []base.ProcessFinder) (*ProcessStorage, error) {
+	reportInterval time.Duration, finderList []base.ProcessFinder) (*ProcessStorage, error) {
 	data := make(map[int32]*ProcessContext)
 	// working with core module
 	coreOperator := moduleManager.FindModule(core.ModuleName).(core.Operator)
@@ -74,7 +74,7 @@ func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
 
 func (s *ProcessStorage) StartReport() {
 	go func() {
-		timeTicker := time.NewTicker(time.Duration(s.reportInterval) * time.Second)
+		timeTicker := time.NewTicker(s.reportInterval)
 		for {
 			select {
 			case <-timeTicker.C:
@@ -147,7 +147,7 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 
 	properties := make([]*v3.EBPFProcessProperties, 0)
 	buildContext := &base.BuildEBPFProcessContext{}
-	buildContext.HostIP = tools.HostIPAddress()
+	buildContext.HostIP = tools.DefaultHostIPAddress()
 	for _, ps := range waitReportProcesses {
 		properties = append(properties, s.finders[ps.DetectType()].BuildEBPFProcess(buildContext, ps.detectProcess))
 	}

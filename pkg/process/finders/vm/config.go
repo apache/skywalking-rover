@@ -29,7 +29,7 @@ type Config struct {
 	Active bool `mapstructure:"active"`
 
 	// Check Period
-	Period int `mapstructure:"period"`
+	Period string `mapstructure:"period"`
 
 	// Process finder list
 	Finders []*ProcessFinderConfig `mapstructure:"finders"`

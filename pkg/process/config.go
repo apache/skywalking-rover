@@ -23,11 +23,15 @@ import (
 )
 
 type Config struct {
-	module.Config `mapstructure:",squash"`
+	module.Config
 
-	// heartbeat the process list period(second)
-	HeartbeatPeriod int `mapstructure:"heartbeat_period"`
+	// heartbeat the process list period
+	HeartbeatPeriod string `mapstructure:"heartbeat_period"`
 
 	// VM process finder
 	VM *vm.Config
+}
+
+func (c *Config) IsActive() bool {
+	return true
 }

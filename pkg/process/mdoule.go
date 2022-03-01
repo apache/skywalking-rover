@@ -19,6 +19,7 @@ package process
 
 import (
 	"context"
+	"time"
 
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
@@ -50,7 +51,11 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
-	processManager, err := finders.NewProcessManager(ctx, mgr, m.config.HeartbeatPeriod, m.config.VM)
+	period, err := time.ParseDuration(m.config.HeartbeatPeriod)
+	if err != nil {
+		return err
+	}
+	processManager, err := finders.NewProcessManager(ctx, mgr, period, m.config.VM)
 	if err != nil {
 		return err
 	}

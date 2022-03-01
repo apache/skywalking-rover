@@ -41,6 +41,8 @@ type ProcessFinder struct {
 	manager   base.ProcessManager
 	ctx       context.Context
 	cancelCtx context.CancelFunc
+
+	period time.Duration
 }
 
 func (p *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
@@ -52,6 +54,11 @@ func (p *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 	p.manager = manager
 	p.ctx, p.cancelCtx = context.WithCancel(ctx)
 
+	period, err := time.ParseDuration(p.conf.Period)
+	if err != nil {
+		return err
+	}
+	p.period = period
 	return nil
 }
 
@@ -107,7 +114,7 @@ func (p *ProcessFinder) startWatch() {
 		log.Warnf("list all process failure, %v", err)
 	}
 	// schedule
-	ticker := time.NewTicker(time.Duration(p.conf.Period) * time.Second)
+	ticker := time.NewTicker(p.period)
 	for {
 		select {
 		case <-ticker.C:
