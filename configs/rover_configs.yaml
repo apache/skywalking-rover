@@ -51,7 +51,7 @@ process_discovery:
         # The Layer need to relate to the process entity
         layer: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER:VM}
         # The Service Name need to relate to the process entity
-        service_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME:rover}
+        service_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME:}
         # The Service Instance Name need to relate to the process entity
         # By default the instance name is the host IP v4 address from "en0" net interface
         instance_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_INSTANCE_NAME:{{.Rover.HostIPV4 "en0"}}}
