@@ -15,16 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package finders
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
+	"reflect"
+
+	"github.com/apache/skywalking-rover/pkg/process/finders/base"
+	"github.com/apache/skywalking-rover/pkg/process/finders/vm"
 )
 
+var finders = make(map[reflect.Type]base.ProcessFinder)
+
 func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+	registerFinder(reflect.TypeOf(&vm.Config{}), &vm.ProcessFinder{})
+}
+
+func registerFinder(t reflect.Type, finder base.ProcessFinder) {
+	finders[t] = finder
+}
+
+func getFinder(conf base.FinderBaseConfig) base.ProcessFinder {
+	return finders[reflect.TypeOf(conf)]
 }

@@ -91,6 +91,11 @@ func (m *ModuleStarter) Run(ctx context.Context) error {
 		m.startedModules = append(m.startedModules, module)
 	}
 
+	// notify all modules setup success
+	for _, mod := range m.startedModules {
+		mod.NotifyStartSuccess()
+	}
+
 	// register terminal
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)

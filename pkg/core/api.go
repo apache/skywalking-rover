@@ -21,6 +21,8 @@ import "github.com/apache/skywalking-rover/pkg/core/backend"
 
 // Operator when the other module operate with core module
 type Operator interface {
+	// InstanceId of Rover
+	InstanceID() string
 	// BackendOperator for operate with backend client
 	BackendOperator() backend.Operator
 }

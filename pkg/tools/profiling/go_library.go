@@ -15,16 +15,44 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package profiling
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
+	"debug/elf"
+	"fmt"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+// GoLibrary is using build-in elf reader to read
+type GoLibrary struct {
+}
+
+func NewGoLibrary() *GoLibrary {
+	return &GoLibrary{}
+}
+
+func (l *GoLibrary) IsSupport(filePath string) bool {
+	return true
+}
+
+func (l *GoLibrary) Analyze(filePath string) (*Info, error) {
+	// read els file
+	file, err := elf.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read ELF file error: %v", err)
+	}
+	defer file.Close()
+
+	// exist symbol data
+	symbols, err := file.Symbols()
+	if err != nil || len(symbols) == 0 {
+		return nil, fmt.Errorf("read symbol data failure or no symbole data: %v", err)
+	}
+
+	// adapt symbol struct
+	data := make([]*Symbol, len(symbols))
+	for i, sym := range symbols {
+		data[i] = &Symbol{Name: sym.Name, Location: sym.Value}
+	}
+
+	return &Info{Symbols: data}, nil
 }

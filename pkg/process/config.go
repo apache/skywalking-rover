@@ -15,16 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package process
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
+	"github.com/apache/skywalking-rover/pkg/process/finders/vm"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+type Config struct {
+	module.Config
+
+	// heartbeat the process list period
+	HeartbeatPeriod string `mapstructure:"heartbeat_period"`
+
+	// VM process finder
+	VM *vm.Config
+}
+
+func (c *Config) IsActive() bool {
+	return true
 }

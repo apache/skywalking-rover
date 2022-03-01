@@ -15,16 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package base
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
+	"github.com/shirou/gopsutil/process"
+
+	"github.com/apache/skywalking-rover/pkg/process/api"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
+// DetectedProcess from the finder
+type DetectedProcess interface {
+	// Pid of process in host
+	Pid() int32
+	// OriginalProcess is works for query the process data
+	OriginalProcess() *process.Process
+	// Entity of process, is related with backend entity
+	Entity() *api.ProcessEntity
+	// DetectType define the process find type
+	DetectType() api.ProcessDetectType
 }

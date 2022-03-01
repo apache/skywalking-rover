@@ -71,6 +71,9 @@ func (t *testModule) Start(ctx context.Context, mgr *Manager) error {
 	return nil
 }
 
+func (t *testModule) NotifyStartSuccess() {
+}
+
 func (t *testModule) Shutdown(ctx context.Context, mgr *Manager) error {
 	return nil
 }

@@ -46,6 +46,10 @@ func overrideConfig(v *viper.Viper, key string, envRegex *regexp.Regexp) {
 		v.Set(key, overrideString(val, envRegex))
 	case []interface{}:
 		v.Set(key, overrideSlice(val, envRegex))
+	case int:
+		v.Set(key, val)
+	case bool:
+		v.Set(key, val)
 	}
 }
 

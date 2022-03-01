@@ -15,26 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package core
+package process
 
 import (
 	"context"
+	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/hashicorp/go-multierror"
-
-	"github.com/apache/skywalking-rover/pkg/core/backend"
+	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/apache/skywalking-rover/pkg/process/finders"
 )
 
-const ModuleName = "core"
+const ModuleName = "process_discovery"
 
 type Module struct {
 	config *Config
 
-	instanceID    string
-	backendClient *backend.Client
+	manager *finders.ProcessManager
 }
 
 func NewModule() *Module {
@@ -46,7 +43,7 @@ func (m *Module) Name() string {
 }
 
 func (m *Module) RequiredModules() []string {
-	return nil
+	return []string{core.ModuleName}
 }
 
 func (m *Module) Config() module.ConfigInterface {
@@ -54,36 +51,24 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
-	// generate instance id
-	m.instanceID = uuid.New().String()
-	// backend client
-	if m.config.BackendConfig != nil {
-		m.backendClient = backend.NewClient(m.config.BackendConfig)
-		if err := m.backendClient.Start(ctx); err != nil {
-			return err
-		}
+	period, err := time.ParseDuration(m.config.HeartbeatPeriod)
+	if err != nil {
+		return err
 	}
+	processManager, err := finders.NewProcessManager(ctx, mgr, period, m.config.VM)
+	if err != nil {
+		return err
+	}
+	m.manager = processManager
+
 	return nil
 }
 
 func (m *Module) NotifyStartSuccess() {
+	// notify all finder to report processes
+	m.manager.Start()
 }
 
 func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
-	var result *multierror.Error
-	if m.backendClient != nil {
-		result = multierror.Append(result, m.backendClient.Stop())
-	}
-	return result.ErrorOrNil()
-}
-
-func (m *Module) BackendOperator() backend.Operator {
-	if m.backendClient == nil {
-		return nil
-	}
-	return m.backendClient
-}
-
-func (m *Module) InstanceID() string {
-	return m.instanceID
+	return m.manager.Shutdown()
 }
