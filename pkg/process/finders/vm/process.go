@@ -62,6 +62,6 @@ func (p *Process) OriginalProcess() *process.Process {
 
 // BuildIdentity without pid
 func (p *Process) BuildIdentity() string {
-	return fmt.Sprintf("%s_%s_%s_%s", p.cmd, p.entity.ServiceName,
+	return fmt.Sprintf("%s_%s_%s_%s", p.entity.Layer, p.entity.ServiceName,
 		p.entity.InstanceName, p.entity.ProcessName)
 }
