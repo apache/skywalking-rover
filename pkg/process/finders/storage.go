@@ -132,7 +132,12 @@ func (s *ProcessStorage) processesKeepAlive(waitKeepAliveProcess []*ProcessConte
 	processIDList := make([]*v3.EBPFProcessPingPkg, 0)
 	for _, ps := range waitKeepAliveProcess {
 		if ps.id != "" {
-			processIDList = append(processIDList, &v3.EBPFProcessPingPkg{ProcessId: ps.id})
+			processIDList = append(processIDList, &v3.EBPFProcessPingPkg{EntityMetadata: &v3.EBPFProcessEntityMetadata{
+				Layer:        ps.Entity().Layer,
+				ServiceName:  ps.Entity().ServiceName,
+				InstanceName: ps.Entity().InstanceName,
+				ProcessName:  ps.Entity().ProcessName,
+			}})
 		}
 	}
 
@@ -151,7 +156,7 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 	for _, ps := range waitReportProcesses {
 		properties = append(properties, s.finders[ps.DetectType()].BuildEBPFProcess(buildContext, ps.detectProcess))
 	}
-	processes, err := s.processClient.ReportProcesses(s.ctx, &v3.EBPFProcessReportList{Processes: properties})
+	processes, err := s.processClient.ReportProcesses(s.ctx, &v3.EBPFProcessReportList{Processes: properties, EbpfAgentID: s.roverID})
 	if err != nil {
 		return err
 	}

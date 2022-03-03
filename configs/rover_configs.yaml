@@ -49,7 +49,7 @@ process_discovery:
       # If the multiple finders could match the same one process, only the first finder could be selected and report
       - match_cmd_regex: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_MATCH_CMD_REGEX:}
         # The Layer need to relate to the process entity
-        layer: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER:VM}
+        layer: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER:OS_LINUX}
         # The Service Name need to relate to the process entity
         service_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME:}
         # The Service Instance Name need to relate to the process entity
