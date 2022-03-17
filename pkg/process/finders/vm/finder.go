@@ -20,6 +20,7 @@ package vm
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
 var log = logger.GetLogger("process", "finder", "vm")
@@ -149,9 +151,9 @@ func (p *ProcessFinder) findAndReportProcesses() error {
 func (p *ProcessFinder) validateTheProcessesCouldProfiling(processes []*Process) []*Process {
 	result := make([]*Process, 0)
 	for _, ps := range processes {
-		exe, err := ps.original.Exe()
-		if err != nil {
-			log.Warnf("could not read process exe file path, pid: %d, reason: %v", ps.pid, err)
+		exe := p.tryToFindFileExecutePath(ps.original)
+		if exe == "" {
+			log.Warnf("could not read process exe file path, pid: %d", ps.pid)
 			continue
 		}
 
@@ -315,4 +317,32 @@ func regexMustNotNull(err error, confKey, confValue string) (*regexp.Regexp, err
 		return nil, err1
 	}
 	return regexp.Compile(confValue)
+}
+
+func (p *ProcessFinder) tryToFindFileExecutePath(ps *process.Process) string {
+	exe, err := ps.Exe()
+	if pathExists(exe, err) {
+		return exe
+	}
+	cwd, err := ps.Cwd()
+	if pathExists(cwd, err) && pathExists(cwd+"/"+exe, err) {
+		return cwd + "/" + exe
+	}
+	linuxProcessRoot := host.GetFileInHost(fmt.Sprintf("/proc/%d/root", ps.Pid))
+	if pathExists(linuxProcessRoot, nil) {
+		if pathExists(linuxProcessRoot+"/"+exe, nil) {
+			return linuxProcessRoot + "/" + exe
+		} else if pathExists(linuxProcessRoot+"/"+cwd+"/"+exe, nil) {
+			return linuxProcessRoot + "/" + cwd + "/" + exe
+		}
+	}
+	return ""
+}
+
+func pathExists(exe string, err error) bool {
+	if err != nil {
+		return false
+	}
+	_, e := os.Stat(exe)
+	return e == nil
 }

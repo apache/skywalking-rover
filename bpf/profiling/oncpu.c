@@ -15,18 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+#include "api.h"
+#include "oncpu.h"
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
-)
+char __license[] SEC("license") = "Dual MIT/GPL";
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+SEC("perf_event")
+int do_perf_event(struct pt_regs *ctx) {
+    // create map key
+    struct key_t key = {};
+
+    // get stacks
+    key.kernel_stack_id = bpf_get_stackid(ctx, &stacks, 0);
+    key.user_stack_id = bpf_get_stackid(ctx, &stacks, BPF_F_USER_STACK);
+
+    bpf_perf_event_output(ctx, &counts, BPF_F_CURRENT_CPU, &key, sizeof(key));
+    return 0;
 }

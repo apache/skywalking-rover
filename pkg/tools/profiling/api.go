@@ -17,11 +17,14 @@
 
 package profiling
 
+import "github.com/ianlancetaylor/demangle"
+
 var KernelSymbolFilePath = "/proc/kallsyms"
 
 // Info of profiling process
 type Info struct {
-	Symbols []*Symbol
+	Symbols           []*Symbol
+	cacheAddrToSymbol map[uint64]string
 }
 
 // Symbol of executable file
@@ -37,12 +40,38 @@ type StatFinder interface {
 	Analyze(filePath string) (*Info, error)
 }
 
+func newInfo(symbols []*Symbol) *Info {
+	return &Info{Symbols: symbols, cacheAddrToSymbol: make(map[uint64]string)}
+}
+
+// FindSymbols from address list, if could not found symbol name then append default symbol to array
+func (i *Info) FindSymbols(addresses []uint64, defaultSymbol string) []string {
+	if len(addresses) == 0 {
+		return nil
+	}
+	result := make([]string, 0)
+	for _, addr := range addresses {
+		if addr <= 0 {
+			continue
+		}
+		s := i.FindSymbolName(addr)
+		if s == "" {
+			s = defaultSymbol
+		}
+		result = append(result, s)
+	}
+	return result
+}
+
 // FindSymbolName by address
 func (i *Info) FindSymbolName(address uint64) string {
+	if d := i.cacheAddrToSymbol[address]; d != "" {
+		return d
+	}
 	symbols := i.Symbols
 
 	start := 0
-	end := len(symbols)
+	end := len(symbols) - 1
 	for start < end {
 		mid := start + (end-start)/2
 		result := int64(address) - int64(symbols[mid].Location)
@@ -52,13 +81,26 @@ func (i *Info) FindSymbolName(address uint64) string {
 		} else if result > 0 {
 			start = mid + 1
 		} else {
-			return symbols[mid].Name
+			s := processSymbolName(symbols[mid].Name)
+			i.cacheAddrToSymbol[address] = s
+			return s
 		}
 	}
 
 	if start >= 1 && symbols[start-1].Location < address && address < symbols[start].Location {
-		return symbols[start-1].Name
+		s := processSymbolName(symbols[start-1].Name)
+		i.cacheAddrToSymbol[address] = s
+		return s
 	}
 
 	return ""
+}
+
+func processSymbolName(name string) string {
+	// fix process demangle symbol name, such as c++ language symbol
+	skip := 0
+	if name[0] == '.' || name[0] == '$' {
+		skip++
+	}
+	return demangle.Filter(name[skip:])
 }

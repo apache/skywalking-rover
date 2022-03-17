@@ -15,18 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package base
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
+	"fmt"
+	"time"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+type TriggerType string
+
+const (
+	TriggerTypeFixedTime TriggerType = "FIXED_TIME"
+)
+
+func ParseTriggerType(err error, val string) (TriggerType, error) {
+	if err != nil {
+		return "", err
+	}
+	if TriggerType(val) == TriggerTypeFixedTime {
+		return TriggerTypeFixedTime, nil
+	}
+	return "", fmt.Errorf("could not found trigger type: %s", val)
+}
+
+func (t TriggerType) InitTask(task *ProfilingTask, command *v3.Command) error {
+	if t == TriggerTypeFixedTime {
+		val, err := getCommandIntValue(nil, command, "FixedTriggerDuration")
+		if err != nil {
+			return err
+		}
+		task.MaxRunningDuration = time.Duration(val) * time.Second
+	}
+	return nil
 }

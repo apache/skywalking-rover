@@ -60,6 +60,10 @@ func (p *Process) OriginalProcess() *process.Process {
 	return p.original
 }
 
+func (p *Process) ProfilingStat() *profiling.Info {
+	return p.profiling
+}
+
 // BuildIdentity without pid
 func (p *Process) BuildIdentity() string {
 	return fmt.Sprintf("%s_%s_%s_%s", p.entity.Layer, p.entity.ServiceName,

@@ -62,5 +62,5 @@ func (o *ObjDump) Analyze(filepath string) (*Info, error) {
 		}
 		symbols = append(symbols, &Symbol{Name: submatch[2], Location: atoi})
 	}
-	return &Info{Symbols: symbols}, nil
+	return newInfo(symbols), nil
 }

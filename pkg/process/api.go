@@ -15,18 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package process
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
-)
+import "github.com/apache/skywalking-rover/pkg/process/api"
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+type Operator interface {
+	// FindProcessById the processID is received from the backend, if not found then return nil
+	FindProcessByID(processID string) api.ProcessInterface
 }

@@ -15,18 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package base
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
+	"fmt"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+type TargetType string
+
+const (
+	TargetTypeOnCPU TargetType = "ON_CPU"
+)
+
+func ParseTargetType(err error, val string) (TargetType, error) {
+	if err != nil {
+		return "", err
+	}
+	if TargetType(val) == TargetTypeOnCPU {
+		return TargetTypeOnCPU, nil
+	}
+	return "", fmt.Errorf("could not found target type: %s", val)
+}
+
+func (t TargetType) InitTask(task *ProfilingTask, command *v3.Command) error {
+	return nil
 }
