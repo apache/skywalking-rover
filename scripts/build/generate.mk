@@ -19,7 +19,7 @@
 .PHONY: generate
 generate: export BPF_CLANG := $(CONTAINER_COMMAND_CLANG)
 generate: export BPF_CFLAGS := $(CONTAINER_COMMAND_CFLAGS)
-generate: export REPO_ROOT := /skywalking-rover
+generate: export REPO_ROOT := $(REPODIR)
 generate:
 	cd ./ && go generate ./...
 

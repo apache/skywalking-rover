@@ -46,12 +46,8 @@ jobs:
         uses: apache/skywalking-eyes@9bd5feb86b5817aa6072b008f9866a2c3bbc8587
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Get dependencies
-        run: make deps
-      - name: Lint
-        run: make lint
-      - name: Test
-        run: make test
+      - name: make all in a contianer
+        run: make container-all
       - name: Check CI Consistency
         if: matrix.go-version == '1.17' && matrix.runner == 'ubuntu'
         run: make check
