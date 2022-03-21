@@ -6,3 +6,6 @@ bin/
 coverage.txt
 
 !/dist/bin/
+
+pkg/**/bpf_*.o
+pkg/**/bpf_*.go
