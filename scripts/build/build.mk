@@ -35,4 +35,4 @@ $(PLATFORMS): deps
 	GOOS=$(os) GOARCH=$(ARCH) $(GO_BUILD) $(GO_BUILD_FLAGS) -ldflags "$(GO_BUILD_LDFLAGS)" -o $(OUT_DIR)/$(BINARY)-$(VERSION)-$(os)-$(ARCH) ./cmd
 
 .PHONY: build
-build: generate linux
+build: linux

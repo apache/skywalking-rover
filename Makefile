@@ -23,8 +23,7 @@ include scripts/build/build.mk
 include scripts/build/check.mk
 
 .PHONY: all
-all: clean test lint generate build
+all: clean test lint build
 
 .PHONY: container-all
-container-all: COMMAND=all
-container-all: container-command
+container-all: clean container-generate build

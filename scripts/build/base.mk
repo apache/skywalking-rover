@@ -16,6 +16,7 @@
 # under the License.
 #
 
+HUB ?= apache
 VERSION ?= latest
 
 SHELL = /bin/bash
@@ -31,10 +32,10 @@ GO_PATH = $$($(GO) env GOPATH)
 GO_BUILD = $(GO) build
 GO_GET = $(GO) get
 
-CONTAINER_COMMAND_IMAGE ?= quay.io/cilium/ebpf-builder
-CONTAINER_COMMAND_TAG ?= 1637058444
-CONTAINER_COMMAND_CLANG ?= clang-13
-CONTAINER_COMMAND_STRIP ?= llvm-strip-13
+CONTAINER_COMMAND_IMAGE ?= $(HUB)/skywalking-rover-base
+CONTAINER_COMMAND_TAG ?= v$(VERSION)
+CONTAINER_COMMAND_CLANG ?= clang
+CONTAINER_COMMAND_STRIP ?= llvm-strip
 CONTAINER_COMMAND_CFLAGS := -O2 -g -Wall -Werror $(CFLAGS)
 CONTAINER_COMMAND_ENGINE ?= docker
 
@@ -42,7 +43,10 @@ CONTAINER_COMMAND_ENGINE ?= docker
 clean:
 	-rm -rf coverage.txt
 
-container-command:
+build-base-container:
+	${CONTAINER_COMMAND_ENGINE} build -t ${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
+
+container-command: build-base-container
 	${CONTAINER_COMMAND_ENGINE} run --rm \
 		-v "${REPODIR}":/skywalking-rover -w /skywalking-rover --env MAKEFLAGS \
 		--env CFLAGS="-fdebug-prefix-map=/skywalking-rover=." \

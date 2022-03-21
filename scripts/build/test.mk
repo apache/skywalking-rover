@@ -26,5 +26,6 @@ test: clean
 .PHONY: test
 test: clean generate
 
+.PHONY: container-test
 container-test: COMMAND=test
 container-test: container-command

@@ -25,5 +25,6 @@ linter:
 lint: linter generate
 	$(GO_LINT) run -v --timeout 5m ./...
 
+.PHONY: container-lint
 container-lint: COMMAND=lint
 container-lint: container-command
