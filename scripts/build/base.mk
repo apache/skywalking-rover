@@ -36,7 +36,7 @@ CONTAINER_COMMAND_TAG ?= 1637058444
 CONTAINER_COMMAND_CLANG ?= clang-13
 CONTAINER_COMMAND_STRIP ?= llvm-strip-13
 CONTAINER_COMMAND_CFLAGS := -O2 -g -Wall -Werror $(CFLAGS)
-CONTAINER_COMMAND_ENGINE ?= $(if $(shell command -v podman), podman, docker)
+CONTAINER_COMMAND_ENGINE ?= docker
 
 .PHONY: clean
 clean:
