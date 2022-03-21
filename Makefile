@@ -26,5 +26,5 @@ include scripts/build/check.mk
 all: clean test lint generate build
 
 .PHONY: container-all
-container-lint: COMMAND=all
-container-lint: container-command
+container-all: COMMAND=all
+container-all: container-command
