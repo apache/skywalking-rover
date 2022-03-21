@@ -2,6 +2,7 @@
 *.iml
 .DS_Store
 *~
+.cache/
 bin/
 coverage.txt
 
