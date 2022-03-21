@@ -22,7 +22,7 @@ linter:
 	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v1.39.0
 
 .PHONY: lint
-lint: linter
+lint: linter generate
 	$(GO_LINT) run -v --timeout 5m ./...
 
 container-lint: COMMAND=lint

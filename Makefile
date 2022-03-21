@@ -16,11 +16,14 @@
 #
 
 include scripts/build/base.mk
+include scripts/build/generate.mk
 include scripts/build/test.mk
 include scripts/build/lint.mk
 include scripts/build/build.mk
-include scripts/build/generate.mk
 include scripts/build/check.mk
 
 .PHONY: all
-all: clean test lint build
+all: clean test lint generate build
+
+.PHONY: container-all
+container-all: clean container-generate container-test container-lint build

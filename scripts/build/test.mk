@@ -24,7 +24,7 @@ test: clean
 	$(GO_TEST) -ldflags "$(GO_TEST_LDFLAGS)" ./... -coverprofile=coverage.txt -covermode=atomic
 
 .PHONY: test
-test: clean
+test: clean generate
 
 container-test: COMMAND=test
 container-test: container-command
