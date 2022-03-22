@@ -15,63 +15,15 @@
 # limitations under the License.
 #
 
-VERSION ?= latest
-HUB ?= apache
-OUT_DIR = bin
-BINARY = skywalking-rover
+include scripts/build/base.mk
+include scripts/build/generate.mk
+include scripts/build/test.mk
+include scripts/build/lint.mk
+include scripts/build/build.mk
+include scripts/build/check.mk
 
-RELEASE_BIN = skywalking-rover-$(VERSION)-bin
-RELEASE_SRC = skywalking-rover-$(VERSION)-src
+.PHONY: all
+all: clean test lint build
 
-SH = sh
-GO = go
-GIT = git
-PROTOC = protoc
-GO_PATH = $$($(GO) env GOPATH)
-GO_BUILD = $(GO) build
-GO_GET = $(GO) get
-GO_TEST = $(GO) test
-GO_LINT = $(GO_PATH)/bin/golangci-lint
-GO_BUILD_FLAGS = -v
-GO_BUILD_LDFLAGS = -X main.version=$(VERSION) -w -s
-GO_TEST_LDFLAGS =
-
-PLATFORMS := linux
-os = $(word 1, $@)
-ARCH = amd64
-
-SHELL = /bin/bash
-
-all: deps verify check
-
-.PHONY: tools
-tools:
-	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v1.39.0
-
-deps: tools
-	$(GO_GET) -v -t -d ./...
-
-.PHONY: lint
-lint: tools
-	$(GO_LINT) run -v --timeout 5m ./...
-
-.PHONY: test
-test: clean
-	$(GO_TEST) -ldflags "$(GO_TEST_LDFLAGS)" ./... -coverprofile=coverage.txt -covermode=atomic
-
-.PHONY: verify
-verify: clean lint test
-
-.PHONY: clean
-clean: tools
-	-rm -rf coverage.txt
-
-.PHONY: check
-check: clean
-	$(GO) mod tidy > /dev/null
-	@if [ ! -z "`git status -s`" ]; then \
-		echo "Following files are not consistent with CI:"; \
-		git status -s; \
-		git diff; \
-		exit 1; \
-	fi
+.PHONY: container-all
+container-all: clean container-generate build

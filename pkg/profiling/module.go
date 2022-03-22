@@ -15,23 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package process
+package profiling
 
 import (
 	"context"
-	"time"
+
+	"github.com/cilium/ebpf/rlimit"
 
 	"github.com/apache/skywalking-rover/pkg/core"
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process/finders"
+	"github.com/apache/skywalking-rover/pkg/process"
 )
 
-const ModuleName = "process_discovery"
+const ModuleName = "profiling"
+
+var log = logger.GetLogger("profiling")
 
 type Module struct {
 	config *Config
 
-	manager *finders.ProcessManager
+	manager *Manager
 }
 
 func NewModule() *Module {
@@ -43,7 +47,7 @@ func (m *Module) Name() string {
 }
 
 func (m *Module) RequiredModules() []string {
-	return []string{core.ModuleName}
+	return []string{core.ModuleName, process.ModuleName}
 }
 
 func (m *Module) Config() module.ConfigInterface {
@@ -51,21 +55,20 @@ func (m *Module) Config() module.ConfigInterface {
 }
 
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
-	period, err := time.ParseDuration(m.config.HeartbeatPeriod)
-	if err != nil {
+	// Allow the current process to lock memory for eBPF resources.
+	if err := rlimit.RemoveMemlock(); err != nil {
 		return err
 	}
-	processManager, err := finders.NewProcessManager(ctx, mgr, period, m.config.VM)
-	if err != nil {
-		return err
-	}
-	m.manager = processManager
 
+	manager, err := NewManager(ctx, mgr, m.config)
+	if err != nil {
+		return err
+	}
+	m.manager = manager
 	return nil
 }
 
 func (m *Module) NotifyStartSuccess() {
-	// notify all finder to report processes
 	m.manager.Start()
 }
 

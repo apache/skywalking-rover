@@ -20,6 +20,7 @@ package finders
 import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
+	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
 type ProcessUploadStatus int8
@@ -60,4 +61,8 @@ func (p *ProcessContext) DetectType() api.ProcessDetectType {
 
 func (p *ProcessContext) Entity() *api.ProcessEntity {
 	return p.detectProcess.Entity()
+}
+
+func (p *ProcessContext) ProfilingStat() *profiling.Info {
+	return p.detectProcess.ProfilingStat()
 }

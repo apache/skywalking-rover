@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+struct key_t {
+    __u32 user_stack_id;
+    __u32 kernel_stack_id;
+};
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
-)
+struct {
+	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+} counts SEC(".maps");
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
-}
+struct {
+    __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, 100 * sizeof(__u64));
+    __uint(max_entries, 10000);
+} stacks SEC(".maps");

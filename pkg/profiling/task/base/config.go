@@ -15,18 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package base
 
-import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
-)
+type TaskConfig struct {
+	OnCPU *OnCPUConfig `mapstructure:"on_cpu"` // ON_CPU type of profiling task config
+}
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+type OnCPUConfig struct {
+	Period string `mapstructure:"dump_period"` // The duration of dump stack
 }

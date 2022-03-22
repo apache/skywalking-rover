@@ -48,10 +48,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Get dependencies
         run: make deps
-      - name: Lint
-        run: make lint
+      - name: Generate
+        run: make container-generate
       - name: Test
-        run: make test
+        run: make container-test
+      - name: Lint
+        run: make container-lint
+      - name: Make binary
+        run: make linux
       - name: Check CI Consistency
         if: matrix.go-version == '1.17' && matrix.runner == 'ubuntu'
         run: make check

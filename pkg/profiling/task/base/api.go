@@ -18,22 +18,25 @@
 package base
 
 import (
-	"github.com/shirou/gopsutil/process"
+	"context"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
-// DetectedProcess from the finder
-type DetectedProcess interface {
-	// Pid of process in host
-	Pid() int32
-	// OriginalProcess is works for query the process data
-	OriginalProcess() *process.Process
-	// Entity of process, is related with backend entity
-	Entity() *api.ProcessEntity
-	// DetectType define the process find type
-	DetectType() api.ProcessDetectType
-	// ProfilingStat of process
-	ProfilingStat() *profiling.Info
+const MissingSymbol = "[MISSING]"
+
+type ProfilingRunningSuccessNotify func()
+
+// ProfileTaskRunner is use to running different type of profiling task, such as on-cpu profiling task
+type ProfileTaskRunner interface {
+	// Init runner with profiling task and process
+	Init(task *ProfilingTask, process api.ProcessInterface) error
+	// Run profiling, if throw error or method finish means the profiling task finished
+	Run(ctx context.Context, notify ProfilingRunningSuccessNotify) error
+	// Stop the runner initiative, is typically used to specify the profiling duration
+	Stop() error
+	// FlushData means dump the exists profiling data and flush them to the backend protocol format
+	FlushData() ([]*v3.EBPFProfilingData, error)
 }

@@ -15,18 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package host
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
+	"os"
+	"strings"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+var hostMappingPath = os.Getenv("ROVER_HOST_MAPPING")
+
+// GetFileInHost means add the host root mapping prefix, it's dependent when the rover is deploy in a container
+func GetFileInHost(absPath string) string {
+	if hostMappingPath != "" && strings.HasPrefix(absPath, hostMappingPath) {
+		return absPath
+	}
+	return hostMappingPath + absPath
 }

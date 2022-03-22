@@ -54,5 +54,5 @@ func (l *GoLibrary) Analyze(filePath string) (*Info, error) {
 		data[i] = &Symbol{Name: sym.Name, Location: sym.Value}
 	}
 
-	return &Info{Symbols: data}, nil
+	return newInfo(data), nil
 }

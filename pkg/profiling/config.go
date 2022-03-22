@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package profiling
 
 import (
-	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 )
 
-func init() {
-	// register all active module
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
+type Config struct {
+	module.Config `mapstructure:",squash"`
+
+	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
+	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
+
+	TaskConfig *base.TaskConfig `mapstructure:"task"` // Profiling task config
 }

@@ -17,6 +17,8 @@
 
 package api
 
+import "github.com/apache/skywalking-rover/pkg/tools/profiling"
+
 type ProcessDetectType int8
 
 const (
@@ -43,6 +45,8 @@ type ProcessInterface interface {
 	DetectType() ProcessDetectType
 	// Entity of process in backend
 	Entity() *ProcessEntity
+	// ProfilingStat of process
+	ProfilingStat() *profiling.Info
 }
 
 // ProcessEntity is related to backend entity concept

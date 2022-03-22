@@ -58,3 +58,17 @@ process_discovery:
         # The Process Name need to relate to the process entity
         # By default, the process name is the executable name of the process
         process_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_NAME:{{.Process.ExeName}}}
+
+profiling:
+  # Is active the process profiling
+  active: ${ROVER_PROFILING_ACTIVE:true}
+  # Check the profiling task interval
+  check_interval: ${ROVER_PROFILING_CHECK_INTERVAL:10s}
+  # Combine existing profiling data and report to the backend interval
+  flush_interval: ${ROVER_PROFILING_FLUSH_INTERVAL:5s}
+  # Customize profiling task config
+  task:
+    # The config when executing ON_CPU profiling task
+    on_cpu:
+      # the profiling stack dump period
+      dump_period: ${ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD:9ms}

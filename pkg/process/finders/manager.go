@@ -117,3 +117,7 @@ func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []base.DetectedProcess) {
 	p.storage.SyncAllProcessInFinder(p.finderType, processes)
 }
+
+func (m *ProcessManager) FindProcessByID(processID string) api.ProcessInterface {
+	return m.storage.FindProcessByID(processID)
+}

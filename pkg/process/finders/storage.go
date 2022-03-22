@@ -201,7 +201,7 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 		// So we need to remove this process
 		if needToSyncProcess == nil {
 			if managedProcess.DetectType() == finder {
-				s.processes[pid] = nil
+				delete(s.processes, pid)
 			}
 			continue
 		}
@@ -240,8 +240,18 @@ func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType
 func (s *ProcessStorage) updateProcessToUploadSuccess(pc *ProcessContext, id string) {
 	pc.id = id
 	pc.syncStatus = ReportSuccess
+	log.Infof("uploaded process name: %s, id: %s", pc.detectProcess.Entity().ProcessName, id)
 }
 
 func (s *ProcessStorage) updateProcessToUploadIgnored(pc *ProcessContext) {
 	pc.syncStatus = Ignore
+}
+
+func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface {
+	for _, ps := range s.processes {
+		if ps.id == processID {
+			return ps
+		}
+	}
+	return nil
 }
