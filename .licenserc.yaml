@@ -30,7 +30,6 @@ header:
     - 'LICENSE'
     - 'NOTICE'
     - '.gitignore'
-    - 'pkg/profiling/task/**/bpf_*'
 
   comment: on-failure
 
