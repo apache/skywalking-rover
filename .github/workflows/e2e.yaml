@@ -28,7 +28,7 @@ jobs:
     name: E2E Test
     timeout-minutes: 60
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         test:
           - name: Golang Profiling
