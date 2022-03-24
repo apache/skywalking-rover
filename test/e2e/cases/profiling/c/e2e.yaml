@@ -17,7 +17,10 @@ setup:
   env: compose
   file: docker-compose.yml
   timeout: 20m
+  init-system-environment: ../../../base/env
   steps:
+    - name: set PATH
+      command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
     - name: install yq
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
     - name: install swctl
