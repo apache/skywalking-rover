@@ -13,7 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_OAP_COMMIT=e0be87b8a18904afa671330e0d76e74d5937cbc9
-SW_UI_COMMIT=e0be87b8a18904afa671330e0d76e74d5937cbc9
-
 SW_CTL_COMMIT=60cee4a926a867a7bd934b7f94c9a8517e141608
