@@ -25,9 +25,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    name: E2E Tests
-    needs:
-      - docker
+    name: E2E Test
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -54,7 +52,6 @@ jobs:
         uses: apache/skywalking-infra-e2e@main
         with:
           e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.config }}
-
 
   result:
     name: E2E Test
