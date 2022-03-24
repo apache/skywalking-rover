@@ -1,4 +1,3 @@
-#
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -13,31 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 
-github:
-  description: The Collector Project of Apache SkyWalking based on the eBPF
-  homepage: https://skywalking.apache.org/
-  labels:
-    - skywalking
-    - observability
-    - apm
-    - service-mesh
-    - ebpf
-    - profile
-    - network
-  enabled_merge_buttons:
-    squash:  true
-    merge:   false
-    rebase:  false
-  protected_branches:
-    main:
-      required_status_checks:
-        strict: true
-        contexts:
-          - Build and Test
-          - E2E Test
-      required_pull_request_reviews:
-        dismiss_stale_reviews: true
-        required_approving_review_count: 1
-
+{{- contains . }}
+- taskid: {{ notEmpty .taskid }}
+  processfindertype: PROCESS_ID
+  serviceid: {{ b64enc "sqrt" }}.1
+  servicename: sqrt
+  instanceid: {{ b64enc "sqrt" }}.1_{{ b64enc "test-instance" }}
+  instancename: test-instance
+  processid: {{ notEmpty .processid }}
+  processname: sqrt
+  taskstarttime: {{ gt .taskstarttime 0 }}
+  triggertype: FIXED_TIME
+  fixedtriggerduration: 60
+  targettype: ON_CPU
+  createtime: {{ gt .createtime 0 }}
+{{- end }}
