@@ -22,18 +22,13 @@ on:
 jobs:
   build:
     name: Build and Test
-    runs-on: ${{ matrix.runner }}-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      matrix:
-        go-version: [ 1.17 ]
-        runner: [ ubuntu ]
-      fail-fast: true
     steps:
-      - name: Set up Go ${{ matrix.go-version }}
+      - name: Set up Go 1.17
         uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.17
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
         with:
@@ -54,7 +49,6 @@ jobs:
       - name: Make binary
         run: make linux
       - name: Check CI Consistency
-        if: matrix.go-version == '1.17' && matrix.runner == 'ubuntu'
         run: make check
 
   docker:
