@@ -40,8 +40,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Get dependencies
         run: make deps
-      - name: Generate
-        run: make container-generate
       - name: Test
         run: make container-test
       - name: Lint
