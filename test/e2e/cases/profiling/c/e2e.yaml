@@ -32,7 +32,7 @@ verify:
     # max retry count
     count: 20
     # the interval between two retries, in millisecond.
-    interval: 5s
+    interval: 10s
   cases:
     - includes:
         - ../profiling-cases.yaml
