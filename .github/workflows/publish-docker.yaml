@@ -26,6 +26,7 @@ env:
 
 jobs:
   build:
+    if: github.repository == 'apache/skywalking-rover'
     runs-on: ubuntu-latest
     permissions:
       contents: read
