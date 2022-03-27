@@ -14,27 +14,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE=apache/skywalking-rover:latest
-FROM $BASE_IMAGE as build
+name: publish-docker
 
-ARG VERSION="latest"
+on:
+  push:
+    branches:
+      - main
 
-WORKDIR /src
+env:
+  HUB: ghcr.io/apache/skywalking-rover
 
-COPY . .
-
-ENV CGO_ENABLED=0
-
-RUN VERSION=$VERSION make generate && make linux
-RUN mv /src/bin/skywalking-rover-${VERSION}-linux-amd64 /src/bin/skywalking-rover
-
-FROM scratch
-
-VOLUME /skywalking/configs
-
-WORKDIR /skywalking
-
-COPY --from=build /src/bin/skywalking-rover /
-COPY --from=build /src/configs /skywalking/configs
-
-CMD ["/skywalking-rover", "start", "--config", "/skywalking/configs/rover_configs.yaml"]
+jobs:
+  build:
+    if: github.repository == 'apache/skywalking-rover'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Log in to the Container registry
+        uses: docker/login-action@v1.10.0
+        with:
+          registry: ${{ env.HUB }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push docker images
+        run: make docker docker.push

@@ -21,8 +21,8 @@ HUB ?= apache
 .PHONY: docker
 docker: build-base-container
 	docker build --build-arg VERSION=$(VERSION) --build-arg BASE_IMAGE=${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} \
-		-t $(HUB)/skywalking-rover:v$(VERSION) --no-cache . -f docker/Dockerfile.build
+		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/Dockerfile.build
 
 .PHONY: docker.push
 docker.push:
-	docker push $(HUB)/skywalking-rover:v$(VERSION)
+	docker push $(HUB)/skywalking-rover:$(VERSION)
