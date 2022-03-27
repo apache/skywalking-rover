@@ -31,7 +31,7 @@ services:
       retries: 120
 
   rover:
-    image: apache/skywalking-rover:vlatest
+    image: apache/skywalking-rover:latest
     networks:
       - e2e
     privileged: true

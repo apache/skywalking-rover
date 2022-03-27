@@ -57,7 +57,7 @@ jobs:
       - name: Build and save docker images
         run: |
           make docker
-          docker save -o docker-images-skywalking-rover.tar apache/skywalking-rover:vlatest
+          docker save -o docker-images-skywalking-rover.tar apache/skywalking-rover:latest
       - name: Upload docker images
         uses: actions/upload-artifact@v2
         with:
