@@ -1,4 +1,3 @@
-#
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -13,18 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 
-include scripts/build/base.mk
-include scripts/build/generate.mk
-include scripts/build/test.mk
-include scripts/build/lint.mk
-include scripts/build/build.mk
-include scripts/build/check.mk
-include scripts/build/docker.mk
-
-.PHONY: all
-all: clean test lint build
-
-.PHONY: container-all
-container-all: clean container-generate build
+{{- contains . }}
+- id: {{ b64enc "sqrt" }}.1
+  name: sqrt
+  group: ""
+  shortname: sqrt
+  layers:
+    - OS_LINUX
+  normal: true
+{{- end }}

@@ -71,7 +71,7 @@ type Runner struct {
 	stackMap           *ebpf.Map
 	stackNotFoundCache map[uint32]bool
 	shutdownOnce       sync.Once
-	flushDataNotify    chan bool
+	flushDataNotify    context.CancelFunc
 }
 
 func NewRunner(config *base.TaskConfig) (base.ProfileTaskRunner, error) {
@@ -209,10 +209,10 @@ func (r *Runner) Stop() error {
 		}
 
 		// wait for all profiling data been consume finished
-		var flushDataNotify = make(chan bool)
-		r.flushDataNotify = flushDataNotify
+		cancel, cancelFunc := context.WithCancel(context.Background())
+		r.flushDataNotify = cancelFunc
 		select {
-		case <-flushDataNotify:
+		case <-cancel.Done():
 		case <-time.After(5 * time.Second):
 		}
 
@@ -246,7 +246,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 
 		// close the flush data notify if exists
 		if r.flushDataNotify != nil {
-			r.flushDataNotify <- true
+			r.flushDataNotify()
 		}
 
 		if len(metadatas) == 0 {
