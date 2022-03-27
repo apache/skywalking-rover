@@ -16,7 +16,7 @@
 #
 
 github:
-  description: The Collector Project of Apache SkyWalking based on the eBPF
+  description: Metrics collector and ebpf-based profiler for C, C++, and Golang
   homepage: https://skywalking.apache.org/
   labels:
     - skywalking
