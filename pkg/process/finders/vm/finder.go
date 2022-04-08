@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
@@ -93,6 +94,7 @@ func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 		ServiceName:  ps.Entity().ServiceName,
 		InstanceName: ps.Entity().InstanceName,
 		ProcessName:  ps.Entity().ProcessName,
+		Labels:       ps.Entity().Labels,
 	}
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_HostProcess{
 		HostProcess: hostProcess,
@@ -198,6 +200,7 @@ func (p *ProcessFinder) findMatchedProcesses() ([]*Process, error) {
 		ps.entity.ServiceName, err = p.buildEntity(err, ps, finderConfig.serviceNameBuilder)
 		ps.entity.InstanceName, err = p.buildEntity(err, ps, finderConfig.instanceNameBuilder)
 		ps.entity.ProcessName, err = p.buildEntity(err, ps, finderConfig.processNameBuilder)
+		ps.entity.Labels = finderConfig.ParsedLabels
 		if err != nil {
 			log.Warnf("failed to build the process data for pid: %d, reason: %v", pro.Pid, err)
 			continue
@@ -229,6 +232,7 @@ func (p *ProcessFinder) findMatchedProcesses() ([]*Process, error) {
 				WithField("service_name", reportProcess.entity.ServiceName).
 				WithField("instance_name", reportProcess.entity.InstanceName).
 				WithField("process_name", reportProcess.entity.ProcessName).
+				WithField("labels", reportProcess.entity.Labels).
 				WithField("pid_list", pidList).
 				Warnf("find multiple similar process in VM, " +
 					"only report the first of these processes. " +
@@ -286,6 +290,7 @@ func validateConfig(conf *Config) error {
 		f.serviceNameBuilder, err = templateMustNotNull(err, "service_name", f.ServiceName)
 		f.instanceNameBuilder, err = templateMustNotNull(err, "instance_name", f.InstanceName)
 		f.processNameBuilder, err = templateMustNotNull(err, "process_name", f.ProcessName)
+		f.ParsedLabels = parseLabels(f.LabelsStr)
 
 		if err != nil {
 			return err
@@ -293,6 +298,17 @@ func validateConfig(conf *Config) error {
 	}
 
 	return nil
+}
+
+func parseLabels(labelStr string) []string {
+	tmp := strings.Split(labelStr, ",")
+	result := make([]string, 0)
+	for _, s := range tmp {
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func stringMustNotNull(err error, confKey, confValue string) error {

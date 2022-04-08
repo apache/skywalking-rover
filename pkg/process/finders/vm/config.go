@@ -48,10 +48,12 @@ type ProcessFinderConfig struct {
 	ServiceName  string `mapstructure:"service_name"`  // process entity service name
 	InstanceName string `mapstructure:"instance_name"` // process entity service instance name
 	ProcessName  string `mapstructure:"process_name"`  // process entity process name
+	LabelsStr    string `mapstructure:"labels"`        // process labels for aggregate similar processes
 
 	// pre-build for build the process
 	commandlineRegex    *regexp.Regexp
 	serviceNameBuilder  *base.TemplateBuilder
 	instanceNameBuilder *base.TemplateBuilder
 	processNameBuilder  *base.TemplateBuilder
+	ParsedLabels        []string
 }
