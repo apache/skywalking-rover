@@ -55,6 +55,7 @@ type ProcessEntity struct {
 	ServiceName  string
 	InstanceName string
 	ProcessName  string
+	Labels       []string
 }
 
 func (e *ProcessEntity) SameWith(other *ProcessEntity) bool {

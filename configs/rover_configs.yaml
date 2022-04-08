@@ -58,6 +58,9 @@ process_discovery:
         # The Process Name need to relate to the process entity
         # By default, the process name is the executable name of the process
         process_name: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_NAME:{{.Process.ExeName}}}
+        # The Process Labels, used to aggregate similar process from service entity
+        # Multiple labels split by ","
+        labels: ${ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_LABELS:}
 
 profiling:
   # Is active the process profiling

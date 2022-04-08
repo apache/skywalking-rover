@@ -137,6 +137,7 @@ func (s *ProcessStorage) processesKeepAlive(waitKeepAliveProcess []*ProcessConte
 				ServiceName:  ps.Entity().ServiceName,
 				InstanceName: ps.Entity().InstanceName,
 				ProcessName:  ps.Entity().ProcessName,
+				Labels:       ps.Entity().Labels,
 			}})
 		}
 	}

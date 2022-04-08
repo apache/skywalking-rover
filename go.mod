@@ -13,7 +13,7 @@ require (
 	github.com/spf13/viper v1.10.1
 	golang.org/x/sys v0.0.0-20211210111614-af8b64212486
 	google.golang.org/grpc v1.44.0
-	skywalking.apache.org/repo/goapi v0.0.0-20220302122002-ea09cd279b0d
+	skywalking.apache.org/repo/goapi v0.0.0-20220407130404-69485e13dbb3
 )
 
 require (
@@ -37,7 +37,7 @@ require (
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
-	google.golang.org/protobuf v1.27.1 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.66.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
