@@ -3,13 +3,13 @@ Apache SkyWalking Rover
 
 <img src="http://skywalking.apache.org/assets/logo.svg" alt="Sky Walking logo" height="90px" align="right" />
 
-**SkyWalking Rover**: A collector based on eBPF technology, deployed in the target monitoring system to collect metrics, perf profiling, network optimization, etc.
+**SkyWalking Rover**: Metrics collector and ebpf-based profiler for C, C++, and Golang.
 
 [![GitHub stars](https://img.shields.io/github/stars/apache/skywalking.svg?style=for-the-badge&label=Stars&logo=github)](https://github.com/apache/skywalking)
 [![Twitter Follow](https://img.shields.io/twitter/follow/asfskywalking.svg?style=for-the-badge&label=Follow&logo=twitter)](https://twitter.com/AsfSkyWalking)
 
 # Documentation
-- [The Design of SkyWalking Rover](https://docs.google.com/document/d/1hT9q8WA6fchQyL3tzDX-13_sZwqrBoMh_mvjlG5z9e4/edit?usp=sharing).
+- [Official documentation](https://skywalking.apache.org/docs/#SkyWalkingRover)
 
 # Download
 
