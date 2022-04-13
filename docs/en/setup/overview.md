@@ -5,7 +5,7 @@ The first and most important thing is, that SkyWalking Rover startup behaviors a
 ## Requirements and default settings
 
 Before you start, you should know that the main purpose of quickstart is to help you obtain a basic configuration for previews/demos.
-Usually, you need to configure which processes need to be monitored first.
+Usually, the process to be monitored is first declared.
 
 Then, you can use `bin/startup.sh` to start up the rover with their config[../../../configs/rover_configs.yaml].
 
@@ -25,7 +25,7 @@ You can quickly build your Rover according to the following examples:
 
 ### Use Cases
 
-1. [Profiling with VM Process](examples/cases/profiling-with-vm-process/readme.md)
+1. [Profiling a golang/C Service on Linux](examples/cases/profiling-process/readme.md)
 
 ## Configuration
 

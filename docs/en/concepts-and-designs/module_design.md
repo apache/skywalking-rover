@@ -1,19 +1,19 @@
 # Module Design
 ## Overview
 
-The module is an isolation concept in Rover. Each module completes an independent future.
+The module is an isolation concept in Rover. Each module completes an independent feature.
 
 ## Life Cycle
 
 Each concept has a complete life cycle.
 
-- Start: start phase is to start the current module.
+- Start: Start phase is to start the current module.
 - NotifyStartSuccess: Execute when all modules have finished starting without any errors.
 - Shutdown: The shutdown phase is to close all the used resources.
 
 ## Config
 
-Each module corresponds to configuration data and only set in the configuration file, it would be enabled.
+Each module has its corresponding configurations and only when they're set in the configuration file, the module would be enabled.
 
 The config data support various data structures, and it could use `${ENV_NAME:DEFAULT}` to read the value from the environment variables.
 

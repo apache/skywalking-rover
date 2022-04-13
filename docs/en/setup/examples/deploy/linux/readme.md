@@ -1,7 +1,5 @@
 # Deploy on Linux
 
-It could help you run the Rover in Linux.
-
 ## Install
 
 ### Download
@@ -14,7 +12,7 @@ Update the backend address in the config file, please read [this documentation](
 
 ### Active Feature
 
-Active which features need to be used, please follow the [Use case](../../../overview.md#use-cases).
+Active features need to use, please follow the [Use case](../../../overview.md#use-cases).
 
 ### Start Rover
 

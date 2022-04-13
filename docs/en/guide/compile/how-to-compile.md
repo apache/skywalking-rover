@@ -5,8 +5,16 @@
 Go version `1.17` or higher is supported for compilation.
 
 ## Platform
-Linux is supported in the SkyWalking Rover.
-If you want to compile the Rover in the macOS or Windows, please make sure it already has docker environment.
+
+### Linux
+
+Linux version >= `4.4`, and dependency these tools:
+1. `llvm` >= 13.
+2. `libbpf-dev`.
+
+### MacOS or Windows
+
+Make sure it already has docker environment.
 
 ## Command
 ```shell script

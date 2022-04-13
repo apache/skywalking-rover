@@ -1,7 +1,7 @@
-# VM Process Detector
+# Linux Process Detector
 
-The VM process detector could be detected any process in the VM with finders.
-Each finder could define a regex to filter which processes need to be monitored, and the metadata of the process when the report to the backend.
+The Linux process detector could detect any process in the Linux with finders.
+Each finder could define a regex to filter which processes declare to monitored, and the metadata of the process when the report to the backend.
 
 ## Configuration
 
@@ -11,10 +11,10 @@ Each finder could define a regex to filter which processes need to be monitored,
 | process_discovery.vm.period | 3s | ROVER_PROCESS_DISCOVERY_VM_PERIOD | The period to detect the process. |
 | process_discovery.vm.finders | | | It could be define multiple finders to find the process. It only provide one finder by default. |
 | process_discovery.vm.finders.match_cmd_regex | | ROVER_PROCESS_DISCOVERY_VM_FINDER_MATCH_CMD_REGEX | Use regex string to locate the process from the command line of the process. |
-| process_discovery.vm.finders.layer | OS_LINUX | ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER | The Layer need to relate to the process entity |
-| process_discovery.vm.finders.service_name | | ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME | The Service Name need to relate to the process entity. |
-| process_discovery.vm.finders.instance_name | {{.Rover.HostIPV4 "en0"}} | ROVER_PROCESS_DISCOVERY_VM_FINDER_INSTANCE_NAME | The Service Instance Name need to relate to the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
-| process_discovery.vm.finders.process_name | {{.Process.ExeName}} | ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_NAME | The Process Name need to relate to the process entity, by default, the process name is the executable name of the process. |
+| process_discovery.vm.finders.layer | OS_LINUX | ROVER_PROCESS_DISCOVERY_VM_FINDER_LAYER | The Layer of the process entity |
+| process_discovery.vm.finders.service_name | | ROVER_PROCESS_DISCOVERY_VM_FINDER_SERVICE_NAME | The Service Name of the process entity. |
+| process_discovery.vm.finders.instance_name | {{.Rover.HostIPV4 "en0"}} | ROVER_PROCESS_DISCOVERY_VM_FINDER_INSTANCE_NAME | The Service Instance Name of the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
+| process_discovery.vm.finders.process_name | {{.Process.ExeName}} | ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_NAME | The Process Name of the process entity, by default, the process name is the executable name of the process. |
 | process_discovery.vm.finders.labels | | ROVER_PROCESS_DISCOVERY_VM_FINDER_PROCESS_LABELS | The Process Labels, used to aggregate similar process from service entity. Multiple labels split by ",". |
 
 ### Note
@@ -33,7 +33,7 @@ These fields are supported using template to build:
 
 ### Context
 
-The context provided multiple functions for helping you build the process metadata.
+The context provides multiple functions for helping you build the process metadata.
 
 #### Rover
 

@@ -12,4 +12,4 @@ After the process upload is completed, the other modules could perform more oper
 ## Process Detector
 
 Process Detector is used to detect the process from the VM with the different environment:
-1. [VM Process Detector](./vm.md)
+1. [Linux Process Detector](./linux.md)
