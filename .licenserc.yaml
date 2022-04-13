@@ -30,6 +30,7 @@ header:
     - 'LICENSE'
     - 'NOTICE'
     - '.gitignore'
+    - 'pkg/license/data/*'
 
   comment: on-failure
 

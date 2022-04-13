@@ -22,6 +22,7 @@ include scripts/build/lint.mk
 include scripts/build/build.mk
 include scripts/build/check.mk
 include scripts/build/docker.mk
+include scripts/build/license.mk
 
 .PHONY: all
 all: clean test lint build

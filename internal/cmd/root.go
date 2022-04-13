@@ -26,5 +26,6 @@ func NewRoot() *cobra.Command {
 			"deployed in the target monitoring system to collect metrics, perf profiling, network optimization, etc.",
 	}
 	cmd.AddCommand(newStartCmd())
+	cmd.AddCommand(newDependencyCheckCmd())
 	return cmd
 }

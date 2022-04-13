@@ -64,6 +64,7 @@ func NewManager(ctx context.Context, processOperator process.Operator,
 }
 
 func (m *Manager) Start() {
+	initRunners()
 	go m.startFlushProfilingData()
 }
 
