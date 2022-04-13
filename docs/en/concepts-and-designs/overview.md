@@ -11,7 +11,7 @@ and upload them to the SkyWalking backend for analysis, aggregate, and visualize
 
 ## Architecture
 
-![architecture.png](architecture.png)
+![architecture.png](https://skywalking.apache.org/doc-graph/skywalking-rover/v0.1.0/architecture.png)
 
 - **Process** represents the data monitored by Rover.
 - **Rover** is deployed in the VM instance, collects data in VM and Process, and reports it to the OAP cluster.
