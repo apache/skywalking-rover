@@ -59,7 +59,9 @@ jobs:
         uses: actions/checkout@v2
         with:
           submodules: true
-      - name: Dependency Check
+      - name: Generate Code
+        run: make generate
+      - name: Generate Dependency License
         run: make license
       - name: Check CI Consistency
         run: make check
