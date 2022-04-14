@@ -1,4 +1,4 @@
-# Profiling a golang/C service on Linux
+# Profiling a Golang/C service on Linux
 
 This documentation helps you set up the configuration to find which processes want to be monitored and profiled.
 
@@ -61,8 +61,6 @@ process_discovery:
 You could be following [this configuration](../../../configuration/process_discovery/linux.md) to get more configuration information.
 
 ### Enable Profiling
-
-Make sure the profiling module has been active.
 
 ```yaml
 profiling:

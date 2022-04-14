@@ -53,7 +53,7 @@ catalog:
                   path: /en/setup/examples/deploy/linux/readme
             - name: Use Cases
               catalog:
-                - name: Profiling a golang/C Service on Linux
+                - name: Profiling a Golang/C service on Linux
                   path: /en/setup/examples/cases/profiling-process/readme
     - name: Guides
       catalog:
