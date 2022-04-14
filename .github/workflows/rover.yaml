@@ -60,7 +60,7 @@ jobs:
         with:
           submodules: true
       - name: Generate Code
-        run: make generate
+        run: make container-generate
       - name: Generate Dependency License
         run: make license
       - name: Check CI Consistency
