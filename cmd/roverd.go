@@ -18,7 +18,6 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 

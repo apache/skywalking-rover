@@ -28,7 +28,7 @@ import (
 
 var profilingRunners = make(map[base.TargetType]func(config *base.TaskConfig) (base.ProfileTaskRunner, error))
 
-func initRunners() {
+func init() {
 	profilingRunners[base.TargetTypeOnCPU] = oncpu.NewRunner
 }
 

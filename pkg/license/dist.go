@@ -18,6 +18,8 @@
 package license
 
 import (
+	// import templates
+	_ "embed"
 	"fmt"
 	"os"
 	"regexp"
