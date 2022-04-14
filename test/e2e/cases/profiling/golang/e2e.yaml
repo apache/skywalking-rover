@@ -37,10 +37,9 @@ verify:
     - includes:
         - ../profiling-cases.yaml
     - query: |
-        taskid=$(swctl --display yaml profiling ebpf list --process-id=$( \
-          swctl --display yaml process ls --service-name sqrt| yq e '.[0].id' - \
-        ) |yq e '.[0].taskid' -);
-        start=$(swctl --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].starttime' -)
-        end=$(swctl --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].endtime' -)
-        swctl --display yaml profiling ebpf analysis --task-id=$taskid --time-ranges=$start-$end
+        taskid=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf list --service-name sqrt |yq e '.[0].taskid' -)
+        scheduleid=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid |yq e '.[0].scheduleid' -);
+        start=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].starttime' -)
+        end=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].endtime' -)
+        swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf analysis --schedule-id=$scheduleid --time-ranges=$start-$end
       expected: profiling-analysis.yml
