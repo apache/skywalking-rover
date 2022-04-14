@@ -22,7 +22,7 @@ Then configure the finder to locate/identity service. It contains these data con
 
 #### Locate Service
 
-You could use the `ps -ef` and `grep` to filter the which process you want to profile.
+You could use the `ps -ef` and `grep` to filter the which process you want to profile. In this case, my service is `sqrt`.
 
 ```shell
 $ ps -ef|grep sqrt
@@ -41,9 +41,30 @@ For the demo, we update the entity data as:
 4. **process**: As the executable file name: `sqrt`.
 5. **labels***: As empty.
 
-#### Full Configuration
+You could be following [this configuration](../../../configuration/process_discovery/linux.md) to get more configuration information.
 
-```yaml
+### Enable Profiling
+
+Make sure the profiling module has been active.
+
+You could be following [this configuration](../../../configuration/profiling.md) to get more configuration information.
+
+### Full Configuration
+
+Please follow the comment to update the backend address to your SkyWalking OAP address.
+
+```shell
+core:
+  backend:
+    addr: localhost:11800 # please change the backend address to your SkyWalking OAP address
+    enable_TLS: false
+    client_pem_path: "client.pem"
+    client_key_path: "client.key"
+    insecure_skip_verify: false
+    ca_pem_path: "ca.pem"
+    check_period: 5
+    authentication: ""
+    
 process_discovery:
   heartbeat_period: 20s
   vm:
@@ -56,13 +77,7 @@ process_discovery:
         instance_name: {{.Rover.HostIPV4 "en0"}}
         process_name: {{.Process.ExeName}}
         labels: ""
-```
 
-You could be following [this configuration](../../../configuration/process_discovery/linux.md) to get more configuration information.
-
-### Enable Profiling
-
-```yaml
 profiling:
   active: true
   check_interval: 10s
@@ -71,5 +86,3 @@ profiling:
     on_cpu:
       dump_period: 9ms
 ```
-
-You could be following [this configuration](../../../configuration/profiling.md) to get more configuration information.
