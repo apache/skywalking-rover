@@ -15,33 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package vm
+package scanner
 
 import (
 	"regexp"
+	"time"
 
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
+)
+
+type Mode string
+
+var (
+	Agent Mode = "AGENT_SENSOR"
+	Regex Mode = "REGEX"
 )
 
 type Config struct {
 	base.FinderBaseConfig
 
-	Active bool `mapstructure:"active"`
-
-	// Check Period
+	// Scan Period
 	Period string `mapstructure:"period"`
 
-	// Process finder list
-	Finders []*ProcessFinderConfig `mapstructure:"finders"`
+	ScanMode Mode `mapstructure:"mode"`
+
+	// Agent process finder
+	Agent *AgentFinder `mapstructure:"agent"`
+
+	// Regex process finders
+	RegexFinders []*RegexFinder `mapstructure:"regex"`
 }
 
-func (c *Config) ActiveFinder() bool {
-	return c.Active
-}
-
-type ProcessFinderConfig struct {
+type RegexFinder struct {
 	// Use command line to match the processes
-	MatchCommandRegex string `mapstructure:"match_cmd_regex"`
+	MatchCommandRegex string `mapstructure:"match_cmd"`
 
 	// entity
 	Layer        string `mapstructure:"layer"`         // process layer
@@ -56,4 +63,10 @@ type ProcessFinderConfig struct {
 	instanceNameBuilder *base.TemplateBuilder
 	processNameBuilder  *base.TemplateBuilder
 	ParsedLabels        []string
+}
+
+type AgentFinder struct {
+	ProcessStatusRefreshPeriod string `mapstructure:"process_status_refresh_period"` // match recent keep alive time
+
+	ProcessStatusRefreshPeriodDuration time.Duration
 }

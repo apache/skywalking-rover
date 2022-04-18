@@ -21,13 +21,13 @@ import (
 	"reflect"
 
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
-	"github.com/apache/skywalking-rover/pkg/process/finders/vm"
+	"github.com/apache/skywalking-rover/pkg/process/finders/scanner"
 )
 
 var finders = make(map[reflect.Type]base.ProcessFinder)
 
 func init() {
-	registerFinder(reflect.TypeOf(&vm.Config{}), &vm.ProcessFinder{})
+	registerFinder(reflect.TypeOf(&scanner.Config{}), &scanner.ProcessFinder{})
 }
 
 func registerFinder(t reflect.Type, finder base.ProcessFinder) {

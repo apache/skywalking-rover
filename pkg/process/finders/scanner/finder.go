@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package vm
+package scanner
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
 
@@ -36,7 +42,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
-var log = logger.GetLogger("process", "finder", "vm")
+var log = logger.GetLogger("process", "finder", "scanner")
 
 type ProcessFinder struct {
 	conf *Config
@@ -75,7 +81,7 @@ func (p *ProcessFinder) Stop() error {
 }
 
 func (p *ProcessFinder) DetectType() api.ProcessDetectType {
-	return api.VM
+	return api.Scanner
 }
 
 func (p *ProcessFinder) ValidateProcessIsSame(p1, p2 base.DetectedProcess) bool {
@@ -114,28 +120,39 @@ func (p *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.E
 
 func (p *ProcessFinder) startWatch() {
 	// find one time
-	if err := p.findAndReportProcesses(); err != nil {
-		log.Warnf("list all process failure, %v", err)
-	}
+	p.findAndReportProcesses()
 	// schedule
 	ticker := time.NewTicker(p.period)
 	for {
 		select {
 		case <-ticker.C:
-			if err := p.findAndReportProcesses(); err != nil {
-				log.Warnf("list all process failure, %v", err)
-			}
+			p.findAndReportProcesses()
 		case <-p.ctx.Done():
 			return
 		}
 	}
 }
 
-func (p *ProcessFinder) findAndReportProcesses() error {
+func (p *ProcessFinder) findAndReportProcesses() {
+	var detectFunc func() ([]base.DetectedProcess, error)
+	if p.conf.ScanMode == Regex {
+		detectFunc = p.regexFindProcesses
+	} else if p.conf.ScanMode == Agent {
+		detectFunc = p.agentFindProcesses
+	}
+
+	if processes, err := detectFunc(); err != nil {
+		log.Warnf("list process failure, %v", err)
+	} else {
+		p.manager.SyncAllProcessInFinder(processes)
+	}
+}
+
+func (p *ProcessFinder) regexFindProcesses() ([]base.DetectedProcess, error) {
 	// find all process
-	processes, err := p.findMatchedProcesses()
+	processes, err := p.regexFindMatchedProcesses()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// validate the process could be profiling
@@ -146,33 +163,186 @@ func (p *ProcessFinder) findAndReportProcesses() error {
 	for _, ps := range processes {
 		psList = append(psList, ps)
 	}
-	p.manager.SyncAllProcessInFinder(psList)
-	return nil
+	return psList, nil
+}
+
+func (p *ProcessFinder) getProcessTempDir(pro *process.Process) (string, error) {
+	tmpDir := host.GetFileInHost(fmt.Sprintf("/proc/%d/root/tmp", pro.Pid))
+	environ, err := pro.Environ()
+	if err != nil {
+		log.Warnf("could not query the environments from the process, pid: %d, error: %v", pro.Pid, err)
+	}
+
+	prefix := "TMPDIR="
+	for _, env := range environ {
+		if strings.HasPrefix(env, prefix) {
+			dir := host.GetFileInHost(fmt.Sprintf("/proc/%d/root/%s", pro.Pid, strings.TrimPrefix(env, prefix)))
+			if pathExists(dir, nil) {
+				return dir, nil
+			}
+		}
+	}
+
+	if pathExists(tmpDir, nil) {
+		return tmpDir, nil
+	}
+	return "", fmt.Errorf("could not found tmp directory for pid: %d", pro.Pid)
+}
+
+func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
+	// all system processes
+	processes, err := process.ProcessesWithContext(p.ctx)
+	if err != nil {
+		return nil, err
+	}
+	// find all matches processes
+	findedProcesses := make([]base.DetectedProcess, 0)
+	for _, pro := range processes {
+		// already contains the processes
+		pid := pro.Pid
+		if detectProcess := p.manager.QueryProcess(pid); detectProcess != nil {
+			findedProcesses = append(findedProcesses, detectProcess)
+			continue
+		}
+
+		// if we cannot get temp directory, just ignore it
+		// May have some system process
+		tmpDir, err := p.getProcessTempDir(pro)
+		if err != nil {
+			continue
+		}
+
+		metadataFilePath, metadataFile, err := p.tryingToGetAgentMetadataFile(pro, tmpDir)
+		if err != nil {
+			log.Infof("found metadata file error, pid: %d, error: %v", pid, err)
+			continue
+		}
+
+		// modify time + recent > now
+		// means the metadata file is acceptable
+		if !metadataFile.ModTime().Add(p.conf.Agent.ProcessStatusRefreshPeriodDuration).After(time.Now()) {
+			continue
+		}
+
+		// build agent process
+		agentProcess, err := p.buildProcessFromAgentMetadata(pro, metadataFilePath)
+		if err != nil {
+			log.Warnf("could not parsing metadata, pid: %d, error: %v", pid, err)
+			continue
+		}
+
+		// could be profiling
+		if err := p.validateProcessCouldProfiling(agentProcess); err != nil {
+			log.Warnf("found agent process, but it could not profiling, so ignore, pid: %d, error: %v", pid, err)
+			continue
+		}
+
+		findedProcesses = append(findedProcesses, agentProcess)
+	}
+	return findedProcesses, nil
+}
+
+func (p *ProcessFinder) tryingToGetAgentMetadataFile(pro *process.Process, tmpDir string) (string, os.FileInfo, error) {
+	// get from the local machine
+	if f, info, err := p.tryingToGetAgentMetadataFileByPid(int64(pro.Pid), tmpDir); err == nil {
+		return f, info, nil
+	}
+
+	// get from the child ns(container)
+	processStatusFilePath := host.GetFileInHost(fmt.Sprintf("/proc/%d/status", pro.Pid))
+	processStatusFile, err := os.Open(processStatusFilePath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer processStatusFile.Close()
+	scanner := bufio.NewScanner(processStatusFile)
+	for scanner.Scan() {
+		infos := strings.SplitN(scanner.Text(), "\t", 2)
+		if len(infos) < 2 {
+			continue
+		}
+		if strings.TrimRight(infos[0], ":") == "NSpid" {
+			pids := strings.Split(infos[1], "\t")
+			if len(pids) <= 1 {
+				break
+			}
+			nspidStr := pids[len(pids)-1]
+			nspid, err := strconv.ParseInt(nspidStr, 10, 10)
+			if err != nil {
+				return "", nil, fmt.Errorf("could not parse the nspid: %s, %v", nspidStr, err)
+			}
+			if f, info, err := p.tryingToGetAgentMetadataFileByPid(nspid, tmpDir); err == nil {
+				return f, info, nil
+			}
+		}
+	}
+
+	return "", nil, fmt.Errorf("could not found")
+}
+
+func (p *ProcessFinder) tryingToGetAgentMetadataFileByPid(pid int64, tmpDir string) (string, os.FileInfo, error) {
+	metadataFile := path.Join(tmpDir, "apache_skywalking", "process", strconv.FormatInt(pid, 10), "metadata.properties")
+	f, err := os.Stat(metadataFile)
+	if err != nil {
+		return "", nil, err
+	}
+	return metadataFile, f, nil
+}
+
+func (p *ProcessFinder) buildProcessFromAgentMetadata(pro *process.Process, metaFilePath string) (*Process, error) {
+	metadata, err := os.ReadFile(metaFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	v := viper.New()
+	v.SetConfigType("properties")
+	if err1 := v.ReadConfig(bytes.NewReader(metadata)); err1 != nil {
+		return nil, err1
+	}
+
+	// parse agent data
+	agent := &AgentMetadata{}
+	if err1 := v.Unmarshal(agent); err1 != nil {
+		return nil, err1
+	}
+
+	cmdline, err := pro.Cmdline()
+	if err != nil {
+		return nil, err
+	}
+
+	return NewProcessByAgent(pro, cmdline, agent)
 }
 
 func (p *ProcessFinder) validateTheProcessesCouldProfiling(processes []*Process) []*Process {
 	result := make([]*Process, 0)
 	for _, ps := range processes {
-		exe := p.tryToFindFileExecutePath(ps.original)
-		if exe == "" {
+		if err := p.validateProcessCouldProfiling(ps); err != nil {
 			log.Warnf("could not read process exe file path, pid: %d", ps.pid)
 			continue
 		}
-
-		// check support profiling
-		if pf, err := tools.ExecutableFileProfilingStat(exe); err != nil {
-			log.Warnf("the process could not be profiling, so ignored. pid: %d, reason: %v", ps.pid, err)
-			continue
-		} else {
-			ps.profiling = pf
-		}
-
 		result = append(result, ps)
 	}
 	return result
 }
 
-func (p *ProcessFinder) findMatchedProcesses() ([]*Process, error) {
+func (p *ProcessFinder) validateProcessCouldProfiling(ps *Process) error {
+	exe := p.tryToFindFileExecutePath(ps.original)
+	if exe == "" {
+		return fmt.Errorf("could not read process exe file path, pid: %d", ps.pid)
+	}
+
+	// check support profiling
+	pf, err := tools.ExecutableFileProfilingStat(exe)
+	if err != nil {
+		return fmt.Errorf("the process could not be profiling, so ignored. pid: %d, reason: %v", ps.pid, err)
+	}
+	ps.profiling = pf
+	return nil
+}
+
+func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
 	// all system processes
 	processes, err := process.ProcessesWithContext(p.ctx)
 	if err != nil {
@@ -195,7 +365,7 @@ func (p *ProcessFinder) findMatchedProcesses() ([]*Process, error) {
 		}
 
 		// build the linux process and add to the list
-		ps := NewProcess(pro, cmdline, finderConfig)
+		ps := NewProcessByRegex(pro, cmdline, finderConfig)
 		ps.entity.Layer = finderConfig.Layer
 		ps.entity.ServiceName, err = p.buildEntity(err, ps, finderConfig.serviceNameBuilder)
 		ps.entity.InstanceName, err = p.buildEntity(err, ps, finderConfig.instanceNameBuilder)
@@ -234,7 +404,7 @@ func (p *ProcessFinder) findMatchedProcesses() ([]*Process, error) {
 				WithField("process_name", reportProcess.entity.ProcessName).
 				WithField("labels", reportProcess.entity.Labels).
 				WithField("pid_list", pidList).
-				Warnf("find multiple similar process in VM, " +
+				Warnf("find multiple similar process in Scanner, " +
 					"only report the first of these processes. " +
 					"please update the name of process to identity them more clear.")
 		}
@@ -250,7 +420,7 @@ func (p *ProcessFinder) buildEntity(err error, ps *Process, entity *base.Templat
 	return renderTemplate(entity, ps, p)
 }
 
-func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*ProcessFinderConfig, string, error) {
+func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*RegexFinder, string, error) {
 	// verify the process exists, if not exists just return
 	if exists, err := process.PidExists(ps.Pid); err != nil {
 		return nil, "", err
@@ -262,8 +432,8 @@ func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*ProcessFinderCo
 	if err != nil {
 		return nil, "", fmt.Errorf("query command line failure: %v", err)
 	}
-	var matched *ProcessFinderConfig
-	for _, finder := range p.conf.Finders {
+	var matched *RegexFinder
+	for _, finder := range p.conf.RegexFinders {
 		if finder.commandlineRegex.MatchString(cmdline) {
 			if matched == nil {
 				matched = finder
@@ -278,12 +448,20 @@ func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*ProcessFinderCo
 }
 
 func validateConfig(conf *Config) error {
-	if len(conf.Finders) == 0 {
-		return fmt.Errorf("must have one VM process finder")
+	if conf.ScanMode == Agent {
+		var err error
+		conf.Agent.ProcessStatusRefreshPeriodDuration, err = durationMustNotNull(err, "process_status_refresh_period",
+			conf.Agent.ProcessStatusRefreshPeriod)
+		return err
+	} else if conf.ScanMode != Regex {
+		return fmt.Errorf("could not found mode: %s", conf.ScanMode)
+	}
+	if len(conf.RegexFinders) == 0 {
+		return fmt.Errorf("must have one Scanner process finder")
 	}
 
 	// validate config
-	for _, f := range conf.Finders {
+	for _, f := range conf.RegexFinders {
 		var err error
 		err = stringMustNotNull(err, "layer", f.Layer)
 		f.commandlineRegex, err = regexMustNotNull(err, "match_cmd_regex", f.MatchCommandRegex)
@@ -316,7 +494,7 @@ func stringMustNotNull(err error, confKey, confValue string) error {
 		return err
 	}
 	if confValue == "" {
-		return fmt.Errorf("the %s of VM process must be set", confKey)
+		return fmt.Errorf("the %s of Scanner process must be set", confKey)
 	}
 	return nil
 }
@@ -333,6 +511,13 @@ func regexMustNotNull(err error, confKey, confValue string) (*regexp.Regexp, err
 		return nil, err1
 	}
 	return regexp.Compile(confValue)
+}
+
+func durationMustNotNull(err error, confKey, confValue string) (time.Duration, error) {
+	if err1 := stringMustNotNull(err, confKey, confValue); err1 != nil {
+		return 0, err1
+	}
+	return time.ParseDuration(confValue)
 }
 
 func (p *ProcessFinder) tryToFindFileExecutePath(ps *process.Process) string {
@@ -360,5 +545,15 @@ func pathExists(exe string, err error) bool {
 		return false
 	}
 	_, e := os.Stat(exe)
-	return e == nil
+	return !os.IsNotExist(e)
+}
+
+type AgentMetadata struct {
+	Layer        string `mapstructure:"layer"`
+	ServiceName  string `mapstructure:"service_name"`
+	InstanceName string `mapstructure:"instance_name"`
+	ProcessName  string `mapstructure:"process_name"`
+	Properties   string `mapstructure:"properties"`
+	Labels       string `mapstructure:"labels"`
+	Language     string `mapstructure:"language"`
 }

@@ -13,6 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=5a62c2e029e17234e6bbad18ced0ce31d0f67ce9
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ b64enc "go2sky" }}.1
+  name: go2sky
+  group: ""
+  shortname: go2sky
+  layers:
+    - GENERAL
+  normal: true
+{{- end }}

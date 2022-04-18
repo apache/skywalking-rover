@@ -13,6 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=5a62c2e029e17234e6bbad18ced0ce31d0f67ce9
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ notEmpty .id }}
+  name: go2sky-instance
+  serviceid: {{ b64enc "go2sky" }}.1
+  servicename: go2sky
+  instanceid: {{ b64enc "go2sky" }}.1_{{ b64enc "go2sky-instance" }}
+  instancename: go2sky-instance
+  layer: GENERAL
+  agentid: {{ notEmpty .agentid }}
+  detecttype: VM
+  attributes:
+    {{- contains .attributes }}
+    - name: host_ip
+      value: {{ notEmpty .value }}
+    - name: pid
+      value: {{ notEmpty .value }}
+    - name: command_line
+      value: /main --grpc --oap-server oap:11800
+    {{- end }}
+  labels:
+    - e2e-label
+{{- end }}

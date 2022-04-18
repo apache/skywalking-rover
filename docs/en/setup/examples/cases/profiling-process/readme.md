@@ -11,9 +11,9 @@ So we could locate the stack symbol, It could be checked following these ways:
 
 ## Starting Rover
 
-### Enable Linux Process Detector
+### Enable Linux Process Scanner
 
-After your service been startup, then configure the Linux process detector to let Rover known how to find service.
+After your service been startup, then configure the Linux process scanner to let Rover known how to find service.
 Please make sure the Linux Process Detector have been active.
 
 Then configure the finder to locate/identity service. It contains these data configure:
@@ -41,7 +41,7 @@ For the demo, we update the entity data as:
 4. **process**: As the executable file name: `sqrt`.
 5. **labels***: As empty.
 
-You could be following [this configuration](../../../configuration/process_discovery/linux.md) to get more configuration information.
+You could be following [this configuration](../../../configuration/process_discovery/scanner.md) to get more configuration information.
 
 ### Enable Profiling
 
@@ -67,11 +67,11 @@ core:
     
 process_discovery:
   heartbeat_period: 20s
-  vm:
-    active: true
+  scanner:
     period: 3s
-    finders:
-      - match_cmd_regex: sqrt
+    mode: REGEX
+    regex:
+      - match_cmd: sqrt
         layer: OS_LINUX
         service_name: sqrt
         instance_name: {{.Rover.HostIPV4 "en0"}}

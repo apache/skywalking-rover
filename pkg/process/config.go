@@ -19,7 +19,7 @@ package process
 
 import (
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process/finders/vm"
+	"github.com/apache/skywalking-rover/pkg/process/finders/scanner"
 )
 
 type Config struct {
@@ -28,8 +28,8 @@ type Config struct {
 	// heartbeat the process list period
 	HeartbeatPeriod string `mapstructure:"heartbeat_period"`
 
-	// VM process finder
-	VM *vm.Config
+	// Scanner process from VM
+	Scanner *scanner.Config `mapstructure:"scanner"`
 }
 
 func (c *Config) IsActive() bool {

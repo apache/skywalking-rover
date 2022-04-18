@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package vm
+package scanner
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/shirou/gopsutil/process"
 
@@ -29,7 +30,7 @@ import (
 type Process struct {
 	// original reference
 	original     *process.Process
-	finderConfig *ProcessFinderConfig
+	finderConfig *RegexFinder
 
 	// process data
 	pid       int32
@@ -40,8 +41,40 @@ type Process struct {
 	entity *api.ProcessEntity
 }
 
-func NewProcess(p *process.Process, cmdline string, config *ProcessFinderConfig) *Process {
+func NewProcessByRegex(p *process.Process, cmdline string, config *RegexFinder) *Process {
 	return &Process{original: p, pid: p.Pid, cmd: cmdline, finderConfig: config, entity: &api.ProcessEntity{}}
+}
+
+func NewProcessByAgent(p *process.Process, cmdline string, agent *AgentMetadata) (*Process, error) {
+	// basic data check
+	var err error
+	err = requiredNotNull(err, "layer", agent.Layer)
+	err = requiredNotNull(err, "service name", agent.ServiceName)
+	err = requiredNotNull(err, "instance name", agent.InstanceName)
+	err = requiredNotNull(err, "process name", agent.ProcessName)
+	if err != nil {
+		return nil, err
+	}
+
+	// labels getter
+	labels := make([]string, 0)
+	if agent.Labels != "" {
+		labels = strings.Split(agent.Labels, ",")
+	}
+
+	// build result
+	return &Process{
+		original: p,
+		pid:      p.Pid,
+		cmd:      cmdline,
+		entity: &api.ProcessEntity{
+			Layer:        agent.Layer,
+			ServiceName:  agent.ServiceName,
+			InstanceName: agent.InstanceName,
+			ProcessName:  agent.ProcessName,
+			Labels:       labels,
+		},
+	}, nil
 }
 
 func (p *Process) Pid() int32 {
@@ -53,7 +86,7 @@ func (p *Process) Entity() *api.ProcessEntity {
 }
 
 func (p *Process) DetectType() api.ProcessDetectType {
-	return api.VM
+	return api.Scanner
 }
 
 func (p *Process) OriginalProcess() *process.Process {
@@ -68,4 +101,14 @@ func (p *Process) ProfilingStat() *profiling.Info {
 func (p *Process) BuildIdentity() string {
 	return fmt.Sprintf("%s_%s_%s_%s", p.entity.Layer, p.entity.ServiceName,
 		p.entity.InstanceName, p.entity.ProcessName)
+}
+
+func requiredNotNull(err error, key, value string) error {
+	if err != nil {
+		return err
+	}
+	if value == "" {
+		return fmt.Errorf("the %s could not be null", key)
+	}
+	return nil
 }

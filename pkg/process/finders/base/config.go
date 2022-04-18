@@ -18,6 +18,4 @@
 package base
 
 type FinderBaseConfig interface {
-	// ActiveFinder to detect process
-	ActiveFinder() bool
 }
