@@ -55,6 +55,8 @@ catalog:
               catalog:
                 - name: Profiling a Golang/C service on Linux
                   path: /en/setup/examples/cases/profiling-process/readme
+                - name: Detect Process by Agent Sensor
+                  path: /en/setup/examples/cases/agent-sensor/readme
     - name: Guides
       catalog:
         - name: Contribution

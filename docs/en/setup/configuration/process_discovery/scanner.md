@@ -10,17 +10,17 @@ After find the process, it would be collect the metadata of the process when the
 
 | Name | Default | Environment Key | Description |
 |------|---------|-----------------|-------------|
-| process_discovery.scanner.period | 3s | ROVER_PROCESS_DISCOVERY_VM_PERIOD | The period to detect the process. |
-| process_discovery.scanner.mode | AGENT_SENSOR | ROVER_PROCESS_DISCOVERY_SCAN_PERIOD | The process detect mode of scanner, support "REGEX", "AGENT_SENSOR". |
+| process_discovery.scanner.period | 3s | ROVER_PROCESS_DISCOVERY_SCAN_PERIOD | The period to detect the process. |
+| process_discovery.scanner.mode | AGENT_SENSOR | ROVER_PROCESS_DISCOVERY_SCAN_MODE | The process detection modes of the scanner. Support "REGEX", "AGENT_SENSOR". |
 | process_discovery.scanner.agent | | | Active when using the "AGENT_SENSOR" mode scanner. |
-| process_discovery.scanner.agent.recent | 10m | ROVER_PROCESS_DISCOVERY_AGENT_RECENT | Supports scanning for how long ago of the active agent. |
+| process_discovery.scanner.agent.process_status_refresh_period | 1m | ROVER_PROCESS_DISCOVERY_AGENT_PROCESS_STATUS_REFRESH_PERIOD | Supports scanning for how long ago of the active agent. |
 | process_discovery.scanner.regex | | | Active when using the "REGEX" mode scanner, it supports using multiple regex to matches difference processes. |
-| process_discovery.scanner.regex.match_cmd | | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_MATCH_CMD_REGEX | Use regex string to locate the process from the command line of the process. |
-| process_discovery.scanner.regex.layer | OS_LINUX | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_LAYER | The Layer of the process entity |
-| process_discovery.scanner.regex.service_name | | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_SERVICE_NAME | The Service Name of the process entity. |
-| process_discovery.scanner.regex.instance_name | {{.Rover.HostIPV4 "en0"}} | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_INSTANCE_NAME | The Service Instance Name of the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
-| process_discovery.scanner.regex.process_name | {{.Process.ExeName}} | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_PROCESS_NAME | The Process Name of the process entity, by default, the process name is the executable name of the process. |
-| process_discovery.scanner.regex.labels | | ROVER_PROCESS_DISCOVERY_REGEX_FINDER_PROCESS_LABELS | The Process Labels, used to aggregate similar process from service entity. Multiple labels split by ",". |
+| process_discovery.scanner.regex.match_cmd | | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_MATCH_CMD | Use regex string to locate the process from the command line of the process. |
+| process_discovery.scanner.regex.layer | OS_LINUX | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_LAYER | The Layer of the process entity |
+| process_discovery.scanner.regex.service_name | | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_SERVICE_NAME | The Service Name of the process entity. |
+| process_discovery.scanner.regex.instance_name | {{.Rover.HostIPV4 "en0"}} | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_INSTANCE_NAME | The Service Instance Name of the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
+| process_discovery.scanner.regex.process_name | {{.Process.ExeName}} | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_PROCESS_NAME | The Process Name of the process entity, by default, the process name is the executable name of the process. |
+| process_discovery.scanner.regex.labels | | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_LABELS | The Process Labels, used to aggregate similar process from service entity. Multiple labels split by ",". |
 
 ## Agent Sensor Mode
 
