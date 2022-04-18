@@ -220,7 +220,7 @@ func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
 
 		// modify time + recent > now
 		// means the metadata file is acceptable
-		if !metadataFile.ModTime().Add(p.conf.Agent.RecentDuration).After(time.Now()) {
+		if !metadataFile.ModTime().Add(p.conf.Agent.ProcessStatusRefreshPeriodDuration).After(time.Now()) {
 			continue
 		}
 
@@ -450,7 +450,8 @@ func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*RegexFinder, st
 func validateConfig(conf *Config) error {
 	if conf.ScanMode == Agent {
 		var err error
-		conf.Agent.RecentDuration, err = durationMustNotNull(err, "recent", conf.Agent.Recent)
+		conf.Agent.ProcessStatusRefreshPeriodDuration, err = durationMustNotNull(err, "process_status_refresh_period",
+			conf.Agent.ProcessStatusRefreshPeriod)
 		return err
 	} else if conf.ScanMode != Regex {
 		return fmt.Errorf("could not found mode: %s", conf.ScanMode)

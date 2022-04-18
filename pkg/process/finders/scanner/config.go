@@ -66,7 +66,7 @@ type RegexFinder struct {
 }
 
 type AgentFinder struct {
-	Recent string `mapstructure:"recent"` // match recent keep alive time
+	ProcessStatusRefreshPeriod string `mapstructure:"process_status_refresh_period"` // match recent keep alive time
 
-	RecentDuration time.Duration
+	ProcessStatusRefreshPeriodDuration time.Duration
 }
