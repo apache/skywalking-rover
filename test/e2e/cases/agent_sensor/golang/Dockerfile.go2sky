@@ -13,6 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=5a62c2e029e17234e6bbad18ced0ce31d0f67ce9
+FROM golang:1.13 AS builder
 
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+ARG SW_AGENT_GO_COMMIT
+ARG GO2SKY_CODE=${SW_AGENT_GO_COMMIT}.tar.gz
+ARG GO2SKY_CODE_URL=https://github.com/SkyAPM/go2sky/archive/${GO2SKY_CODE}
+
+ENV CGO_ENABLED=0
+ENV GO111MODULE=on
+
+WORKDIR /go2sky
+
+ADD ${GO2SKY_CODE_URL} .
+RUN tar -xf ${GO2SKY_CODE} --strip 1
+RUN rm ${GO2SKY_CODE}
+
+WORKDIR /go2sky/test/e2e/example-server
+RUN go build -o main
+
+FROM alpine:3.10
+
+COPY --from=builder /go2sky/test/e2e/example-server/main .
+ENTRYPOINT ["/main"]

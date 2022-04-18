@@ -23,14 +23,14 @@ type ProcessDetectType int8
 
 const (
 	_ ProcessDetectType = iota
-	VM
-	KUBERNETES
+	Scanner
+	Kubernetes
 )
 
 func (d ProcessDetectType) Name() string {
-	if d == VM {
-		return "VM"
-	} else if d == KUBERNETES {
+	if d == Scanner {
+		return "Scanner"
+	} else if d == Kubernetes {
 		return "Kubernetes"
 	}
 	return "not matched"

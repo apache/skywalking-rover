@@ -182,6 +182,14 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 	return nil
 }
 
+func (s *ProcessStorage) QueryProcess(pid int32) base.DetectedProcess {
+	processContext := s.processes[pid]
+	if processContext != nil {
+		return processContext.detectProcess
+	}
+	return nil
+}
+
 func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, processes []base.DetectedProcess) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -208,7 +216,7 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 		}
 
 		// they are the not same detect type
-		// TODO we just implement the VM mode process for now, so continue
+		// TODO we just implement the Scanner mode process for now, so continue
 		if needToSyncProcess.DetectType() != managedProcess.DetectType() {
 			continue
 		}

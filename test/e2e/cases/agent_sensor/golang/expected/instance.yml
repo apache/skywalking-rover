@@ -13,6 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=5a62c2e029e17234e6bbad18ced0ce31d0f67ce9
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ b64enc "go2sky" }}.1_{{ b64enc "go2sky-instance" }}
+  name: go2sky-instance
+  attributes:
+  {{- contains .attributes }}
+  - name: Process No.
+    value: "1"
+  - name: hostname
+    value: {{ notEmpty .value }}
+  - name: OS Name
+    value: linux
+  - name: processLabels
+    value: e2e-label
+  - name: ipv4s
+    value: {{ notEmpty .value }}
+  {{- end }}
+  language: GO
+  instanceuuid: {{ notEmpty .instanceuuid }}
+  layer: GENERAL
+{{- end }}

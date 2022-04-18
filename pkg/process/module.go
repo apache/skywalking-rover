@@ -56,7 +56,7 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 	if err != nil {
 		return err
 	}
-	processManager, err := finders.NewProcessManager(ctx, mgr, period, m.config.VM)
+	processManager, err := finders.NewProcessManager(ctx, mgr, period, m.config.Scanner)
 	if err != nil {
 		return err
 	}

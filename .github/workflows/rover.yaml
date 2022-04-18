@@ -79,6 +79,9 @@ jobs:
             config: test/e2e/cases/profiling/c++/e2e.yaml
           - name: C Profiling
             config: test/e2e/cases/profiling/c/e2e.yaml
+
+          - name: go2sky Agent Sensor
+            config: test/e2e/cases/agent_sensor/golang/e2e.yaml
     steps:
       - uses: actions/checkout@v2
         with:

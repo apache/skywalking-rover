@@ -41,7 +41,7 @@ For the demo, we update the entity data as:
 4. **process**: As the executable file name: `sqrt`.
 5. **labels***: As empty.
 
-You could be following [this configuration](../../../configuration/process_discovery/linux.md) to get more configuration information.
+You could be following [this configuration](../../../configuration/process_discovery/scanner.md) to get more configuration information.
 
 ### Enable Profiling
 
@@ -67,11 +67,11 @@ core:
     
 process_discovery:
   heartbeat_period: 20s
-  vm:
-    active: true
+  scanner:
     period: 3s
-    finders:
-      - match_cmd_regex: sqrt
+    mode: REGEX
+    regex:
+      - match_cmd: sqrt
         layer: OS_LINUX
         service_name: sqrt
         instance_name: {{.Rover.HostIPV4 "en0"}}
