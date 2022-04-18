@@ -4,7 +4,7 @@ This documentation helps you to set up service which could let rover detected au
 
 ## Configure Service
 
-Configure your service to enable the Process Status Hook feature. Take [go2sky](https://github.com/SkyAPM/go2sky) as an example here.
+Configure your service to enable the Process Status Hook feature. Take [go2sky](https://github.com/SkyAPM/go2sky) as an example here, which version must `>= v1.5.0`.
 
 ```go
 // update the oap address here
