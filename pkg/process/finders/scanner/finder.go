@@ -269,7 +269,7 @@ func (p *ProcessFinder) tryingToGetAgentMetadataFile(pro *process.Process, tmpDi
 			nspidStr := pids[len(pids)-1]
 			nspid, err := strconv.ParseInt(nspidStr, 10, 10)
 			if err != nil {
-				return "", nil, fmt.Errorf("could not parse the nspid: %s", nspidStr, err)
+				return "", nil, fmt.Errorf("could not parse the nspid: %s, %v", nspidStr, err)
 			}
 			if f, info, err := p.tryingToGetAgentMetadataFileByPid(nspid, tmpDir); err == nil {
 				return f, info, nil
@@ -297,14 +297,14 @@ func (p *ProcessFinder) buildProcessFromAgentMetadata(pro *process.Process, meta
 
 	v := viper.New()
 	v.SetConfigType("properties")
-	if err := v.ReadConfig(bytes.NewReader(metadata)); err != nil {
-		return nil, err
+	if err1 := v.ReadConfig(bytes.NewReader(metadata)); err1 != nil {
+		return nil, err1
 	}
 
 	// parse agent data
 	agent := &AgentMetadata{}
-	if err := v.Unmarshal(agent); err != nil {
-		return nil, err
+	if err1 := v.Unmarshal(agent); err1 != nil {
+		return nil, err1
 	}
 
 	cmdline, err := pro.Cmdline()
@@ -340,74 +340,6 @@ func (p *ProcessFinder) validateProcessCouldProfiling(ps *Process) error {
 	}
 	ps.profiling = pf
 	return nil
-}
-
-func (p *ProcessFinder) agentFindMatchedProcesses() ([]*Process, error) {
-	// all system processes
-	processes, err := process.ProcessesWithContext(p.ctx)
-	if err != nil {
-		return nil, err
-	}
-	// find all matches processes
-	findedProcesses := make([]*Process, 0)
-	for _, pro := range processes {
-		// find the matched process finder
-		finderConfig, cmdline, err := p.findMatchesFinder(pro)
-		if err != nil {
-			log.Warnf("failed to match process %d, reason: %v", pro.Pid, err)
-			continue
-		}
-		if finderConfig == nil {
-			continue
-		}
-
-		// build the linux process and add to the list
-		ps := NewProcessByRegex(pro, cmdline, finderConfig)
-		ps.entity.Layer = finderConfig.Layer
-		ps.entity.ServiceName, err = p.buildEntity(err, ps, finderConfig.serviceNameBuilder)
-		ps.entity.InstanceName, err = p.buildEntity(err, ps, finderConfig.instanceNameBuilder)
-		ps.entity.ProcessName, err = p.buildEntity(err, ps, finderConfig.processNameBuilder)
-		ps.entity.Labels = finderConfig.ParsedLabels
-		if err != nil {
-			log.Warnf("failed to build the process data for pid: %d, reason: %v", pro.Pid, err)
-			continue
-		} else {
-			findedProcesses = append(findedProcesses, ps)
-		}
-	}
-	if len(findedProcesses) == 0 {
-		return nil, nil
-	}
-	// remove duplicated(identity) process
-	identity2Processes := make(map[string][]*Process)
-	for _, ps := range findedProcesses {
-		id := ps.BuildIdentity()
-		if identity2Processes[id] == nil {
-			identity2Processes[id] = make([]*Process, 0)
-		}
-		identity2Processes[id] = append(identity2Processes[id], ps)
-	}
-	result := make([]*Process, 0)
-	for _, psList := range identity2Processes {
-		reportProcess := psList[0]
-		if len(psList) > 1 {
-			pidList := make([]int32, 0)
-			for _, ps := range psList {
-				pidList = append(pidList, ps.pid)
-			}
-			log.WithField("command_line", reportProcess.cmd).
-				WithField("service_name", reportProcess.entity.ServiceName).
-				WithField("instance_name", reportProcess.entity.InstanceName).
-				WithField("process_name", reportProcess.entity.ProcessName).
-				WithField("labels", reportProcess.entity.Labels).
-				WithField("pid_list", pidList).
-				Warnf("find multiple similar process in Scanner, " +
-					"only report the first of these processes. " +
-					"please update the name of process to identity them more clear.")
-		}
-		result = append(result, reportProcess)
-	}
-	return result, nil
 }
 
 func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
