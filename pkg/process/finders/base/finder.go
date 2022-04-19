@@ -55,6 +55,4 @@ type ProcessManager interface {
 	GetModuleManager() *module.Manager
 	// SyncAllProcessInFinder is mean synchronized all processes data from current ProcessFinder
 	SyncAllProcessInFinder(processes []DetectedProcess)
-	// QueryProcess means get the process if already sync
-	QueryProcess(pid int32) DetectedProcess
 }

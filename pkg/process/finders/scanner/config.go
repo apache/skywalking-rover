@@ -70,3 +70,7 @@ type AgentFinder struct {
 
 	ProcessStatusRefreshPeriodDuration time.Duration
 }
+
+func (c *Config) ActiveFinder() bool {
+	return true
+}

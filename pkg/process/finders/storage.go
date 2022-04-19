@@ -34,7 +34,7 @@ import (
 )
 
 type ProcessStorage struct {
-	processes map[int32]*ProcessContext
+	processes map[int32]*processesWrapper
 	mutex     sync.Mutex
 
 	// working with backend
@@ -50,7 +50,7 @@ type ProcessStorage struct {
 
 func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
 	reportInterval time.Duration, finderList []base.ProcessFinder) (*ProcessStorage, error) {
-	data := make(map[int32]*ProcessContext)
+	data := make(map[int32]*processesWrapper)
 	// working with core module
 	coreOperator := moduleManager.FindModule(core.ModuleName).(core.Operator)
 	roverID := coreOperator.InstanceID()
@@ -104,11 +104,13 @@ func (s *ProcessStorage) reportAllProcesses() error {
 	// build process list(wait report or keep alive)
 	waitReportProcesses := make([]*ProcessContext, 0)
 	keepAliveProcesses := make([]*ProcessContext, 0)
-	for _, p := range s.processes {
-		if p.syncStatus == NotReport {
-			waitReportProcesses = append(waitReportProcesses, p)
-		} else if p.syncStatus == ReportSuccess {
-			keepAliveProcesses = append(keepAliveProcesses, p)
+	for _, wrapper := range s.processes {
+		for _, p := range wrapper.processes {
+			if p.syncStatus == NotReport {
+				waitReportProcesses = append(waitReportProcesses, p)
+			} else if p.syncStatus == ReportSuccess {
+				keepAliveProcesses = append(keepAliveProcesses, p)
+			}
 		}
 	}
 
@@ -182,59 +184,78 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 	return nil
 }
 
-func (s *ProcessStorage) QueryProcess(pid int32) base.DetectedProcess {
-	processContext := s.processes[pid]
-	if processContext != nil {
-		return processContext.detectProcess
-	}
-	return nil
-}
-
 func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, processes []base.DetectedProcess) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	pidToProcess := make(map[int32]base.DetectedProcess)
+	pidToProcess := make(map[int32]map[base.DetectedProcess]bool)
 	for _, ps := range processes {
-		pidToProcess[ps.Pid()] = ps
+		samePidProcesses := pidToProcess[ps.Pid()]
+		if samePidProcesses == nil {
+			samePidProcesses = make(map[base.DetectedProcess]bool)
+			pidToProcess[ps.Pid()] = samePidProcesses
+		}
+		samePidProcesses[ps] = false
 	}
 
 	// for each all process in the manager
-	for pid, managedProcess := range s.processes {
-		needToSyncProcess := pidToProcess[pid]
+	for pid, managedProcesses := range s.processes {
+		needToSyncProcesses := pidToProcess[pid]
 		// remove it from the list of need to sync
-		pidToProcess[pid] = nil
+		delete(pidToProcess, pid)
 
 		// The process to be synchronized is not found in all process list
 		// And this process is same with finder type
 		// So we need to remove this process
-		if needToSyncProcess == nil {
-			if managedProcess.DetectType() == finder {
+		if needToSyncProcesses == nil {
+			if managedProcesses.deleteWithSameFinder(finder) {
 				delete(s.processes, pid)
 			}
 			continue
 		}
 
-		// they are the not same detect type
-		// TODO we just implement the Scanner mode process for now, so continue
-		if needToSyncProcess.DetectType() != managedProcess.DetectType() {
-			continue
+		// build result for the pid
+		result := make([]*ProcessContext, 0)
+
+		// find out all need to be update process
+		for _, p := range managedProcesses.processes {
+			// if in difference detect type, keep the process data
+			if p.DetectType() != finder {
+				result = append(result, p)
+				continue
+			}
+
+			for update := range needToSyncProcesses {
+				// should only have one process if they have the same layer and detect type
+				if update.Entity().Layer != p.Entity().Layer {
+					continue
+				}
+				tmp := p
+				if !s.finders[finder].ValidateProcessIsSame(p.detectProcess, update) {
+					tmp = s.constructNewProcessContext(finder, update)
+				}
+				result = append(result, tmp)
+				needToSyncProcesses[update] = true
+				break
+			}
 		}
 
-		// check the entity is the same
-		if s.finders[needToSyncProcess.DetectType()].ValidateProcessIsSame(needToSyncProcess, managedProcess.detectProcess) {
-			continue
+		for p, hasSync := range needToSyncProcesses {
+			if !hasSync {
+				result = append(result, s.constructNewProcessContext(finder, p))
+			}
 		}
 
-		// different entity, so we need to remove oldest and add the new process
-		s.processes[pid] = s.constructNewProcessContext(finder, needToSyncProcess)
+		s.processes[pid] = &processesWrapper{result}
 	}
 
 	// other processes are need to be added
 	for pid, ps := range pidToProcess {
-		if ps != nil {
-			s.processes[pid] = s.constructNewProcessContext(finder, ps)
+		result := make([]*ProcessContext, 0)
+		for p := range ps {
+			result = append(result, s.constructNewProcessContext(finder, p))
 		}
+		s.processes[pid] = &processesWrapper{result}
 	}
 }
 
@@ -249,7 +270,7 @@ func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType
 func (s *ProcessStorage) updateProcessToUploadSuccess(pc *ProcessContext, id string) {
 	pc.id = id
 	pc.syncStatus = ReportSuccess
-	log.Infof("uploaded process name: %s, id: %s", pc.detectProcess.Entity().ProcessName, id)
+	log.Infof("uploaded process pid: %d, name: %s, id: %s", pc.detectProcess.Pid(), pc.detectProcess.Entity().ProcessName, id)
 }
 
 func (s *ProcessStorage) updateProcessToUploadIgnored(pc *ProcessContext) {
@@ -257,10 +278,29 @@ func (s *ProcessStorage) updateProcessToUploadIgnored(pc *ProcessContext) {
 }
 
 func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface {
-	for _, ps := range s.processes {
-		if ps.id == processID {
-			return ps
+	for _, wrapper := range s.processes {
+		for _, p := range wrapper.processes {
+			if p.id == processID {
+				return p
+			}
 		}
 	}
 	return nil
+}
+
+// processesWrapper used to wrap multiple process context which has the same pid
+// Usually they have difference entity
+type processesWrapper struct {
+	processes []*ProcessContext
+}
+
+func (w *processesWrapper) deleteWithSameFinder(finder api.ProcessDetectType) bool {
+	existingProcesses := make([]*ProcessContext, 0)
+	for _, p := range w.processes {
+		if p.DetectType() != finder {
+			existingProcesses = append(existingProcesses, p)
+		}
+	}
+	w.processes = existingProcesses
+	return len(w.processes) == 0
 }

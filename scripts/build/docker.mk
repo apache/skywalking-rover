@@ -16,8 +16,6 @@
 # under the License.
 #
 
-HUB ?= apache
-
 .PHONY: docker
 docker: build-base-container
 	docker build --build-arg VERSION=$(VERSION) --build-arg BASE_IMAGE=${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} \

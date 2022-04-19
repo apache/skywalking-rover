@@ -53,7 +53,7 @@ func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
 	confinedFinders := make(map[base.FinderBaseConfig]base.ProcessFinder)
 	fsList := make([]base.ProcessFinder, 0)
 	for _, conf := range configs {
-		if conf == nil {
+		if conf == nil || !conf.ActiveFinder() {
 			continue
 		}
 		finder := getFinder(conf)
@@ -116,10 +116,6 @@ func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 
 func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []base.DetectedProcess) {
 	p.storage.SyncAllProcessInFinder(p.finderType, processes)
-}
-
-func (p *ProcessManagerWithFinder) QueryProcess(pid int32) base.DetectedProcess {
-	return p.storage.QueryProcess(pid)
 }
 
 func (m *ProcessManager) FindProcessByID(processID string) api.ProcessInterface {
