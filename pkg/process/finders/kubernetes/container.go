@@ -76,7 +76,7 @@ func (c *PodContainer) ServiceName() string {
 	return c.registry.FindServiceName(c.Pod.Namespace, c.Pod.Name)
 }
 
-// FindOwner means query the owner in the container, it would loop up with parent owner until emtpy
+// FindOwner means query the owner in the container, it would loop up with parent owner until empty
 func (c *PodContainer) FindOwner(ctx context.Context, kindName string, k8sConfig *rest.Config) (*metav1.OwnerReference, error) {
 	// find in cache result
 	findedReferences := make([]metav1.OwnerReference, 0)
