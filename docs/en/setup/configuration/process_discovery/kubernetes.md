@@ -35,14 +35,6 @@ The context is similar to the entity builder. Use context could help rover under
 
 Is same with the [process context in scanner](./scanner.md#process), but don't need to add the `{{` and `}}` in prefix and suffix. 
 
-| Name | Argument |  Example  | Description |
-|------|--------- |-----------|-------------|
-| ExeFilePath | None | `{{.Process.ExeFilePath}}` | The execute file path of process. |
-| ExeName | None | `{{.Process.ExeName}}` | The execute file name. |
-| CommandLine | None | `{{.Process.CommandLine}}` | The command line of process. |
-| Pid | None | `{{.Process.Pid}}` | The id of the process. |
-| WorkDir | None | `{{.Process.WorkDir}}` | The work directory path of the process. |
-
 #### Pod Context
 
 Provide current pod information and judgements. 
