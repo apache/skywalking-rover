@@ -184,6 +184,9 @@ func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]
 	// find builder
 	builders := make([]*ProcessBuilder, 0)
 	for _, b := range f.conf.Analyzers {
+		if !b.Active {
+			continue
+		}
 		success, err := executeFilter(b.FiltersBuilder, p, pc, f)
 		if err != nil {
 			return nil, err
