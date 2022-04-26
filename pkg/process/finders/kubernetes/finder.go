@@ -106,7 +106,7 @@ func (f *ProcessFinder) validateConfig(ctx context.Context, conf *Config) (*rest
 	}
 
 	// process builders
-	if err = ProcessBuildersInit(f.conf.Analyzers); err != nil {
+	if err := ProcessBuildersInit(f.conf.Analyzers); err != nil {
 		return nil, nil, err
 	}
 

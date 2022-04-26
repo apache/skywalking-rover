@@ -66,7 +66,6 @@ func renderTemplate(builder *base.TemplateBuilder, p *process.Process, pc *PodCo
 		Process:   base.NewTemplateProcess(moduleManager, p),
 		Pod:       &TemplatePod{pc, finder},
 		Container: &TemplateContainer{pc},
-		Config:    &TemplateConfig{finder.conf},
 	})
 }
 
@@ -76,20 +75,11 @@ type FilterContext struct {
 	Container *TemplateContainer
 }
 
-type TemplateConfig struct {
-	conf *Config
-}
-
-func (t *TemplateConfig) ClusterName() string {
-	return t.conf.ClusterName
-}
-
 type EntityRenderContext struct {
 	Rover     *base.TemplateRover
 	Process   *base.TemplateProcess
 	Pod       *TemplatePod
 	Container *TemplateContainer
-	Config    *TemplateConfig
 }
 
 type TemplatePod struct {
