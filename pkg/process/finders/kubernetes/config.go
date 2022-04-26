@@ -34,6 +34,7 @@ type Config struct {
 }
 
 type ProcessBuilder struct {
+	Active       bool     `mapstructure:"active"`
 	Filters      []string `mapstructure:"filters"`
 	Layer        string   `mapstructure:"layer"`
 	ServiceName  string   `mapstructure:"service_name"`
