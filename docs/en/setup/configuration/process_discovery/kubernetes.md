@@ -21,7 +21,7 @@ After find the process, it would be collect the metadata of the process when the
 
 ## Process Analyze
 
-The process analyze is declare which process could handle and how to build the process entity. 
+The process analyze declares which process could be profiled and how to build the process entity. 
 The istio and kuberentes resources is active on default. 
 
 ### Filter
