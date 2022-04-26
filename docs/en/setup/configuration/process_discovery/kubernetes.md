@@ -11,56 +11,27 @@ After find the process, it would be collect the metadata of the process when the
 | process_discovery.kubernetes.active | false | ROVER_PROCESS_DISCOVERY_KUBERNETES_ACTIVE | Is active the kubernetes process discovery. |
 | process_discovery.kubernetes.node_name |  | ROVER_PROCESS_DISCOVERY_KUBERNETES_NODE_NAME | Current deployed node name, it could be inject by `spec.nodeName`. |
 | process_discovery.kubernetes.namespaces | | ROVER_PROCESS_DISCOVERY_KUBERNETES_NAMESPACES | Including pod by namespaces, if empty means including all namespaces. Multiple namespaces split by ",". |
-| process_discovery.kubernetes.activated | mesh,k8s | ROVER_PROCESS_DISCOVERY_KUBERNETES_ACTIVATED | Activated process analyze feature, support "mesh", "k8s", "extend". Multiple feature split by ",". |
-| process_discovery.kubernetes.cluster_name | k8s | ROVER_PROCESS_DISCOVERY_KUBERNETES_CLUSTER_NAME | Customize cluster name of the kubernetes. If active the kubernetes process analyze feature, then the cluster name as the group name. |
-| process_discovery.kubernetes.mesh.service_name | {{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" }} | ROVER_PROCESS_DISCOVERY_KUBERNETES_MESH_SERVICE_NAME | The template to build the service name of the process under the mesh environment.|
-| process_discovery.kubernetes.extend | | | Customize the process builder list. |
-| process_discovery.kubernetes.extend.filters | | ROVER_PROCESS_DISCOVERY_KUBERNETES_EXTEND_FILTER | Define which process is match to current process builder. |
-| process_discovery.scanner.regex.service_name | | ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_SERVICE_NAME | The Service Name of the process entity. |
-| process_discovery.scanner.regex.instance_name | {{pod.Name}}.{{pod.Namespace}} | ROVER_PROCESS_DISCOVERY_KUBERNETES_EXTEND_INSTANCE_NAME | The Service Instance Name of the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
-| process_discovery.scanner.regex.process_name | {{.Process.ExeName}} | ROVER_PROCESS_DISCOVERY_KUBERNETES_EXTEND_PROCESS_NAME | The Process Name of the process entity, by default, the process name is the executable name of the process. |
-| process_discovery.scanner.regex.labels | | ROVER_PROCESS_DISCOVERY_KUBERNETES_EXTEND_LABELS | The Process Labels, used to aggregate similar process from service entity. Multiple labels split by ",". |
+| process_discovery.kubernetes.analyzers | | | Declare how to build the process. The istio and k8s resources are active by default. |
+| process_discovery.kubernetes.analyzers.active | | | Set is active analyzer. |
+| process_discovery.kubernetes.analyzers.filters | | | Define which process is match to current process builder. |
+| process_discovery.kubernetes.analyzers.service_name | | | The Service Name of the process entity. |
+| process_discovery.kubernetes.analyzers.instance_name | | | The Service Instance Name of the process entity, by default, the instance name is the host IP v4 address from "en0" net interface. |
+| process_discovery.kubernetes.analyzers.process_name | | | The Process Name of the process entity, by default, the process name is the executable name of the process. |
+| process_discovery.kubernetes.analyzers.labels | | | The Process Labels, used to aggregate similar process from service entity. Multiple labels split by ",". |
 
 ## Process Analyze
 
-The Kubernetes process detector support three types to analyze the process:
-1. **mesh**: The process under the service mesh environment.
-2. **k8s**: The process under the kubernetes environment.
-3. **extend**: Customize the process analyze mode.
+The process analyze is declare which process could handle and how to build the process entity. 
+The istio and kuberentes resources is active on default. 
 
-The **mesh** and **k8s** type of the analyzer provide generic process resolution. It's similar to the extent analyze mode.
-
-### Mesh
-
-Analyze the processes under the service mesh pods, which contains the business service and envoy sidecar containers. 
-
-|Layer|Filters|Service Name|Instance Name|Process Name|Process Labels|Description|
-|-----|-------|------------|-------------|------------|--------------|-----------|
-|MESH|`.Pod.HasContainer "istio-proxy"` and `ne .Container.Name "istio-proxy"`|config by `process_discovery.kubernetes.mesh.service_name` |`{{.Pod.Name}}`|`{{.Process.ExeName}}`|mesh-application|Business application|
-|MESH_DP|`.Pod.HasContainer "istio-proxy"` and `eq .Container.Name "istio-proxy"`|config by `process_discovery.kubernetes.mesh.service_name` |`{{.Pod.Name}}`|`{{.Process.ExeName}}`|mesh-envoy|Envoy sidecar|
-
-### K8s
-
-Analyze all the processes in current kubernetes environment.
-
-|Layer|Filters|Service Name|Instance Name|Process Name|Process Labels|Description|
-|-----|-------|------------|-------------|------------|--------------|-----------|
-|K8S_SERVICE|`.Pod.HasServiceName`|config by `process_discovery.kubernetes.cluster_name` |`{{.Pod.Name}}`|`{{.Process.ExeName}}`|k8s-service|The pod must have the matches Service selector.|
-
-### Extend
-
-The extent declare customize process builder, which using the filter mechanism to filter processes, and customize process entity builder.
-
-The **mesh** and **k8s** is also use the extent mechanism, just pre-define in the rover.
-
-#### Filter
+### Filter
 
 The filter provide expression(go template) mechanism to match process that can build the entity. Multiple expressions work together to determine whether the process can create entity.
 Each expression must be return the boolean value. Otherwise, the decision throws an error.
 
 The context is similar to the entity builder. Use context could help rover understanding which process could build entity.
 
-##### Process Context
+#### Process Context
 
 Is same with the [process context in scanner](./scanner.md#process), but don't need to add the `{{` and `}}` in prefix and suffix. 
 
@@ -72,7 +43,7 @@ Is same with the [process context in scanner](./scanner.md#process), but don't n
 | Pid | None | `{{.Process.Pid}}` | The id of the process. |
 | WorkDir | None | `{{.Process.WorkDir}}` | The work directory path of the process. |
 
-##### Pod Context
+#### Pod Context
 
 Provide current pod information and judgements. 
 
@@ -87,7 +58,7 @@ Provide current pod information and judgements.
 | LabelSelector | selector | `.Pod.LabelSelector` | The pod is matches the label selector. For more details, please read the [official documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors). |
 | HasServiceName | None | `.Pod.HasServiceName` | The pod has the matched service. |
 
-##### Container Context
+#### Container Context
 
 Provide current container(under the pod) information.
 
@@ -95,20 +66,20 @@ Provide current container(under the pod) information.
 |------|--------- |-----------|-------------|
 | Name | None | `eq .Container.Name "istio-proxy"`| The name of current container under the pod. The examples shows the container name is equals to `istio-proxy`. |
 
-#### Entity 
+### Entity 
 The entity including `layer`, `serviceName`, `instanceName`, `processName` and `labels` properties. 
 
 The entity also could use expression to build(`serviceName`, `instanceName` and `processName`).
 
-##### Rover
+#### Rover
 
 Same with the [rover context in the scanner](./scanner.md#rover).
 
-##### Process
+#### Process
 
 Same with the [process context in the scanner](./scanner.md#process).
 
-##### Pod
+#### Pod
 
 The information of the current pod.
 
@@ -120,7 +91,7 @@ The information of the current pod.
 | LabelValue | KeyNames | `{{.Pod.LavelValue "a,b"}}` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. |
 | ServiceName | None | `{{.Pod.ServiceName}}` | The service name of the pod. If the pod haven't matched service, then return empty string. |
 
-##### Container
+#### Container
 
 The information of the current container under the pod.
 

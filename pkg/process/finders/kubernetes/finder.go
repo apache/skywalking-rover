@@ -61,8 +61,7 @@ type ProcessFinder struct {
 	registry  *Registry
 
 	// runtime config
-	namespaces      []string
-	processBuilders []*ProcessBuilder
+	namespaces []string
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
@@ -107,19 +106,9 @@ func (f *ProcessFinder) validateConfig(ctx context.Context, conf *Config) (*rest
 	}
 
 	// process builders
-	if conf.Activated == "" {
-		return nil, nil, fmt.Errorf("please provide at least one feature")
+	if err = ProcessBuildersInit(f.conf.Analyzers); err != nil {
+		return nil, nil, err
 	}
-	features := strings.Split(conf.Activated, ",")
-	processBuilders := make([]*ProcessBuilder, 0)
-	for _, f := range features {
-		builders, err := FeatureToProcessBuildersAndInit(f, conf)
-		if err != nil {
-			return nil, nil, err
-		}
-		processBuilders = append(processBuilders, builders...)
-	}
-	f.processBuilders = processBuilders
 
 	return k8sConfig, cli, nil
 }
@@ -194,7 +183,7 @@ func (f *ProcessFinder) analyzeProcesses() error {
 func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
 	// find builder
 	builders := make([]*ProcessBuilder, 0)
-	for _, b := range f.processBuilders {
+	for _, b := range f.conf.Analyzers {
 		success, err := executeFilter(b.FiltersBuilder, p, pc, f)
 		if err != nil {
 			return nil, err

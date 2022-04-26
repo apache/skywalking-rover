@@ -28,12 +28,9 @@ type Config struct {
 
 	Active bool `mapstrcture:"active"`
 
-	NodeName       string            `mapstructure:"node_name"`
-	Namespaces     string            `mapstructure:"namespaces"`
-	ClusterName    string            `mapstructure:"cluster_name"`
-	Activated      string            `mapstructure:"activated"`
-	Mesh           MeshConfig        `mapstructure:"mesh"`
-	ExtendBuilders []*ProcessBuilder `mapstructure:"extend"`
+	NodeName   string            `mapstructure:"node_name"`
+	Namespaces string            `mapstructure:"namespaces"`
+	Analyzers  []*ProcessBuilder `mapstructure:"analyzers"`
 }
 
 type ProcessBuilder struct {
@@ -52,53 +49,8 @@ type ProcessBuilder struct {
 	Labels              []string
 }
 
-// FeatureToProcessBuildersAndInit used to convert existing activated feature to the process processBuilders
-func FeatureToProcessBuildersAndInit(feature string, conf *Config) ([]*ProcessBuilder, error) {
-	builders := make([]*ProcessBuilder, 0)
-	if feature == "mesh" {
-		builders = append(builders, []*ProcessBuilder{
-			{
-				Filters: []string{
-					".Pod.HasContainer \"istio-proxy\"",
-					"eq .Container.Name \"istio-proxy\"",
-				},
-				Layer:        "MESH_DP",
-				ServiceName:  conf.Mesh.ServiceName,
-				InstanceName: "{{.Pod.Name}}",
-				ProcessName:  "{{.Process.ExeName}}",
-				LabelsStr:    "mesh-envoy",
-			},
-			{
-				Filters: []string{
-					".Pod.HasContainer \"istio-proxy\"",
-					"ne .Container.Name \"istio-proxy\"",
-				},
-				Layer:        "MESH",
-				ServiceName:  conf.Mesh.ServiceName,
-				InstanceName: "{{.Pod.Name}}",
-				ProcessName:  "{{.Process.ExeName}}",
-				LabelsStr:    "mesh-application",
-			},
-		}...)
-	} else if feature == "k8s" {
-		builders = append(builders, []*ProcessBuilder{
-			{
-				Filters: []string{
-					".Pod.HasServiceName",
-				},
-				Layer:        "K8S_SERVICE",
-				ServiceName:  "{{.Config.ClusterName}}::{{.Pod.ServiceName}}.{{.Pod.Namespace}}",
-				InstanceName: "{{.Pod.Name}}",
-				ProcessName:  "{{.Process.ExeName}}",
-				LabelsStr:    "k8s-service",
-			},
-		}...)
-	} else if feature == "extend" {
-		builders = append(builders, conf.ExtendBuilders...)
-	} else {
-		return nil, fmt.Errorf("un support feature: %s", feature)
-	}
-
+// ProcessBuildersInit used to init process builders
+func ProcessBuildersInit(builders []*ProcessBuilder) error {
 	for _, b := range builders {
 		var err error
 		if len(b.Filters) > 0 {
@@ -107,7 +59,7 @@ func FeatureToProcessBuildersAndInit(feature string, conf *Config) ([]*ProcessBu
 				err = base.StringMustNotNull(err, "filter", f)
 				builder, err1 := base.TemplateMustNotNull(err, "filter", fmt.Sprintf("{{%s}}", f))
 				if err1 != nil {
-					return nil, fmt.Errorf("build filter error: %s, error: %v", f, err1)
+					return fmt.Errorf("build filter error: %s, error: %v", f, err1)
 				}
 				b.FiltersBuilder = append(b.FiltersBuilder, builder)
 			}
@@ -118,10 +70,10 @@ func FeatureToProcessBuildersAndInit(feature string, conf *Config) ([]*ProcessBu
 		b.Labels = base.ParseLabels(b.LabelsStr)
 
 		if err != nil {
-			return nil, fmt.Errorf("build process builder error: %v", err)
+			return fmt.Errorf("build process builder error: %v", err)
 		}
 	}
-	return builders, nil
+	return nil
 }
 
 func (c *Config) ActiveFinder() bool {
