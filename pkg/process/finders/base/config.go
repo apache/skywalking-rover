@@ -17,5 +17,56 @@
 
 package base
 
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+)
+
 type FinderBaseConfig interface {
+	// ActiveFinder to detect process
+	ActiveFinder() bool
+}
+
+func StringMustNotNull(err error, confKey, confValue string) error {
+	if err != nil {
+		return err
+	}
+	if confValue == "" {
+		return fmt.Errorf("the %s of Scanner process must be set", confKey)
+	}
+	return nil
+}
+
+func TemplateMustNotNull(err error, confKey, confValue string) (*TemplateBuilder, error) {
+	if err1 := StringMustNotNull(err, confKey, confValue); err1 != nil {
+		return nil, err1
+	}
+	return NewTemplateBuilder(confKey, confValue)
+}
+
+func RegexMustNotNull(err error, confKey, confValue string) (*regexp.Regexp, error) {
+	if err1 := StringMustNotNull(err, confKey, confValue); err1 != nil {
+		return nil, err1
+	}
+	return regexp.Compile(confValue)
+}
+
+func DurationMustNotNull(err error, confKey, confValue string) (time.Duration, error) {
+	if err1 := StringMustNotNull(err, confKey, confValue); err1 != nil {
+		return 0, err1
+	}
+	return time.ParseDuration(confValue)
+}
+
+func ParseLabels(labelStr string) []string {
+	tmp := strings.Split(labelStr, ",")
+	result := make([]string, 0)
+	for _, s := range tmp {
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
 }

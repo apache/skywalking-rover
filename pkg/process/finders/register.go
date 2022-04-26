@@ -20,6 +20,8 @@ package finders
 import (
 	"reflect"
 
+	"github.com/apache/skywalking-rover/pkg/process/finders/kubernetes"
+
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/process/finders/scanner"
 )
@@ -28,6 +30,7 @@ var finders = make(map[reflect.Type]base.ProcessFinder)
 
 func init() {
 	registerFinder(reflect.TypeOf(&scanner.Config{}), &scanner.ProcessFinder{})
+	registerFinder(reflect.TypeOf(&kubernetes.Config{}), &kubernetes.ProcessFinder{})
 }
 
 func registerFinder(t reflect.Type, finder base.ProcessFinder) {

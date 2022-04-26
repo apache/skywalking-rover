@@ -24,13 +24,13 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 
+	commonv3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
 
 	"github.com/shirou/gopsutil/process"
@@ -38,7 +38,6 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
-	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -92,15 +91,27 @@ func (p *ProcessFinder) ValidateProcessIsSame(p1, p2 base.DetectedProcess) bool 
 
 func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps base.DetectedProcess) *v3.EBPFProcessProperties {
 	hostProcess := &v3.EBPFHostProcessMetadata{}
-	hostProcess.HostIP = ctx.HostIP
 	hostProcess.Pid = ps.Pid()
-	hostProcess.Cmd = ps.(*Process).cmd
 	hostProcess.Entity = &v3.EBPFProcessEntityMetadata{
 		Layer:        ps.Entity().Layer,
 		ServiceName:  ps.Entity().ServiceName,
 		InstanceName: ps.Entity().InstanceName,
 		ProcessName:  ps.Entity().ProcessName,
 		Labels:       ps.Entity().Labels,
+	}
+	hostProcess.Properties = []*commonv3.KeyStringValuePair{
+		{
+			Key:   "host_ip",
+			Value: ctx.HostIP,
+		},
+		{
+			Key:   "pid",
+			Value: strconv.FormatInt(int64(ps.Pid()), 10),
+		},
+		{
+			Key:   "command_line",
+			Value: ps.(*Process).cmd,
+		},
 	}
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_HostProcess{
 		HostProcess: hostProcess,
@@ -200,10 +211,6 @@ func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
 	for _, pro := range processes {
 		// already contains the processes
 		pid := pro.Pid
-		if detectProcess := p.manager.QueryProcess(pid); detectProcess != nil {
-			findedProcesses = append(findedProcesses, detectProcess)
-			continue
-		}
 
 		// if we cannot get temp directory, just ignore it
 		// May have some system process
@@ -214,7 +221,6 @@ func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
 
 		metadataFilePath, metadataFile, err := p.tryingToGetAgentMetadataFile(pro, tmpDir)
 		if err != nil {
-			log.Infof("found metadata file error, pid: %d, error: %v", pid, err)
 			continue
 		}
 
@@ -319,7 +325,7 @@ func (p *ProcessFinder) validateTheProcessesCouldProfiling(processes []*Process)
 	result := make([]*Process, 0)
 	for _, ps := range processes {
 		if err := p.validateProcessCouldProfiling(ps); err != nil {
-			log.Warnf("could not read process exe file path, pid: %d", ps.pid)
+			log.Warnf("could not read process exe file path, pid: %d, err: %v", ps.pid, err)
 			continue
 		}
 		result = append(result, ps)
@@ -328,15 +334,9 @@ func (p *ProcessFinder) validateTheProcessesCouldProfiling(processes []*Process)
 }
 
 func (p *ProcessFinder) validateProcessCouldProfiling(ps *Process) error {
-	exe := p.tryToFindFileExecutePath(ps.original)
-	if exe == "" {
-		return fmt.Errorf("could not read process exe file path, pid: %d", ps.pid)
-	}
-
-	// check support profiling
-	pf, err := tools.ExecutableFileProfilingStat(exe)
+	pf, err := base.BuildProfilingStat(ps.original)
 	if err != nil {
-		return fmt.Errorf("the process could not be profiling, so ignored. pid: %d, reason: %v", ps.pid, err)
+		return err
 	}
 	ps.profiling = pf
 	return nil
@@ -450,7 +450,7 @@ func (p *ProcessFinder) findMatchesFinder(ps *process.Process) (*RegexFinder, st
 func validateConfig(conf *Config) error {
 	if conf.ScanMode == Agent {
 		var err error
-		conf.Agent.ProcessStatusRefreshPeriodDuration, err = durationMustNotNull(err, "process_status_refresh_period",
+		conf.Agent.ProcessStatusRefreshPeriodDuration, err = base.DurationMustNotNull(err, "process_status_refresh_period",
 			conf.Agent.ProcessStatusRefreshPeriod)
 		return err
 	} else if conf.ScanMode != Regex {
@@ -463,11 +463,11 @@ func validateConfig(conf *Config) error {
 	// validate config
 	for _, f := range conf.RegexFinders {
 		var err error
-		err = stringMustNotNull(err, "layer", f.Layer)
-		f.commandlineRegex, err = regexMustNotNull(err, "match_cmd_regex", f.MatchCommandRegex)
-		f.serviceNameBuilder, err = templateMustNotNull(err, "service_name", f.ServiceName)
-		f.instanceNameBuilder, err = templateMustNotNull(err, "instance_name", f.InstanceName)
-		f.processNameBuilder, err = templateMustNotNull(err, "process_name", f.ProcessName)
+		err = base.StringMustNotNull(err, "layer", f.Layer)
+		f.commandlineRegex, err = base.RegexMustNotNull(err, "match_cmd_regex", f.MatchCommandRegex)
+		f.serviceNameBuilder, err = base.TemplateMustNotNull(err, "service_name", f.ServiceName)
+		f.instanceNameBuilder, err = base.TemplateMustNotNull(err, "instance_name", f.InstanceName)
+		f.processNameBuilder, err = base.TemplateMustNotNull(err, "process_name", f.ProcessName)
 		f.ParsedLabels = parseLabels(f.LabelsStr)
 
 		if err != nil {
@@ -487,57 +487,6 @@ func parseLabels(labelStr string) []string {
 		}
 	}
 	return result
-}
-
-func stringMustNotNull(err error, confKey, confValue string) error {
-	if err != nil {
-		return err
-	}
-	if confValue == "" {
-		return fmt.Errorf("the %s of Scanner process must be set", confKey)
-	}
-	return nil
-}
-
-func templateMustNotNull(err error, confKey, confValue string) (*base.TemplateBuilder, error) {
-	if err1 := stringMustNotNull(err, confKey, confValue); err1 != nil {
-		return nil, err1
-	}
-	return base.NewTemplateBuilder(confKey, confValue)
-}
-
-func regexMustNotNull(err error, confKey, confValue string) (*regexp.Regexp, error) {
-	if err1 := stringMustNotNull(err, confKey, confValue); err1 != nil {
-		return nil, err1
-	}
-	return regexp.Compile(confValue)
-}
-
-func durationMustNotNull(err error, confKey, confValue string) (time.Duration, error) {
-	if err1 := stringMustNotNull(err, confKey, confValue); err1 != nil {
-		return 0, err1
-	}
-	return time.ParseDuration(confValue)
-}
-
-func (p *ProcessFinder) tryToFindFileExecutePath(ps *process.Process) string {
-	exe, err := ps.Exe()
-	if pathExists(exe, err) {
-		return exe
-	}
-	cwd, err := ps.Cwd()
-	if pathExists(cwd, err) && pathExists(cwd+"/"+exe, err) {
-		return cwd + "/" + exe
-	}
-	linuxProcessRoot := host.GetFileInHost(fmt.Sprintf("/proc/%d/root", ps.Pid))
-	if pathExists(linuxProcessRoot, nil) {
-		if pathExists(linuxProcessRoot+"/"+exe, nil) {
-			return linuxProcessRoot + "/" + exe
-		} else if pathExists(linuxProcessRoot+"/"+cwd+"/"+exe, nil) {
-			return linuxProcessRoot + "/" + cwd + "/" + exe
-		}
-	}
-	return ""
 }
 
 func pathExists(exe string, err error) bool {

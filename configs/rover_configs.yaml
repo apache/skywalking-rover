@@ -44,7 +44,7 @@ process_discovery:
     # The process detection modes of the scanner. Support "REGEX", "AGENT_SENSOR"
     mode: ${ROVER_PROCESS_DISCOVERY_SCAN_MODE:AGENT_SENSOR}
     agent:
-      # Supports scanning for how long ago of the active agent
+      # Set the agent refresh period
       process_status_refresh_period: ${ROVER_PROCESS_DISCOVERY_AGENT_PROCESS_STATUS_REFRESH_PERIOD:1m}
     regex:
       # Use regex string to locate the processes
@@ -64,6 +64,40 @@ process_discovery:
         # The Process Labels, used to aggregate similar process from service entity
         # Multiple labels split by ","
         labels: ${ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_LABELS:}
+  kubernetes:
+    # Is active the kubernetes process detector
+    active: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ACTIVE:false}
+    # Current node name in kubernetes environment
+    node_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_NODE_NAME:}
+    # include namespaces, multiple namespace split by ",", if empty means including all namespaces
+    namespaces: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_NAMESPACES:}
+    analyzers:
+      - active: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_ACTIVE:true}
+        filters:
+          - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
+          - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_CONTAINER_IS_ENVOY:eq .Container.Name "istio-proxy"}
+        layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LAYER:MESH_DP}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" }}}
+        instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_INSTANCE_NAME:{{.Pod.Name}}}
+        process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_PROCESS_NAME:{{.Process.ExeName}}}
+        labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LABELS:mesh-envoy}
+      - active: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_ACTIVE:true}
+        filters:
+          - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
+          - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_CONTAINER_NOT_ENVOY:ne .Container.Name "istio-proxy"}
+        layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LAYER:MESH}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" }}}
+        instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_INSTANCE_NAME:{{.Pod.Name}}}
+        process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_PROCESS_NAME:{{.Process.ExeName}}}
+        labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LABELS:mesh-application}
+      - active: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_ACTIVE:true}
+        filters:
+          - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_HAS_SERVICE:.Pod.HasServiceName}
+        layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_LAYER:K8S_SERVICE}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.ServiceName}}}
+        instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_INSTANCE_NAME:{{.Pod.Name}}}
+        process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_PROCESS_NAME:{{.Process.ExeName}}}
+        labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_LABLES:k8s-service}
 
 profiling:
   # Is active the process profiling

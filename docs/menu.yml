@@ -41,8 +41,10 @@ catalog:
               catalog:
                 - name: Overview
                   path: /en/setup/configuration/process_discovery/overview
-                - name: Linux Process Detector
-                  path: /en/setup/configuration/process_discovery/linux
+                - name: Linux Process Scanner
+                  path: /en/setup/configuration/process_discovery/scanner
+                - name: Kubernetes Process Detector
+                  path: /en/setup/configuration/process_discovery/kubernetes
             - name: Profiling Module
               path: /en/setup/configuration/profiling
         - name: Examples
@@ -57,6 +59,8 @@ catalog:
                   path: /en/setup/examples/cases/profiling-process/readme
                 - name: Detect Process by Agent Sensor
                   path: /en/setup/examples/cases/agent-sensor/readme
+                - name: Detect Process in Kubernetes Environemnt
+                  path: /en/setup/examples/cases/kubernetes-process/readme
     - name: Guides
       catalog:
         - name: Contribution

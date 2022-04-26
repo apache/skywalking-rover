@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/shirou/gopsutil/process"
+
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/tools"
@@ -57,8 +59,8 @@ func NewTemplateRover(manager *module.Manager) *TemplateRover {
 }
 
 // NewTemplateProcess is generated the process context for render
-func NewTemplateProcess(manager *module.Manager, process DetectedProcess) *TemplateProcess {
-	return &TemplateProcess{process}
+func NewTemplateProcess(manager *module.Manager, p *process.Process) *TemplateProcess {
+	return &TemplateProcess{p}
 }
 
 type TemplateRover struct {
@@ -94,30 +96,30 @@ func (t *TemplateRover) HostName() string {
 }
 
 type TemplateProcess struct {
-	DetectedProcess
+	*process.Process
 }
 
 // ExeFilePath Execute file path
 func (p *TemplateProcess) ExeFilePath() (string, error) {
-	return p.OriginalProcess().Exe()
+	return p.Exe()
 }
 
 // ExeName Execute file name
 func (p *TemplateProcess) ExeName() (string, error) {
-	return p.OriginalProcess().Name()
+	return p.Name()
 }
 
 // CommandLine command line of process
 func (p *TemplateProcess) CommandLine() (string, error) {
-	return p.OriginalProcess().Cmdline()
+	return p.Cmdline()
 }
 
 // Pid of process
 func (p *TemplateProcess) Pid() int32 {
-	return p.OriginalProcess().Pid
+	return p.Process.Pid
 }
 
 // WorkDir means which directory to run the execute file
 func (p *TemplateProcess) WorkDir() (string, error) {
-	return p.OriginalProcess().Cwd()
+	return p.Cwd()
 }

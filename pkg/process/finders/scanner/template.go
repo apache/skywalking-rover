@@ -27,7 +27,7 @@ func renderTemplate(builder *base.TemplateBuilder, process *Process, finder *Pro
 	moduleManager := finder.manager.GetModuleManager()
 	return builder.Execute(&TemplateContext{
 		Rover:   base.NewTemplateRover(moduleManager),
-		Process: base.NewTemplateProcess(moduleManager, process),
+		Process: base.NewTemplateProcess(moduleManager, process.OriginalProcess()),
 		Finder:  &TemplateFinder{finder: finder, process: process},
 	})
 }

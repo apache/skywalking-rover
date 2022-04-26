@@ -20,6 +20,7 @@ package profiling
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -52,7 +53,11 @@ func (o *ObjDump) Analyze(filepath string) (*Info, error) {
 	symbols := make([]*Symbol, 0)
 	scanner := bufio.NewScanner(bytes.NewReader(resBytes))
 	for scanner.Scan() {
-		submatch := o.outputRegex.FindStringSubmatch(scanner.Text())
+		text := scanner.Text()
+		if text == "no symbols" {
+			return nil, fmt.Errorf("no symbols")
+		}
+		submatch := o.outputRegex.FindStringSubmatch(text)
 		if len(submatch) == 0 {
 			continue
 		}
