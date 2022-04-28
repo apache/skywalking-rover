@@ -66,7 +66,6 @@ jobs:
 
   e2e-test:
     name: E2E test
-    if: ${{ false }}  # disable for temporary, it would activate after OAP side finished
     needs: [ docker ]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -82,7 +81,26 @@ jobs:
             config: test/e2e/cases/profiling/c/e2e.yaml
 
           - name: go2sky Agent Sensor
-            config: test/e2e/cases/agent_sensor/golang/e2e.yaml
+            config: test/e2e/cases/process/agent_sensor/golang/e2e.yaml
+
+          - name: Istio Process Finder 1.8.2
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.8.2
+          - name: Istio Process Finder 1.9.1
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.9.1
+          - name: Istio Process Finder 1.10.3
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.10.3
+          - name: Istio Process Finder 1.11.4
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.11.4
+          - name: Istio Process Finder 1.12.0
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.12.0
+          - name: Istio Process Finder 1.13.1
+            config: test/e2e/cases/process/istio/e2e.yaml
+            env: ISTIO_VERSION=1.13.1
     steps:
       - uses: actions/checkout@v2
         with:
@@ -98,6 +116,8 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '1.16'
+      - name: Set env var
+        run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
       - name: ${{ matrix.test.name }}
         uses: apache/skywalking-infra-e2e@main
         with:
@@ -114,7 +134,7 @@ jobs:
     name: Required
     needs:
       - build
-#      - e2e-test
+      - e2e-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -123,6 +143,6 @@ jobs:
           if [[ ${{ needs.build.result }} != 'success' ]]; then
             exit -1
           fi
-#          if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
-#            exit -1
-#          fi
+          if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
+            exit -1
+          fi

@@ -13,7 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=5a62c2e029e17234e6bbad18ced0ce31d0f67ce9
-SW_KUBERNETES_COMMIT_SHA=0f3ec68e5a7e1608cec8688716b848ed15e971e5
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+# this config file contains all config fields with comments
+# NOTE: this is not a particularly useful config file
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  # the control plane node config
+  - role: control-plane
+  # the three workers
+  - role: worker
+  - role: worker
+  - role: worker

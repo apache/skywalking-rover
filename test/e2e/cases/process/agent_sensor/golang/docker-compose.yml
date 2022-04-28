@@ -18,14 +18,14 @@ version: '2.1'
 services:
   oap:
     extends:
-      file: ../../../base/base-compose.yml
+      file: ../../../../base/base-compose.yml
       service: oap
     ports:
       - 12800:12800
 
   rover:
     extends:
-      file: ../../../base/base-compose.yml
+      file: ../../../../base/base-compose.yml
       service: rover
     environment:
       ROVER_PROCESS_DISCOVERY_SCAN_MODE: AGENT_SENSOR
