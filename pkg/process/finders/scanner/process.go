@@ -24,6 +24,7 @@ import (
 	"github.com/shirou/gopsutil/process"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
@@ -42,7 +43,8 @@ type Process struct {
 }
 
 func NewProcessByRegex(p *process.Process, cmdline string, config *RegexFinder) *Process {
-	return &Process{original: p, pid: p.Pid, cmd: cmdline, finderConfig: config, entity: &api.ProcessEntity{}}
+	stat, _ := base.BuildProfilingStat(p)
+	return &Process{original: p, pid: p.Pid, cmd: cmdline, finderConfig: config, profiling: stat, entity: &api.ProcessEntity{}}
 }
 
 func NewProcessByAgent(p *process.Process, cmdline string, agent *AgentMetadata) (*Process, error) {
@@ -62,11 +64,15 @@ func NewProcessByAgent(p *process.Process, cmdline string, agent *AgentMetadata)
 		labels = strings.Split(agent.Labels, ",")
 	}
 
+	// profiling status
+	stat, _ := base.BuildProfilingStat(p)
+
 	// build result
 	return &Process{
-		original: p,
-		pid:      p.Pid,
-		cmd:      cmdline,
+		original:  p,
+		pid:       p.Pid,
+		cmd:       cmdline,
+		profiling: stat,
 		entity: &api.ProcessEntity{
 			Layer:        agent.Layer,
 			ServiceName:  agent.ServiceName,

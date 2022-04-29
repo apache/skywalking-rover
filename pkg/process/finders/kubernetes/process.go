@@ -21,6 +21,7 @@ import (
 	"github.com/shirou/gopsutil/process"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
@@ -38,12 +39,14 @@ type Process struct {
 }
 
 func NewProcess(p *process.Process, cmdline string, pc *PodContainer, entity *api.ProcessEntity) *Process {
+	stat, _ := base.BuildProfilingStat(p)
 	return &Process{
 		original:     p,
 		pid:          p.Pid,
 		cmd:          cmdline,
 		podContainer: pc,
 		entity:       entity,
+		profiling:    stat,
 	}
 }
 

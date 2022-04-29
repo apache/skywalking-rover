@@ -112,6 +112,10 @@ func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 			Key:   "command_line",
 			Value: ps.(*Process).cmd,
 		},
+		{
+			Key:   "could_profiling",
+			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
+		},
 	}
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_HostProcess{
 		HostProcess: hostProcess,
@@ -165,9 +169,6 @@ func (p *ProcessFinder) regexFindProcesses() ([]base.DetectedProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// validate the process could be profiling
-	processes = p.validateTheProcessesCouldProfiling(processes)
 
 	// report to the manager
 	psList := make([]base.DetectedProcess, 0)
@@ -234,12 +235,6 @@ func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
 		agentProcess, err := p.buildProcessFromAgentMetadata(pro, metadataFilePath)
 		if err != nil {
 			log.Warnf("could not parsing metadata, pid: %d, error: %v", pid, err)
-			continue
-		}
-
-		// could be profiling
-		if err := p.validateProcessCouldProfiling(agentProcess); err != nil {
-			log.Warnf("found agent process, but it could not profiling, so ignore, pid: %d, error: %v", pid, err)
 			continue
 		}
 
@@ -321,27 +316,6 @@ func (p *ProcessFinder) buildProcessFromAgentMetadata(pro *process.Process, meta
 	return NewProcessByAgent(pro, cmdline, agent)
 }
 
-func (p *ProcessFinder) validateTheProcessesCouldProfiling(processes []*Process) []*Process {
-	result := make([]*Process, 0)
-	for _, ps := range processes {
-		if err := p.validateProcessCouldProfiling(ps); err != nil {
-			log.Warnf("could not read process exe file path, pid: %d, err: %v", ps.pid, err)
-			continue
-		}
-		result = append(result, ps)
-	}
-	return result
-}
-
-func (p *ProcessFinder) validateProcessCouldProfiling(ps *Process) error {
-	pf, err := base.BuildProfilingStat(ps.original)
-	if err != nil {
-		return err
-	}
-	ps.profiling = pf
-	return nil
-}
-
 func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
 	// all system processes
 	processes, err := process.ProcessesWithContext(p.ctx)
@@ -351,9 +325,6 @@ func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
 	// find all matches processes
 	findedProcesses := make([]*Process, 0)
 	for _, pro := range processes {
-		// TODO should we need verify the process must be in the root namespace? such as exclude the container processes
-		// That's mean the same process would could only be detect by one finder?
-
 		// find the matched process finder
 		finderConfig, cmdline, err := p.findMatchesFinder(pro)
 		if err != nil {

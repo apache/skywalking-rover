@@ -156,12 +156,6 @@ func (f *ProcessFinder) analyzeProcesses() error {
 			continue
 		}
 
-		// check support profiling
-		_, err = base.BuildProfilingStat(p)
-		if err != nil {
-			continue
-		}
-
 		// find process builder
 		ps, err := f.buildProcesses(p, c)
 		if err != nil {
@@ -296,6 +290,10 @@ func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 		{
 			Key:   "command_line",
 			Value: ps.(*Process).cmd,
+		},
+		{
+			Key:   "could_profiling",
+			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
 		},
 	}
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_K8SProcess{
