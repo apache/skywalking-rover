@@ -113,7 +113,7 @@ func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 			Value: ps.(*Process).cmd,
 		},
 		{
-			Key:   "could_profiling",
+			Key:   "support_ebpf_profiling",
 			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
 		},
 	}

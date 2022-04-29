@@ -33,7 +33,7 @@
       value: {{ notEmpty .value }}
     - name: command_line
       value: {{ notEmpty .value }}
-    - name: could_profiling
+    - name: support_ebpf_profiling
       value: "false"
     {{- end }}
   labels:
@@ -57,7 +57,7 @@
       value: {{ notEmpty .value }}
     - name: command_line
       value: {{ notEmpty .value }}
-    - name: could_profiling
+    - name: support_ebpf_profiling
       value: true
     {{- end }}
   labels:
@@ -81,7 +81,7 @@
       value: {{ notEmpty .value }}
     - name: command_line
       value: {{ notEmpty .value }}
-    - name: could_profiling
+    - name: support_ebpf_profiling
       value: "false"
     {{- end }}
   labels:

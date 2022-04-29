@@ -31,7 +31,7 @@
       value: {{ notEmpty .value }}
     - name: command_line
       value: /main --grpc --oap-server oap:11800
-    - name: could_profiling
+    - name: support_ebpf_profiling
       value: true
     {{- end }}
   labels:
