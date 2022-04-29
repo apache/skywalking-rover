@@ -17,7 +17,7 @@ setup:
   env: compose
   file: docker-compose.yml
   timeout: 20m
-  init-system-environment: ../../../base/env
+  init-system-environment: ../../../../base/env
   steps:
     - name: set PATH
       command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
