@@ -154,7 +154,7 @@ func (m *Module) findAddr(offset uint64) *Symbol {
 }
 
 func processSymbolName(name string) string {
-	if len(name) == 0 {
+	if name == "" {
 		return ""
 	}
 	// fix process demangle symbol name, such as c++ language symbol
