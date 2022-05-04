@@ -18,11 +18,14 @@
 package tools
 
 import (
+	"bufio"
 	"fmt"
 	"os"
-	"sort"
+	"regexp"
+	"strconv"
 	"strings"
 
+	host2 "github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
@@ -35,11 +38,15 @@ var (
 
 	// executable file profiling finders
 	profilingStatFinderList = []profiling.StatFinder{
-		profiling.NewGoLibrary(), profiling.NewObjDump(),
+		profiling.NewGoLibrary(),
 	}
 
 	// kernel profiling finder
 	kernelFinder = profiling.NewKernelFinder()
+
+	// process map file analyze(/proc/{pid}/maps)
+	mapFileContentRegex = regexp.MustCompile("(?P<StartAddr>[a-f\\d]+)\\-(?P<EndAddr>[a-f\\d]+)\\s(?P<Perm>[^\\s]+)" +
+		"\\s(?P<Offset>\\d+)\\s[a-f\\d]+\\:[a-f\\d]+\\s\\d+\\s+(?P<Name>[^\\n]+)")
 )
 
 // KernelFileProfilingStat is works for read the kernel and get is support for kernel symbol analyze
@@ -50,8 +57,8 @@ func KernelFileProfilingStat() (*profiling.Info, error) {
 	return kernelFinder.Analyze(profiling.KernelSymbolFilePath)
 }
 
-// ExecutableFileProfilingStat is validating the exe file could be profiling and get info
-func ExecutableFileProfilingStat(exePath string) (*profiling.Info, error) {
+// ProcessProfilingStat is validating the exe file could be profiling and get info
+func ProcessProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
 	stat, err := os.Stat(exePath)
 	if err != nil {
 		return nil, fmt.Errorf("check file error: %v", err)
@@ -61,35 +68,111 @@ func ExecutableFileProfilingStat(exePath string) (*profiling.Info, error) {
 			return nil, fmt.Errorf("not support %s language profiling", notSupport)
 		}
 	}
+	context := newAnalyzeContext()
 
-	var lastError error
-	for _, finder := range profilingStatFinderList {
-		if finder.IsSupport(exePath) {
-			if r, err1 := analyzeByFinder(exePath, finder); err1 == nil {
-				return r, nil
-			}
-			lastError = err
+	// the executable file must have the symbols
+	symbols, err := context.GetFinder(exePath).AnalyzeSymbols(exePath)
+	if err != nil || len(symbols) == 0 {
+		return nil, fmt.Errorf("could not found any symbol in the execute file: %s, error: %v", exePath, err)
+	}
+
+	return analyzeProfilingInfo(context, pid)
+}
+
+func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, error) {
+	// analyze process mapping
+	mapFile, _ := os.Open(host2.GetFileInHost(fmt.Sprintf("/proc/%d/maps", pid)))
+	scanner := bufio.NewScanner(mapFile)
+	modules := make(map[string]*profiling.Module)
+	for scanner.Scan() {
+		submatch := mapFileContentRegex.FindStringSubmatch(scanner.Text())
+		if len(submatch) != 6 {
+			continue
+		}
+		if len(submatch[3]) > 2 && submatch[3][2] != 'x' {
+			continue
+		}
+		moduleName := submatch[5]
+		if isIgnoreModuleName(moduleName) {
+			continue
+		}
+
+		// parsing range
+		var err error
+		moduleRange := &profiling.ModuleRange{}
+		moduleRange.StartAddr, err = parseUInt64InModule(err, moduleName, "start address", submatch[1])
+		moduleRange.EndAddr, err = parseUInt64InModule(err, moduleName, "end address", submatch[2])
+		moduleRange.FileOffset, err = parseUInt64InModule(err, moduleName, "file offset", submatch[4])
+		if err != nil {
+			return nil, err
+		}
+
+		module := modules[moduleName]
+		if module != nil {
+			module.Ranges = append(module.Ranges, moduleRange)
+			continue
+		}
+		modulePath := host2.GetFileInHost(fmt.Sprintf("/proc/%d/root%s", pid, moduleName))
+
+		module, err = context.GetFinder(modulePath).ToModule(pid, moduleName, modulePath, []*profiling.ModuleRange{moduleRange})
+		if err != nil {
+			return nil, fmt.Errorf("could not init the module: %s, error: %v", moduleName, err)
+		}
+		modules[moduleName] = module
+	}
+	return profiling.NewInfo(modules), nil
+}
+
+func parseUInt64InModule(err error, moduleName, key, val string) (uint64, error) {
+	if err != nil {
+		return 0, err
+	}
+	res, err := strconv.ParseUint(val, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("error parsing the %s in maps file: %s", key, moduleName)
+	}
+	return res, nil
+}
+
+func isIgnoreModuleName(name string) bool {
+	return len(name) > 0 &&
+		(strings.HasPrefix(name, "//anon") ||
+			strings.HasPrefix(name, "/dev/zero") ||
+			strings.HasPrefix(name, "/anon_hugepage") ||
+			strings.HasPrefix(name, "[stack") ||
+			strings.HasPrefix(name, "/SYSV") ||
+			strings.HasPrefix(name, "[heap]") ||
+			strings.HasPrefix(name, "/memfd:") ||
+			strings.HasPrefix(name, "[vdso]") ||
+			strings.HasPrefix(name, "[vsyscall]") ||
+			strings.HasSuffix(name, ".map"))
+}
+
+type analyzeContext struct {
+	pathToFinder map[string]profiling.StatFinder
+}
+
+func newAnalyzeContext() *analyzeContext {
+	return &analyzeContext{
+		pathToFinder: make(map[string]profiling.StatFinder),
+	}
+}
+
+func (a *analyzeContext) GetFinder(name string) profiling.StatFinder {
+	if f := a.pathToFinder[name]; f != nil {
+		return f
+	}
+
+	// find all finders
+	for _, f := range profilingStatFinderList {
+		if f.IsSupport(name) {
+			a.pathToFinder[name] = f
+			return f
 		}
 	}
 
-	if lastError == nil {
-		lastError = fmt.Errorf("could not found library to analyze the file")
-	}
-
-	return nil, lastError
-}
-
-func analyzeByFinder(exePath string, finder profiling.StatFinder) (*profiling.Info, error) {
-	// do analyze
-	info, err := finder.Analyze(exePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// order the symbols by address
-	sort.SliceStable(info.Symbols, func(i, j int) bool {
-		return info.Symbols[i].Location < info.Symbols[j].Location
-	})
-
-	return info, nil
+	// not support
+	n := profiling.NewNotSupport()
+	a.pathToFinder[name] = n
+	return n
 }

@@ -65,5 +65,12 @@ func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
 		})
 	}
 
-	return newInfo(symbols), nil
+	kernelModule := &Module{
+		Name:    "kernel",
+		Symbols: symbols,
+	}
+
+	return NewInfo(map[string]*Module{
+		"kernel": kernelModule,
+	}), nil
 }

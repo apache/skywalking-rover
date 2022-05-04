@@ -19,10 +19,10 @@ package base
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
+	"github.com/apache/skywalking-rover/pkg/tools/path"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	"github.com/shirou/gopsutil/process"
@@ -30,39 +30,26 @@ import (
 
 // BuildProfilingStat use to build the profiling info for profiling
 func BuildProfilingStat(ps *process.Process) (*profiling.Info, error) {
-	path := tryToFindFileExecutePath(ps)
-	if path == "" {
+	exePath := tryToFindFileExecutePath(ps)
+	if exePath == "" {
 		return nil, fmt.Errorf("could not found executable file")
 	}
 
 	// check support profiling
-	return tools.ExecutableFileProfilingStat(path)
+	return tools.ProcessProfilingStat(ps.Pid, exePath)
 }
 
 func tryToFindFileExecutePath(ps *process.Process) string {
 	exe, err := ps.Exe()
-	if pathExists(exe, err) {
+	if err != nil {
+		return ""
+	}
+	if path.Exists(exe) {
 		return exe
 	}
-	cwd, err := ps.Cwd()
-	if pathExists(cwd, err) && pathExists(cwd+"/"+exe, err) {
-		return cwd + "/" + exe
-	}
-	linuxProcessRoot := host.GetFileInHost(fmt.Sprintf("/proc/%d/root", ps.Pid))
-	if pathExists(linuxProcessRoot, nil) {
-		if pathExists(linuxProcessRoot+"/"+exe, nil) {
-			return linuxProcessRoot + "/" + exe
-		} else if pathExists(linuxProcessRoot+"/"+cwd+"/"+exe, nil) {
-			return linuxProcessRoot + "/" + cwd + "/" + exe
-		}
+	pathInNs := host.GetFileInHost(fmt.Sprintf("/proc/%d/root%s", ps.Pid, exe))
+	if path.Exists(pathInNs) {
+		return pathInNs
 	}
 	return ""
-}
-
-func pathExists(exe string, err error) bool {
-	if err != nil {
-		return false
-	}
-	_, e := os.Stat(exe)
-	return !os.IsNotExist(e)
 }

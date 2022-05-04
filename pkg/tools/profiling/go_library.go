@@ -20,6 +20,10 @@ package profiling
 import (
 	"debug/elf"
 	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/apache/skywalking-rover/pkg/tools/path"
 )
 
 // GoLibrary is using build-in elf reader to read
@@ -31,22 +35,29 @@ func NewGoLibrary() *GoLibrary {
 }
 
 func (l *GoLibrary) IsSupport(filePath string) bool {
+	f, err := elf.Open(filePath)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
 	return true
 }
 
-func (l *GoLibrary) Analyze(filePath string) (*Info, error) {
+func (l *GoLibrary) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
 	// read els file
 	file, err := elf.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("read ELF file error: %v", err)
+		return nil, err
 	}
 	defer file.Close()
 
 	// exist symbol data
 	symbols, err := file.Symbols()
 	if err != nil || len(symbols) == 0 {
-		return nil, fmt.Errorf("read symbol data failure or no symbole data: %v", err)
+		return nil, nil
 	}
+	dySyms, _ := file.DynamicSymbols()
+	symbols = append(symbols, dySyms...)
 
 	// adapt symbol struct
 	data := make([]*Symbol, len(symbols))
@@ -54,5 +65,54 @@ func (l *GoLibrary) Analyze(filePath string) (*Info, error) {
 		data[i] = &Symbol{Name: sym.Name, Location: sym.Value}
 	}
 
-	return newInfo(data), nil
+	sort.SliceStable(data, func(i, j int) bool {
+		return data[i].Location < data[j].Location
+	})
+
+	return data, nil
+}
+
+func (l *GoLibrary) ToModule(pid int32, modName, modPath string, moduleRange []*ModuleRange) (*Module, error) {
+	res := &Module{}
+	res.Name = modName
+	res.Path = modPath
+	res.Ranges = moduleRange
+	file, err := elf.Open(modPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	header := file.FileHeader
+	mType := ModuleTypeUnknown
+	switch header.Type {
+	case elf.ET_EXEC:
+		mType = ModuleTypeExec
+	case elf.ET_DYN:
+		mType = ModuleTypeSo
+	}
+
+	if mType == ModuleTypeUnknown {
+		if strings.HasSuffix(modPath, ".map") && path.Exists(modPath) {
+			mType = ModuleTypePerfMap
+		} else if modName == "[vdso]" {
+			mType = ModuleTypeVDSO
+		}
+	} else if mType == ModuleTypeSo {
+		section := file.Section(".text")
+		if section == nil {
+			return nil, fmt.Errorf("could not found .text section in so file: %s", modName)
+		}
+		res.SoAddr = section.Addr
+		res.SoOffset = section.Offset
+	}
+	res.Type = mType
+
+	// load all symbols
+	res.Symbols, err = l.AnalyzeSymbols(modPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
