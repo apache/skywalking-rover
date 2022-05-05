@@ -1,6 +1,6 @@
 # Detect Process by Agent Sensor
 
-This documentation helps you to set up service which could let rover detected automatically.
+This documentation helps you to set up a service that could let rover detected automatically.
 
 ## Configure Service
 
@@ -16,13 +16,13 @@ defer r.Close()
 tracer, err := go2sky.NewTracer("example", go2sky.WithReporter(r))
 ```
 
-The `reporter.WithProcessStatusHook(true)` declare to enable the Process Status Hook feature.
+The `reporter.WithProcessStatusHook(true)` declares to enable the Process Status Hook feature.
 
 ## Starting Rover
 
 ### Enable Linux Process Scanner
 
-After your service been startup, then configure the Linux process scanner with "AGENT_SENSOR" mode.
+After your service has been startup, then configure the Linux process scanner with "AGENT_SENSOR" mode.
 
 ### Full Configuration
 

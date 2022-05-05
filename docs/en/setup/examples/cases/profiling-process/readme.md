@@ -1,10 +1,10 @@
-# Profiling a Golang/C service on Linux
+# Profiling a Golang/C/Rust service on Linux
 
 This documentation helps you set up the configuration to find which processes want to be monitored and profiled.
 
 ## Startup service
 
-Startup your service in the Linux, and make sure your service already have the symbol data inside the binary file.
+Startup your service in Linux, and make sure your service already has the symbol data inside the binary file.
 So we could locate the stack symbol, It could be checked following these ways:
 1. **objdump**: Using `objdump --syms path/to/service`.
 2. **readelf**: Using `readelf --syms path/to/service`.
@@ -13,8 +13,8 @@ So we could locate the stack symbol, It could be checked following these ways:
 
 ### Enable Linux Process Scanner
 
-After your service been startup, then configure the Linux process scanner to let Rover known how to find service.
-Please make sure the Linux Process Detector have been active.
+After your service has been started, then configure the Linux process scanner to let Rover know how to find the service.
+Please make sure the Linux Process Detector has been active.
 
 Then configure the finder to locate/identity service. It contains these data configure:
 1. Regex to locate the service by command line.
@@ -29,7 +29,7 @@ $ ps -ef|grep sqrt
 root      2072    1790  0 14:59 pts/0    00:00:00 ./sqrt name=a
 ```
 
-Follow the command example in above, you could see the last column showing the process command line is `./sqrt name=a`.
+Following the command example above, you could see the last column showing the process command line is `./sqrt name=a`.
 We use the regex to filter the process, In this case, we could use `sqrt` as the service identity.
 
 #### Update Process Entity

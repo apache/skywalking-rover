@@ -1,10 +1,10 @@
 # Linux Process Detector
 
-The Linux process scanner could detect any process in the Linux with finders. It has two mode:
+The Linux process scanner could detect any process in Linux with finders. It has two modes:
 1. **REGEX**: could define a regex to filter which processes declare to monitor.
-2. **AGENT_SENSOR**: scan recent active agent which have process status hook.
+2. **AGENT_SENSOR**: scan recent active agents which have process status hook.
 
-After find the process, it would be collect the metadata of the process when the report to the backend.
+After finding the process, it would collect the metadata of the process when the report to the backend.
 
 ## Configuration
 
@@ -24,13 +24,13 @@ After find the process, it would be collect the metadata of the process when the
 
 ## Agent Sensor Mode
 
-Agent Sensor mode scanner could scan process which have installed the skywalking agent and report them.
+Agent Sensor mode scanner could scan processes that have installed the skywalking agent and report them.
 
 ### Process Status Hook File Protocol
 
-The agent must be implemented the process status hook file protocol, then the rover could be collected the information of the process.
+The agent must be implemented the process status hook file protocol, then the rover could be collected the information on the process.
 
-This protocol is mainly is a metadata file, which contains the metadata of the process. 
+This protocol is mainly a metadata file, which contains the metadata of the process.
 It should be saved in: `{TMPDIR}/apache_skywalking/process/{pid}/metadata.properties`, and update modify time with the interval to keep alive, the content in the `properties` format as below:
 
 | Key | Type | Description |
@@ -45,17 +45,17 @@ It should be saved in: `{TMPDIR}/apache_skywalking/process/{pid}/metadata.proper
 
 ## Regex Mode
 
-Regex mode scanner could define a regex to filter which process declare to monitor by command line. 
-Multiple regex can be defined to mach different types of processes.
+Regex mode scanner could define a regex to filter which process declare to monitor by command line.
+Multiple regexes can be defined to match different types of processes.
 
-Note, the duplicate processes entities cannot be reported. If multiple entities are generated, only one process will be reported.
+Note, that the duplicate processes entities cannot be reported. If multiple entities are generated, only one process will be reported.
 If the multiple finders could match the same process, only the first finder could be selected and reported.
 
 ### Entity Builder
 
 The metadata of the process could build by the Go Template to help dynamically build them, also, you could just configure it as the string value, and it still works.
 
-These fields are supported using template to build:
+These fields are supported using the template to build:
 1. Service Name
 2. Service Instance Name
 3. Process NAme

@@ -13,7 +13,7 @@ and send the snapshot to the backend server.
 
 ## Profiling Type
 
-All the profiling tasks is using the [Linux Official Function](https://man7.org/linux/man-pages/man2/perf_event_open.2.html) to open perf event,
+All the profiling tasks are using the [Linux Official Function](https://man7.org/linux/man-pages/man2/perf_event_open.2.html) to open perf event,
 and attach the eBPF Program to dump stacks.
 
 ### On CPU

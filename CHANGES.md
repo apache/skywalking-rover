@@ -5,6 +5,8 @@ Release Notes.
 0.1.0
 ------------------
 #### Features
+* Support detect processes in `scanner` or `kubernetes` mode.
+* Support profiling C, C++, Golang, and Rust service.
 
 #### Bug Fixes
 
