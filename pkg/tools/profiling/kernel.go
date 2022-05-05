@@ -20,6 +20,7 @@ package profiling
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -68,6 +69,13 @@ func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
 	kernelModule := &Module{
 		Name:    "kernel",
 		Symbols: symbols,
+		// kernel module could handling all symbols
+		Ranges: []*ModuleRange{
+			{
+				StartAddr: 0,
+				EndAddr:   math.MaxUint64,
+			},
+		},
 	}
 
 	return NewInfo(map[string]*Module{
