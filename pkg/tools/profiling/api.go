@@ -18,6 +18,8 @@
 package profiling
 
 import (
+	"github.com/apache/skywalking-rover/pkg/logger"
+
 	"github.com/ianlancetaylor/demangle"
 )
 
@@ -25,6 +27,8 @@ type ModuleType int8
 
 var (
 	KernelSymbolFilePath = "/proc/kallsyms"
+
+	log = logger.GetLogger("tools", "profiling")
 )
 
 const (
@@ -101,11 +105,14 @@ func (i *Info) FindSymbolName(address uint64) string {
 	if d := i.cacheAddrToSymbol[address]; d != "" {
 		return d
 	}
+	log.Debugf("ready to find the symbol from address: %d", address)
+	foundModule := false
 	for _, mod := range i.Modules {
 		offset, c := mod.contains(address)
 		if !c {
 			continue
 		}
+		foundModule = true
 
 		if sym := mod.findAddr(offset); sym != nil {
 			name := processSymbolName(sym.Name)
@@ -113,15 +120,20 @@ func (i *Info) FindSymbolName(address uint64) string {
 			return name
 		}
 	}
+	if !foundModule {
+		log.Debugf("could not found any module to handle address: %d", address)
+	}
 	return ""
 }
 
 func (m *Module) contains(addr uint64) (uint64, bool) {
 	for _, r := range m.Ranges {
 		if addr >= r.StartAddr && addr < r.EndAddr {
+			log.Debugf("found module %s could hanlde address: %d", m.Name, addr)
 			if m.Type == ModuleTypeSo || m.Type == ModuleTypeVDSO {
 				offset := addr - r.StartAddr + r.FileOffset
 				offset += m.SoAddr - m.SoOffset
+				log.Debugf("update address %d to offset %d", addr, offset)
 				return offset, true
 			}
 			return addr, true
@@ -149,6 +161,7 @@ func (m *Module) findAddr(offset uint64) *Symbol {
 	if start >= 1 && m.Symbols[start-1].Location < offset && offset < m.Symbols[start].Location {
 		return m.Symbols[start-1]
 	}
+	log.Debugf("could not found the address: %d in module %s", offset, m.Name)
 
 	return nil
 }

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apache/skywalking-rover/pkg/logger"
 	host2 "github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
@@ -46,7 +47,9 @@ var (
 
 	// process map file analyze(/proc/{pid}/maps)
 	mapFileContentRegex = regexp.MustCompile("(?P<StartAddr>[a-f\\d]+)\\-(?P<EndAddr>[a-f\\d]+)\\s(?P<Perm>[^\\s]+)" +
-		"\\s(?P<Offset>\\d+)\\s[a-f\\d]+\\:[a-f\\d]+\\s\\d+\\s+(?P<Name>[^\\n]+)")
+		"\\s(?P<Offset>[a-f\\d]+)\\s[a-f\\d]+\\:[a-f\\d]+\\s\\d+\\s+(?P<Name>[^\\n]+)")
+
+	log = logger.GetLogger("tools", "process")
 )
 
 // KernelFileProfilingStat is works for read the kernel and get is support for kernel symbol analyze
@@ -119,6 +122,7 @@ func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, 
 			return nil, fmt.Errorf("could not init the module: %s, error: %v", moduleName, err)
 		}
 		modules[moduleName] = module
+		log.Debugf("found module %s in the pid %d, ranges: %d->%d", module.Name, pid, moduleRange.StartAddr, moduleRange.EndAddr)
 	}
 	return profiling.NewInfo(modules), nil
 }
