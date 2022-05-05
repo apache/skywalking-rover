@@ -25,7 +25,7 @@ You can quickly build your Rover according to the following examples:
 
 ### Use Cases
 
-1. [Profiling a Golang/C service on Linux](examples/cases/profiling-process/readme.md)
+1. [Profiling a Golang/C/C++/Rust service on Linux](examples/cases/profiling-process/readme.md)
 1. [Detect Process by Agent Sensor](examples/cases/agent-sensor/readme.md)
 1. [Detect Process in Kubernetes Environemnt](examples/cases/kubernetes-process/readme.md)
 

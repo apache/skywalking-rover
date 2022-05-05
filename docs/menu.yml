@@ -55,7 +55,7 @@ catalog:
                   path: /en/setup/examples/deploy/linux/readme
             - name: Use Cases
               catalog:
-                - name: Profiling a Golang/C service on Linux
+                - name: Profiling a Golang/C/C++/Rust service on Linux
                   path: /en/setup/examples/cases/profiling-process/readme
                 - name: Detect Process by Agent Sensor
                   path: /en/setup/examples/cases/agent-sensor/readme

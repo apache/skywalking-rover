@@ -14,7 +14,7 @@ Linux version >= `4.4`, and dependency these tools:
 
 ### MacOS or Windows
 
-Make sure it already has docker environment.
+Make sure it already has a docker environment.
 
 ## Command
 ```shell script

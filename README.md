@@ -3,7 +3,7 @@ Apache SkyWalking Rover
 
 <img src="http://skywalking.apache.org/assets/logo.svg" alt="Sky Walking logo" height="90px" align="right" />
 
-**SkyWalking Rover**: Metrics collector and ebpf-based profiler for C, C++, Golang and Rust.
+**SkyWalking Rover**: Metrics collector and ebpf-based profiler for C, C++, Golang, and Rust.
 
 [![GitHub stars](https://img.shields.io/github/stars/apache/skywalking.svg?style=for-the-badge&label=Stars&logo=github)](https://github.com/apache/skywalking)
 [![Twitter Follow](https://img.shields.io/twitter/follow/asfskywalking.svg?style=for-the-badge&label=Follow&logo=twitter)](https://twitter.com/AsfSkyWalking)

@@ -1,8 +1,8 @@
 # Kubernetes Process Detector
 
 The Kubernetes process detector could detect any process under the Kubernetes container.
-If active the kubernetes process detector, the rover must be deployed in the kubernetes cluster.
-After find the process, it would be collect the metadata of the process when the report to the backend.
+If active the Kubernetes process detector, the rover must be deployed in the Kubernetes cluster.
+After finding the process, it would collect the metadata of the process when the report to the backend.
 
 ## Configuration
 
@@ -21,32 +21,32 @@ After find the process, it would be collect the metadata of the process when the
 
 ## Process Analyze
 
-The process analyze declares which process could be profiled and how to build the process entity. 
-The istio and kuberentes resources is active on default. 
+The process analysis declares which process could be profiled and how to build the process entity.
+The Istio and Kubernetes resources are active on default.
 
 ### Filter
 
-The filter provide expression(go template) mechanism to match process that can build the entity. Multiple expressions work together to determine whether the process can create entity.
-Each expression must be return the boolean value. Otherwise, the decision throws an error.
+The filter provides an expression(go template) mechanism to match the process that can build the entity. Multiple expressions work together to determine whether the process can create the entity.
+Each expression must return the boolean value. Otherwise, the decision throws an error.
 
-The context is similar to the entity builder. Use context could help rover understanding which process could build entity.
+The context is similar to the entity builder. Using context could help the rover understand which process could build the entity.
 
 #### Process Context
 
-Is same with the [process context in scanner](./scanner.md#process), but don't need to add the `{{` and `}}` in prefix and suffix. 
+Is the same with the [process context in scanner](./scanner.md#process), but doesn't need to add the `{{` and `}}` in prefix and suffix.
 
 #### Pod Context
 
-Provide current pod information and judgements. 
+Provide current pod information and judgments.
 
 | Name | Argument |  Example  | Description |
 |------|--------- |-----------|-------------|
-| Name | None | `eq .Pod.Name "test-pod-name"` | The name of current pod. The example shows the pod name is equals to `test-pod-name`. |
-| Namespace | None | `eq .Pod.Namespace "test-namesapce"` | The name of current pod namespace. The example shows the pod namespace name is equals to `test-namespace`. |
-| Node | None | `eq .Pod.Node "test-node"` | The name of node which deployed. The example shows the pod node name is equals to `test-node`. |
-| LabelValue | KeyNames | `eq .Pod.LavelValue "a,b" "v"` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. The examples shows the pod has any one `a` or `b` label key, and the value matches to `v`. |
+| Name | None | `eq .Pod.Name "test-pod-name"` | The name of the current pod. The example shows the pod name is equal to `test-pod-name`. |
+| Namespace | None | `eq .Pod.Namespace "test-namesapce"` | The name of the current pod namespace. The example shows the pod namespace name is equal to `test-namespace`. |
+| Node | None | `eq .Pod.Node "test-node"` | The name of the node deployed. The example shows the pod node name is equal to `test-node`. |
+| LabelValue | KeyNames | `eq .Pod.LavelValue "a,b" "v"` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. The example shows the pod has anyone `a` or `b` label key, and the value matches to `v`. |
 | ServiceName | None | `eq .Pod.ServiceName "test-service"` | The service name of the pod. The example shows current pods matched service name is `test-service`. |
-| HasContainer | Container name | `.Pod.HasContainer "istio-proxy"` | The pod is have the appoint container name. |
+| HasContainer | Container name | `.Pod.HasContainer "istio-proxy"` | The pod has the appointed container name. |
 | LabelSelector | selector | `.Pod.LabelSelector` | The pod is matches the label selector. For more details, please read the [official documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors). |
 | HasServiceName | None | `.Pod.HasServiceName` | The pod has the matched service. |
 
@@ -56,10 +56,10 @@ Provide current container(under the pod) information.
 
 | Name | Argument | Example | Description |
 |------|--------- |-----------|-------------|
-| Name | None | `eq .Container.Name "istio-proxy"`| The name of current container under the pod. The examples shows the container name is equals to `istio-proxy`. |
+| Name | None | `eq .Container.Name "istio-proxy"`| The name of the current container under the pod. The examples show the container name is equal to `istio-proxy`. |
 
-### Entity 
-The entity including `layer`, `serviceName`, `instanceName`, `processName` and `labels` properties. 
+### Entity
+The entity including `layer`, `serviceName`, `instanceName`, `processName` and `labels` properties.
 
 The entity also could use expression to build(`serviceName`, `instanceName` and `processName`).
 
@@ -73,15 +73,15 @@ Same with the [process context in the scanner](./scanner.md#process).
 
 #### Pod
 
-The information of the current pod.
+The information on the current pod.
 
 | Name | Argument |  Example  | Description |
 |------|--------- |-----------|-------------|
 | Name | None | `{{.Pod.Name}}` | The name of current pod. |
 | Namespace | None | `{{.Pod.Namespace}}` | The name of current pod namespace. |
-| Node | None | `{{.Pod.Node}}` | The name of node which deployed. |
+| Node | None | `{{.Pod.Node}}` | The name of the node deployed. |
 | LabelValue | KeyNames | `{{.Pod.LavelValue "a,b"}}` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. |
-| ServiceName | None | `{{.Pod.ServiceName}}` | The service name of the pod. If the pod haven't matched service, then return empty string. |
+| ServiceName | None | `{{.Pod.ServiceName}}` | The service name of the pod. If the pod hasn't matched service, then return an empty string. |
 
 #### Container
 
@@ -89,5 +89,5 @@ The information of the current container under the pod.
 
 | Name | Argument | Example | Description |
 |------|--------- |-----------|-------------|
-| Name | None | `{{.Container.Name}}`| The name of current container under the pod. |
-| ID | None | `{{.Container.ID}}`| The id of current container under the pod. |
+| Name | None | `{{.Container.Name}}`| The name of the current container under the pod. |
+| ID | None | `{{.Container.ID}}`| The id of the current container under the pod. |
