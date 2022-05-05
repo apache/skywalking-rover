@@ -1,4 +1,4 @@
-# Profiling a Golang/C/Rust service on Linux
+# Profiling a Golang/C/C++/Rust service on Linux
 
 This documentation helps you set up the configuration to find which processes want to be monitored and profiled.
 
