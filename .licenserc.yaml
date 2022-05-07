@@ -36,3 +36,28 @@ header:
 dependency:
   files:
     - go.mod
+  licenses:
+    - name: github.com/gogo/protobuf
+      version: v1.3.2
+      license: BSD-3-Clause
+    - name: github.com/pascaldekloe/goe
+      version: v0.1.0
+      license: CC0-1.0
+    - name: github.com/pelletier/go-toml
+      version: v1.9.4
+      license: MIT and Apache
+    - name: github.com/shirou/gopsutil
+      version: v3.21.11+incompatible
+      license: BSD-3-Clause
+    - name: gopkg.in/check.v1
+      version: v1.0.0-20200227125254-8fa46927fb4f
+      license: BSD-2-Clause
+    - name: gopkg.in/inf.v0
+      version: v0.9.1
+      license: BSD-3-Clause
+    - name: gopkg.in/tomb.v1
+      version: v1.0.0-20141024135613-dd632973f1e7
+      license: BSD-3-Clause
+    - name: sigs.k8s.io/json
+      version: v0.0.0-20211020170558-c049b76a60c6
+      license: Apache-2.0 and BSD-3-Clause
