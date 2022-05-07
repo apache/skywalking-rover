@@ -30,6 +30,7 @@ header:
     - 'LICENSE'
     - 'NOTICE'
     - '.gitignore'
+    - 'dist/LICENSE.tpl'
 
   comment: on-failure
 
