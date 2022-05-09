@@ -95,6 +95,9 @@ func (r *Registry) recomposePodServiceName() {
 				if pod.Namespace != service.Namespace {
 					continue
 				}
+				if len(service.Spec.Selector) == 0 {
+					continue
+				}
 
 				if labels.Set(service.Spec.Selector).AsSelector().Matches(labels.Set(pod.ObjectMeta.Labels)) {
 					result[pod.Namespace+"_"+pod.Name] = service.Name
