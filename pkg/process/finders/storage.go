@@ -164,15 +164,17 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 		return err
 	}
 
+	processIDBeenUsed := make(map[string]bool)
 	for _, waitProcess := range waitReportProcesses {
 		found := false
 		for _, reportedProcess := range processes.GetProcesses() {
 			id := s.finders[waitProcess.DetectType()].ParseProcessID(waitProcess.detectProcess, reportedProcess)
-			if id == "" {
+			if id == "" || processIDBeenUsed[id] {
 				continue
 			}
 
 			s.updateProcessToUploadSuccess(waitProcess, id)
+			processIDBeenUsed[id] = true
 			found = true
 			break
 		}
