@@ -234,6 +234,7 @@ func (m *Manager) flushProfilingData() error {
 			continue
 		}
 
+		currentMilli = m.minInt64(currentMilli, t.startRunningTime.UnixMilli()+t.task.MaxRunningDuration.Milliseconds())
 		// only the first data have task metadata
 		data[0].Task = &profiling_v3.EBPFProfilingTaskMetadata{
 			TaskId:             t.task.TaskID,
@@ -252,4 +253,11 @@ func (m *Manager) flushProfilingData() error {
 
 	_, err = stream.CloseAndRecv()
 	return err
+}
+
+func (m *Manager) minInt64(x, y int64) int64 {
+	if x > y {
+		return y
+	}
+	return x
 }
