@@ -6,6 +6,7 @@ This documentation guides the release manager to release the SkyWalking Rover in
 
 1. Close(if finished, or move to next milestone otherwise) all issues in the current milestone from [skywalking-rover](https://github.com/apache/skywalking-rover/milestones) and [skywalking](https://github.com/apache/skywalking/milestones), create a new milestone if needed.
 2. Update [CHANGES.md](../../../../CHANGES.md).
+3. Check the [dependency licenses](../../../../dist/LICENSE) including all dependencies.
 
 ## Add your GPG public key to Apache svn
 
