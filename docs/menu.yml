@@ -67,6 +67,8 @@ catalog:
           catalog:
             - name: How to Write a Module
               path: /en/guides/contribution/how-to-write-module
+            - name: How to Release
+              path: /en/guides/contribution/how-to-release
         - name: Compile
           catalog:
             - name: How to compile SkyWalking Rover
