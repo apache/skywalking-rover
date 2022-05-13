@@ -9,6 +9,14 @@ Usually, the process to be monitored is first declared.
 
 Then, you can use `bin/startup.sh` to start up the rover with their config[../../../configs/rover_configs.yaml].
 
+### SkyWalking OAP
+
+The SkyWalking Rover requires specialized protocols to communicate with SkyWalking OAP.
+
+| SkyWalking Rover Version | SkyWalking OAP |
+|--------------------------|----------------|
+|0.1.0+                    |>= 9.1.0        |
+
 ## Startup script
 Startup Script
 ```shell script
