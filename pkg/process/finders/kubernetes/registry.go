@@ -18,6 +18,7 @@
 package kubernetes
 
 import (
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -73,7 +74,10 @@ func (r *Registry) BuildPodContainers() map[string]*PodContainer {
 		for _, p := range list {
 			analyzeContainers := AnalyzeContainers(p.(*v1.Pod), r)
 			for _, c := range analyzeContainers {
-				containers[c.CGroupID()] = c
+				id := c.CGroupID()
+				if id != "" {
+					containers[id] = c
+				}
 			}
 		}
 	}
@@ -100,12 +104,34 @@ func (r *Registry) recomposePodServiceName() {
 				}
 
 				if labels.Set(service.Spec.Selector).AsSelector().Matches(labels.Set(pod.ObjectMeta.Labels)) {
-					result[pod.Namespace+"_"+pod.Name] = service.Name
+					// if multiple service selector matches the same pod
+					// then must choose one by same logical
+					existing := result[pod.Namespace+"_"+pod.Name]
+					if existing != "" {
+						existing = chooseServiceName(existing, service.Name)
+					} else {
+						existing = service.Name
+					}
+					result[pod.Namespace+"_"+pod.Name] = existing
 				}
 			}
 		}
 	}
 	r.podServiceNameCache = result
+}
+
+func chooseServiceName(a, b string) string {
+	// short name
+	if len(a) < len(b) {
+		return a
+	} else if len(a) > len(b) {
+		return b
+	}
+	// ascii compare
+	if strings.Compare(a, b) < 0 {
+		return a
+	}
+	return b
 }
 
 func (r *Registry) OnAdd(_ interface{}) {

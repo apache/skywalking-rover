@@ -37,6 +37,8 @@ core:
 process_discovery:
   # The period of report or keep alive process(second)
   heartbeat_period: ${ROVER_PROCESS_DISCOVERY_HEARTBEAT_PERIOD:20s}
+  # The agent sends the process properties to the backend every: heartbeart period * properties report period
+  properties_report_period: ${ROVER_PROCESS_DISCOVERY_PROPERTIES_REPORT_PERIOD:10}
   # Scan process from linux
   scanner:
     # The period to detect the process

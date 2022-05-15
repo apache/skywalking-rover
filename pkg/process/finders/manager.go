@@ -48,7 +48,7 @@ type ProcessManagerWithFinder struct {
 }
 
 func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
-	reportInterval time.Duration, configs ...base.FinderBaseConfig) (*ProcessManager, error) {
+	reportInterval time.Duration, propertiesReportFactor int, configs ...base.FinderBaseConfig) (*ProcessManager, error) {
 	// locate all finders
 	confinedFinders := make(map[base.FinderBaseConfig]base.ProcessFinder)
 	fsList := make([]base.ProcessFinder, 0)
@@ -65,7 +65,7 @@ func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
 	}
 
 	// start new storage
-	storage, err := NewProcessStorage(ctx, moduleManager, reportInterval, fsList)
+	storage, err := NewProcessStorage(ctx, moduleManager, reportInterval, propertiesReportFactor, fsList)
 	if err != nil {
 		return nil, err
 	}

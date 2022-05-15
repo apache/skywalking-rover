@@ -20,6 +20,7 @@ package base
 import (
 	"context"
 
+	commonv3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
 
 	"github.com/apache/skywalking-rover/pkg/module"
@@ -46,6 +47,8 @@ type ProcessFinder interface {
 
 	// BuildEBPFProcess is transform the process entity as backend protocol data
 	BuildEBPFProcess(ctx *BuildEBPFProcessContext, process DetectedProcess) *v3.EBPFProcessProperties
+	// BuildNecessaryProperties is getting minimize necessary properties when keep alive
+	BuildNecessaryProperties(process DetectedProcess) []*commonv3.KeyStringValuePair
 	// ParseProcessId is means how to read the process id receive from backend
 	ParseProcessID(process DetectedProcess, downstream *v3.EBPFProcessDownstream) string
 }

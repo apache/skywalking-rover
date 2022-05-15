@@ -29,6 +29,9 @@ type Config struct {
 	// heartbeat the process list period
 	HeartbeatPeriod string `mapstructure:"heartbeat_period"`
 
+	// sends properties to the backend period
+	PropertiesReportPeriod int `mapstructure:"properties_report_period"`
+
 	// Scanner process from Linux
 	Scanner *scanner.Config `mapstructure:"scanner"`
 

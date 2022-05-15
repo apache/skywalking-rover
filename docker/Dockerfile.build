@@ -28,7 +28,7 @@ ENV CGO_ENABLED=0
 RUN VERSION=$VERSION make generate && make linux
 RUN mv /src/bin/skywalking-rover-${VERSION}-linux-amd64 /src/bin/skywalking-rover
 
-FROM scratch
+FROM alpine
 
 VOLUME /skywalking/configs
 

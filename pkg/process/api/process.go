@@ -17,7 +17,12 @@
 
 package api
 
-import "github.com/apache/skywalking-rover/pkg/tools/profiling"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+)
 
 type ProcessDetectType int8
 
@@ -64,4 +69,13 @@ func (e *ProcessEntity) SameWith(other *ProcessEntity) bool {
 	}
 	return e.Layer == other.Layer && e.ServiceName == other.ServiceName && e.InstanceName == other.InstanceName &&
 		e.ProcessName == other.ProcessName
+}
+
+func (e *ProcessEntity) String() string {
+	marshal, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Sprintf("layer: %s, service: %s, instance: %s, process: %s, labels: %v",
+			e.Labels, e.ServiceName, e.InstanceName, e.ProcessName, e.Labels)
+	}
+	return string(marshal)
 }

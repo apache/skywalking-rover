@@ -19,7 +19,12 @@ package base
 
 import (
 	"fmt"
+	"reflect"
+	"sort"
 
+	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
+
+	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/path"
@@ -52,4 +57,28 @@ func tryToFindFileExecutePath(ps *process.Process) string {
 		return pathInNs
 	}
 	return ""
+}
+
+func EntityIsSameWithProtocol(processEntity *api.ProcessEntity, protocolEntity *v3.EBPFProcessEntityMetadata) bool {
+	if processEntity == nil || protocolEntity == nil {
+		return false
+	}
+
+	if !reflect.DeepEqual(sortLabelArray(processEntity.Labels), sortLabelArray(protocolEntity.Labels)) {
+		return false
+	}
+	return processEntity.Layer == protocolEntity.Layer &&
+		processEntity.ServiceName == protocolEntity.ServiceName &&
+		processEntity.InstanceName == protocolEntity.InstanceName &&
+		processEntity.ProcessName == protocolEntity.ProcessName
+}
+
+func sortLabelArray(a []string) []string {
+	if a == nil {
+		return make([]string, 0)
+	}
+	sort.SliceStable(a, func(i, j int) bool {
+		return a[i] > a[j]
+	})
+	return a
 }
