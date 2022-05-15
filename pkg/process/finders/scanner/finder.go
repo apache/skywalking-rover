@@ -112,22 +112,29 @@ func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 			Key:   "command_line",
 			Value: ps.(*Process).cmd,
 		},
-		{
-			Key:   "support_ebpf_profiling",
-			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
-		},
 	}
+	hostProcess.Properties = append(hostProcess.Properties, p.BuildNecessaryProperties(ps)...)
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_HostProcess{
 		HostProcess: hostProcess,
 	}}
 	return properties
 }
 
+func (p *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*commonv3.KeyStringValuePair {
+	return []*commonv3.KeyStringValuePair{
+		{
+			Key:   "support_ebpf_profiling",
+			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
+		},
+	}
+}
+
 func (p *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.EBPFProcessDownstream) string {
 	if downstream.GetHostProcess() == nil {
 		return ""
 	}
-	if ps.Pid() == downstream.GetHostProcess().GetPid() {
+	if ps.Pid() == downstream.GetHostProcess().GetPid() &&
+		base.EntityIsSameWithProtocol(ps.Entity(), downstream.GetHostProcess().GetEntityMetadata()) {
 		return downstream.ProcessId
 	}
 	return ""

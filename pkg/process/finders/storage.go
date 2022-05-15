@@ -20,6 +20,7 @@ package finders
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -34,14 +35,16 @@ import (
 )
 
 type ProcessStorage struct {
-	processes map[int32]*processesWrapper
+	processes map[api.ProcessDetectType][]*ProcessContext
 	mutex     sync.Mutex
 
 	// working with backend
-	reportInterval time.Duration
-	roverID        string
-	processClient  v3.EBPFProcessServiceClient
-	finders        map[api.ProcessDetectType]base.ProcessFinder
+	reportInterval         time.Duration
+	propertiesReportFactor int
+	roverID                string
+	processClient          v3.EBPFProcessServiceClient
+	finders                map[api.ProcessDetectType]base.ProcessFinder
+	reportedCount          int64
 
 	// report context
 	ctx    context.Context
@@ -49,8 +52,8 @@ type ProcessStorage struct {
 }
 
 func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
-	reportInterval time.Duration, finderList []base.ProcessFinder) (*ProcessStorage, error) {
-	data := make(map[int32]*processesWrapper)
+	reportInterval time.Duration, propertiesReportFactor int, finderList []base.ProcessFinder) (*ProcessStorage, error) {
+	data := make(map[api.ProcessDetectType][]*ProcessContext)
 	// working with core module
 	coreOperator := moduleManager.FindModule(core.ModuleName).(core.Operator)
 	roverID := coreOperator.InstanceID()
@@ -62,13 +65,15 @@ func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
 		fs[f.DetectType()] = f
 	}
 	return &ProcessStorage{
-		processes:      data,
-		reportInterval: reportInterval,
-		roverID:        roverID,
-		processClient:  processClient,
-		finders:        fs,
-		ctx:            ctx,
-		cancel:         cancel,
+		processes:              data,
+		reportInterval:         reportInterval,
+		propertiesReportFactor: propertiesReportFactor,
+		reportedCount:          0,
+		roverID:                roverID,
+		processClient:          processClient,
+		finders:                fs,
+		ctx:                    ctx,
+		cancel:                 cancel,
 	}, nil
 }
 
@@ -104,8 +109,8 @@ func (s *ProcessStorage) reportAllProcesses() error {
 	// build process list(wait report or keep alive)
 	waitReportProcesses := make([]*ProcessContext, 0)
 	keepAliveProcesses := make([]*ProcessContext, 0)
-	for _, wrapper := range s.processes {
-		for _, p := range wrapper.processes {
+	for _, finderProcesses := range s.processes {
+		for _, p := range finderProcesses {
 			if p.syncStatus == NotReport {
 				waitReportProcesses = append(waitReportProcesses, p)
 			} else if p.syncStatus == ReportSuccess {
@@ -114,7 +119,13 @@ func (s *ProcessStorage) reportAllProcesses() error {
 		}
 	}
 
-	// process with backend
+	// if rover should report the properties, then need to force remove all keep alive processes to report
+	shouldReportProperties := atomic.AddInt64(&s.reportedCount, 1)%int64(s.propertiesReportFactor) == 0
+	if shouldReportProperties {
+		log.Infof("detection has reached the properties report factor, forced to report all processes properties")
+		waitReportProcesses = append(waitReportProcesses, keepAliveProcesses...)
+		keepAliveProcesses = make([]*ProcessContext, 0)
+	}
 	var result error
 	if err := s.processesReport(waitReportProcesses); err != nil {
 		result = multierror.Append(result, err)
@@ -133,18 +144,28 @@ func (s *ProcessStorage) processesKeepAlive(waitKeepAliveProcess []*ProcessConte
 
 	processIDList := make([]*v3.EBPFProcessPingPkg, 0)
 	for _, ps := range waitKeepAliveProcess {
-		if ps.id != "" {
-			processIDList = append(processIDList, &v3.EBPFProcessPingPkg{EntityMetadata: &v3.EBPFProcessEntityMetadata{
+		if ps.id == "" {
+			log.Warnf("the process id is not found before keep alive, need to report, pid: %d, process name: %s",
+				ps.Pid(), ps.Entity().ProcessName)
+			ps.syncStatus = NotReport
+			continue
+		}
+		processIDList = append(processIDList, &v3.EBPFProcessPingPkg{
+			EntityMetadata: &v3.EBPFProcessEntityMetadata{
 				Layer:        ps.Entity().Layer,
 				ServiceName:  ps.Entity().ServiceName,
 				InstanceName: ps.Entity().InstanceName,
 				ProcessName:  ps.Entity().ProcessName,
 				Labels:       ps.Entity().Labels,
-			}})
-		}
+			},
+			Properties: s.finders[ps.detectType].BuildNecessaryProperties(ps.detectProcess),
+		})
 	}
 
-	_, err := s.processClient.KeepAlive(s.ctx, &v3.EBPFProcessPingPkgList{Processes: processIDList})
+	_, err := s.processClient.KeepAlive(s.ctx, &v3.EBPFProcessPingPkgList{
+		EbpfAgentID: s.roverID,
+		Processes:   processIDList,
+	})
 	return err
 }
 
@@ -164,17 +185,15 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 		return err
 	}
 
-	processIDBeenUsed := make(map[string]bool)
 	for _, waitProcess := range waitReportProcesses {
 		found := false
 		for _, reportedProcess := range processes.GetProcesses() {
 			id := s.finders[waitProcess.DetectType()].ParseProcessID(waitProcess.detectProcess, reportedProcess)
-			if id == "" || processIDBeenUsed[id] {
+			if id == "" {
 				continue
 			}
 
 			s.updateProcessToUploadSuccess(waitProcess, id)
-			processIDBeenUsed[id] = true
 			found = true
 			break
 		}
@@ -190,75 +209,41 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	pidToProcess := make(map[int32]map[base.DetectedProcess]bool)
-	for _, ps := range processes {
-		samePidProcesses := pidToProcess[ps.Pid()]
-		if samePidProcesses == nil {
-			samePidProcesses = make(map[base.DetectedProcess]bool)
-			pidToProcess[ps.Pid()] = samePidProcesses
-		}
-		samePidProcesses[ps] = false
+	newProcesses := make([]*ProcessContext, 0)
+
+	existingProcesses := s.processes[finder]
+	existingProcessHasFounded := make(map[*ProcessContext]bool)
+	for _, p := range existingProcesses {
+		existingProcessHasFounded[p] = false
 	}
 
-	// for each all process in the manager
-	for pid, managedProcesses := range s.processes {
-		needToSyncProcesses := pidToProcess[pid]
-		// remove it from the list of need to sync
-		delete(pidToProcess, pid)
-
-		// The process to be synchronized is not found in all process list
-		// And this process is same with finder type
-		// So we need to remove this process
-		if needToSyncProcesses == nil {
-			if managedProcesses.deleteWithSameFinder(finder) {
-				delete(s.processes, pid)
-			}
-			continue
-		}
-
-		// build result for the pid
-		result := make([]*ProcessContext, 0)
-
-		// find out all need to be update process
-		for _, p := range managedProcesses.processes {
-			// if in difference detect type, keep the process data
-			if p.DetectType() != finder {
-				result = append(result, p)
-				continue
-			}
-
-			for update := range needToSyncProcesses {
-				// should only have one process if they have the same layer and detect type
-				if update.Entity().Layer != p.Entity().Layer {
-					continue
-				}
-				tmp := p
-				if !s.finders[finder].ValidateProcessIsSame(p.detectProcess, update) {
-					tmp = s.constructNewProcessContext(finder, update)
-				}
-				result = append(result, tmp)
-				needToSyncProcesses[update] = true
+	for _, syncProcess := range processes {
+		founded := false
+		for _, existingProcess := range existingProcesses {
+			if syncProcess.Pid() == existingProcess.Pid() && syncProcess.Entity().SameWith(existingProcess.Entity()) {
+				newProcesses = append(newProcesses, existingProcess)
+				existingProcessHasFounded[existingProcess] = true
+				founded = true
 				break
 			}
 		}
 
-		for p, hasSync := range needToSyncProcesses {
-			if !hasSync {
-				result = append(result, s.constructNewProcessContext(finder, p))
-			}
+		// if not found in existing processes, need to add this process
+		if !founded {
+			newProcesses = append(newProcesses, s.constructNewProcessContext(finder, syncProcess))
+			log.Infof("detected new process: pid: %d, entity: %s", syncProcess.Pid(), syncProcess.Entity())
 		}
-
-		s.processes[pid] = &processesWrapper{result}
 	}
 
-	// other processes are need to be added
-	for pid, ps := range pidToProcess {
-		result := make([]*ProcessContext, 0)
-		for p := range ps {
-			result = append(result, s.constructNewProcessContext(finder, p))
+	// log the dead processes
+	for p, found := range existingProcessHasFounded {
+		if found {
+			continue
 		}
-		s.processes[pid] = &processesWrapper{result}
+		log.Infof("the process has been recognized as dead, so deleted. pid: %d, entity: %s, id: %s", p.Pid(), p.Entity(), p.id)
 	}
+
+	s.processes[finder] = newProcesses
 }
 
 func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType, process base.DetectedProcess) *ProcessContext {
@@ -270,39 +255,26 @@ func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType
 }
 
 func (s *ProcessStorage) updateProcessToUploadSuccess(pc *ProcessContext, id string) {
+	reported := pc.id == id
 	pc.id = id
 	pc.syncStatus = ReportSuccess
-	log.Infof("uploaded process pid: %d, name: %s, id: %s", pc.detectProcess.Pid(), pc.detectProcess.Entity().ProcessName, id)
+	if !reported {
+		log.Infof("uploaded process pid: %d, name: %s, id: %s", pc.detectProcess.Pid(), pc.detectProcess.Entity().ProcessName, id)
+	}
 }
 
 func (s *ProcessStorage) updateProcessToUploadIgnored(pc *ProcessContext) {
 	pc.syncStatus = Ignore
+	log.Infof("could not found the process id from upstream, pid: %d, entity: %v", pc.Pid(), pc.Entity())
 }
 
 func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface {
-	for _, wrapper := range s.processes {
-		for _, p := range wrapper.processes {
+	for _, finderProcesses := range s.processes {
+		for _, p := range finderProcesses {
 			if p.id == processID {
 				return p
 			}
 		}
 	}
 	return nil
-}
-
-// processesWrapper used to wrap multiple process context which has the same pid
-// Usually they have difference entity
-type processesWrapper struct {
-	processes []*ProcessContext
-}
-
-func (w *processesWrapper) deleteWithSameFinder(finder api.ProcessDetectType) bool {
-	existingProcesses := make([]*ProcessContext, 0)
-	for _, p := range w.processes {
-		if p.DetectType() != finder {
-			existingProcesses = append(existingProcesses, p)
-		}
-	}
-	w.processes = existingProcesses
-	return len(w.processes) == 0
 }

@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
+
 	commonv3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 
 	"github.com/shirou/gopsutil/process"
@@ -50,10 +52,11 @@ type ProcessFinder struct {
 	conf *Config
 
 	// runtime
-	manager   base.ProcessManager
-	ctx       context.Context
-	cancelCtx context.CancelFunc
-	stopChan  chan struct{}
+	manager      base.ProcessManager
+	ctx          context.Context
+	cancelCtx    context.CancelFunc
+	stopChan     chan struct{}
+	processCache *lru.Cache
 
 	// k8s clients
 	k8sConfig *rest.Config
@@ -77,6 +80,11 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 	f.stopChan = make(chan struct{}, 1)
 	f.registry = NewRegistry(f.cli, f.namespaces, f.conf.NodeName)
 	f.manager = manager
+	cache, err := lru.New(5000)
+	if err != nil {
+		return err
+	}
+	f.processCache = cache
 
 	return nil
 }
@@ -146,6 +154,19 @@ func (f *ProcessFinder) analyzeProcesses() error {
 
 	result := make([]base.DetectedProcess, 0)
 	for _, p := range processes {
+		createTime, err := p.CreateTime()
+		if err != nil {
+			continue
+		}
+		processCahceKey := fmt.Sprintf("%d_%d", p.Pid, createTime)
+		cachedProcesses, exist := f.processCache.Get(processCahceKey)
+		if exist {
+			for _, pro := range cachedProcesses.([]*Process) {
+				result = append(result, pro)
+			}
+			continue
+		}
+
 		cgroup, err := f.getProcessCGroup(p.Pid)
 		if err != nil {
 			continue
@@ -166,6 +187,7 @@ func (f *ProcessFinder) analyzeProcesses() error {
 		for _, pro := range ps {
 			result = append(result, pro)
 		}
+		f.processCache.Add(processCahceKey, ps)
 	}
 
 	if len(result) > 0 {
@@ -264,6 +286,15 @@ func (f *ProcessFinder) ValidateProcessIsSame(p1, p2 base.DetectedProcess) bool 
 	return p1.Pid() == p2.Pid() && k1.cmd == k2.cmd && p1.Entity().SameWith(p2.Entity())
 }
 
+func (f *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*commonv3.KeyStringValuePair {
+	return []*commonv3.KeyStringValuePair{
+		{
+			Key:   "support_ebpf_profiling",
+			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
+		},
+	}
+}
+
 func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps base.DetectedProcess) *v3.EBPFProcessProperties {
 	k8sProcess := &v3.EBPFKubernetesProcessMetadata{}
 	k8sProcess.Pid = ps.Pid()
@@ -284,6 +315,14 @@ func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 			Value: ps.(*Process).podContainer.Pod.Status.PodIP,
 		},
 		{
+			Key:   "container_name",
+			Value: ps.(*Process).podContainer.ContainerSpec.Name,
+		},
+		{
+			Key:   "pod_name",
+			Value: ps.(*Process).podContainer.Pod.Name,
+		},
+		{
 			Key:   "pid",
 			Value: strconv.FormatInt(int64(ps.Pid()), 10),
 		},
@@ -291,11 +330,8 @@ func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 			Key:   "command_line",
 			Value: ps.(*Process).cmd,
 		},
-		{
-			Key:   "support_ebpf_profiling",
-			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
-		},
 	}
+	k8sProcess.Properties = append(k8sProcess.Properties, f.BuildNecessaryProperties(ps)...)
 	properties := &v3.EBPFProcessProperties{Metadata: &v3.EBPFProcessProperties_K8SProcess{
 		K8SProcess: k8sProcess,
 	}}
@@ -306,7 +342,8 @@ func (f *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.E
 	if downstream.GetK8SProcess() == nil {
 		return ""
 	}
-	if ps.Pid() == downstream.GetK8SProcess().GetPid() {
+	if ps.Pid() == downstream.GetK8SProcess().GetPid() &&
+		base.EntityIsSameWithProtocol(ps.Entity(), downstream.GetK8SProcess().GetEntityMetadata()) {
 		return downstream.GetProcessId()
 	}
 	return ""

@@ -8,6 +8,7 @@ After the process upload is completed, the other modules could perform more oper
 | Name | Default | Environment Key | Description |
 |------|---------|-----------------|-------------|
 | process_discovery.heartbeat_period | 20s | ROVER_PROCESS_DISCOVERY_HEARTBEAT_PERIOD | The period of report or keep-alive process to the backend. |
+| process_discovery.properties_report_period | 10 | ROVER_PROCESS_DISCOVERY_PROPERTIES_REPORT_PERIOD | The agent sends the process properties to the backend every: heartbeart period * properties report period. |
 
 ## Process Detector
 
