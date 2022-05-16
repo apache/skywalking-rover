@@ -20,7 +20,6 @@
   servicename: go2sky
   instanceid: {{ b64enc "go2sky" }}.1_{{ b64enc "go2sky-instance" }}
   instancename: go2sky-instance
-  layer: GENERAL
   agentid: {{ notEmpty .agentid }}
   detecttype: VM
   attributes:

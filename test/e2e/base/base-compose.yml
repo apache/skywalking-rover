@@ -17,7 +17,7 @@ version: '2.1'
 
 services:
   oap:
-    image: ghcr.io/apache/skywalking/oap:a3e14bdc7adddd940f23b394672c4b685e6737fe
+    image: ghcr.io/apache/skywalking/oap:${SW_OAP_COMMIT}
     expose:
       - 11800
       - 12800

@@ -67,7 +67,6 @@ jobs:
   e2e-test:
     name: E2E test
     needs: [ docker ]
-    if: ${{ false }}  # disable for temporary, it would activate after OAP side finished
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -146,6 +145,6 @@ jobs:
           if [[ ${{ needs.build.result }} != 'success' ]]; then
             exit -1
           fi
-#          if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
-#            exit -1
-#          fi
+          if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
+            exit -1
+          fi
