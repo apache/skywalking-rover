@@ -54,8 +54,8 @@ setup:
                        --set elasticsearch.imageTag=7.5.1 \
                        --set oap.replicas=1 \
                        --set ui.image.repository=ghcr.io/apache/skywalking/ui \
-                       --set ui.image.tag=a3e14bdc7adddd940f23b394672c4b685e6737fe \
-                       --set oap.image.tag=a3e14bdc7adddd940f23b394672c4b685e6737fe \
+                       --set ui.image.tag=${SW_OAP_COMMIT} \
+                       --set oap.image.tag=${SW_OAP_COMMIT} \
                        --set oap.image.repository=ghcr.io/apache/skywalking/oap \
                        --set oap.storageType=elasticsearch
       wait:
