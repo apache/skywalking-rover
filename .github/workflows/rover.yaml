@@ -35,6 +35,8 @@ jobs:
           submodules: true
       - name: Check License
         uses: apache/skywalking-eyes@9bd5feb86b5817aa6072b008f9866a2c3bbc8587
+      - name: Format
+        run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
       - name: Get dependencies
         run: make deps
       - name: Test
