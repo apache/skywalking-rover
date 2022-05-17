@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
+
 	"github.com/apache/skywalking-rover/pkg/tools/path"
 )
 
@@ -52,11 +54,12 @@ func (l *GoLibrary) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
 	defer file.Close()
 
 	// exist symbol data
-	symbols, err := file.Symbols()
-	if err != nil || len(symbols) == 0 {
-		return nil, nil
+	symbols, symError := file.Symbols()
+	dySyms, dyError := file.DynamicSymbols()
+	if len(symbols) == 0 && len(dySyms) == 0 {
+		symError = multierror.Append(symError, dyError)
+		return nil, symError
 	}
-	dySyms, _ := file.DynamicSymbols()
 	symbols = append(symbols, dySyms...)
 
 	// adapt symbol struct
