@@ -2,6 +2,17 @@ Changes by Version
 ==================
 Release Notes.
 
+0.2.0
+------------------
+#### Features
+* Support `OFF_CPU` Profiling.
+
+#### Bug Fixes
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/134?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/2?closed=1)
+
 0.1.0
 ------------------
 #### Features

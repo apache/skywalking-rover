@@ -17,7 +17,7 @@ require (
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5
 	k8s.io/client-go v0.23.5
-	skywalking.apache.org/repo/goapi v0.0.0-20220513074115-4af2c2d37d2f
+	skywalking.apache.org/repo/goapi v0.0.0-20220518063910-af3e2df60bce
 )
 
 require (

@@ -15,33 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+struct key_t {
+    int user_stack_id;
+    int kernel_stack_id;
+};
 
-import (
-	"fmt"
+struct value_t {
+    __u64 counts;
+    __u64 deltas;
+};
 
-	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
-)
+struct {
+    __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+    __uint(key_size, sizeof(__u32));
+    __uint(value_size, 100 * sizeof(__u64));
+    __uint(max_entries, 10000);
+} stacks SEC(".maps");
 
-type TargetType string
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(key_size, sizeof(__u32));
+	__uint(value_size, sizeof(__u64));
+    __uint(max_entries, 10000);
+} starts SEC(".maps");
 
-const (
-	TargetTypeOnCPU  TargetType = "ON_CPU"
-	TargetTypeOffCPU TargetType = "OFF_CPU"
-)
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct key_t);
+	__type(value, struct value_t);
+	__uint(max_entries, 10000);
+} counts SEC(".maps");
 
-func ParseTargetType(err error, val string) (TargetType, error) {
-	if err != nil {
-		return "", err
-	}
-	if TargetType(val) == TargetTypeOnCPU {
-		return TargetTypeOnCPU, nil
-	} else if TargetType(val) == TargetTypeOffCPU {
-		return TargetTypeOffCPU, nil
-	}
-	return "", fmt.Errorf("could not found target type: %s", val)
-}
-
-func (t TargetType) InitTask(task *ProfilingTask, command *v3.Command) error {
-	return nil
-}
+struct task_struct {
+	__u32 pid;
+    __u32 tgid;
+}  __attribute__((preserve_access_index));
