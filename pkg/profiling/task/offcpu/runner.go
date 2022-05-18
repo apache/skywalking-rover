@@ -33,6 +33,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
@@ -43,8 +44,8 @@ import (
 var log = logger.GetLogger("profiling", "task", "offcpu")
 
 type ProcessStack struct {
-	UserStackId   uint32
-	KernelStackId uint32
+	UserStackID   uint32
+	KernelStackID uint32
 }
 
 type StackCounter struct {
@@ -104,8 +105,8 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	if !replacedPid {
 		return fmt.Errorf("replace the monitor pid failure")
 	}
-	if err := spec.LoadAndAssign(&objs, nil); err != nil {
-		return err
+	if err1 := spec.LoadAndAssign(&objs, nil); err1 != nil {
+		return err1
 	}
 	r.bpf = &objs
 
@@ -163,12 +164,12 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	for iterate.Next(&stack, &counter) {
 		metadatas := make([]*v3.EBPFProfilingStackMetadata, 0)
 		// kernel stack
-		if d := r.base.GenerateProfilingData(r.kernelProfiling, stack.KernelStackId, stacks,
+		if d := r.base.GenerateProfilingData(r.kernelProfiling, stack.KernelStackID, stacks,
 			v3.EBPFProfilingStackType_PROCESS_KERNEL_SPACE, stackSymbols); d != nil {
 			metadatas = append(metadatas, d)
 		}
 		// user stack
-		if d := r.base.GenerateProfilingData(r.processProfiling, stack.UserStackId, stacks,
+		if d := r.base.GenerateProfilingData(r.processProfiling, stack.UserStackID, stacks,
 			v3.EBPFProfilingStackType_PROCESS_USER_SPACE, stackSymbols); d != nil {
 			metadatas = append(metadatas, d)
 		}
