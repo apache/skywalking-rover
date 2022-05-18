@@ -25,6 +25,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
