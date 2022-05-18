@@ -19,22 +19,19 @@
 #define __BPF_API__
 
 // include linux relate bpf
+#include <stddef.h>
+#include <linux/sched.h>
 #include <linux/bpf.h>
+#include <linux/ptrace.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
 
-#define __uint(name, val) int (*name)[val]
-#define __type(name, val) typeof(val) *name
-#define __array(name, val) typeof(val) *name[]
-
-// Method Selection
-#define SEC(name) \
-	_Pragma("GCC diagnostic push")					    \
-	_Pragma("GCC diagnostic ignored \"-Wignored-attributes\"")	    \
-	__attribute__((section(name), used))				    \
-	_Pragma("GCC diagnostic pop")					    \
-
-// which reference what we need
-struct pt_regs;
-static long (*bpf_perf_event_output)(void *ctx, void *map, __u64 flags, void *data, __u64 size) = (void *) 25;
-static long (*bpf_get_stackid)(void *ctx, void *map, __u64 flags) = (void *) 27;
+#define _(P)                                                                   \
+	({                                                                     \
+		typeof(P) val;                                                 \
+		bpf_probe_read_kernel(&val, sizeof(val), &(P));                \
+		val;                                                           \
+	})
 
 #endif

@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/offcpu"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/oncpu"
 )
 
@@ -30,6 +31,7 @@ var profilingRunners = make(map[base.TargetType]func(config *base.TaskConfig) (b
 
 func init() {
 	profilingRunners[base.TargetTypeOnCPU] = oncpu.NewRunner
+	profilingRunners[base.TargetTypeOffCPU] = offcpu.NewRunner
 }
 
 func NewProfilingRunner(taskType base.TargetType, taskConfig *base.TaskConfig) (base.ProfileTaskRunner, error) {

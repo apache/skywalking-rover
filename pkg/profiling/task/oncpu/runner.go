@@ -25,10 +25,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -59,19 +57,18 @@ type Event struct {
 }
 
 type Runner struct {
+	base             *base.Runner
 	pid              int32
 	processProfiling *profiling.Info
 	kernelProfiling  *profiling.Info
 	dumpPeriod       time.Duration
 
 	// runtime
-	perfEventFds       []int
-	countReader        *perf.Reader
-	stackCounter       map[Event]int
-	stackMap           *ebpf.Map
-	stackNotFoundCache map[uint32]bool
-	shutdownOnce       sync.Once
-	flushDataNotify    context.CancelFunc
+	perfEventFds    []int
+	countReader     *perf.Reader
+	stackCounter    map[Event]int
+	stackMap        *ebpf.Map
+	flushDataNotify context.CancelFunc
 }
 
 func NewRunner(config *base.TaskConfig) (base.ProfileTaskRunner, error) {
@@ -86,9 +83,9 @@ func NewRunner(config *base.TaskConfig) (base.ProfileTaskRunner, error) {
 		return nil, fmt.Errorf("the ON_CPU dump period could not be smaller than 1ms")
 	}
 	return &Runner{
-		dumpPeriod:         dumpPeriod,
-		stackNotFoundCache: make(map[uint32]bool),
-		stackCounter:       make(map[Event]int),
+		base:         base.NewBaseRunner(),
+		dumpPeriod:   dumpPeriod,
+		stackCounter: make(map[Event]int),
 	}, nil
 }
 
@@ -201,7 +198,7 @@ func (r *Runner) openPerfEvent(perfFd int) ([]int, error) {
 
 func (r *Runner) Stop() error {
 	var result error
-	r.shutdownOnce.Do(func() {
+	r.base.ShutdownOnce.Do(func() {
 		for _, fd := range r.perfEventFds {
 			if err := r.closePerfEvent(fd); err != nil {
 				result = multierror.Append(result, err)
@@ -233,13 +230,13 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	for event, count := range existsCounters {
 		metadatas := make([]*v3.EBPFProfilingStackMetadata, 0)
 		// kernel stack
-		if d := r.generateProfilingData(r.kernelProfiling, event.KernelStackID,
+		if d := r.base.GenerateProfilingData(r.kernelProfiling, event.KernelStackID, r.stackMap,
 			v3.EBPFProfilingStackType_PROCESS_KERNEL_SPACE, stackSymbols); d != nil {
 			metadatas = append(metadatas, d)
 		}
 
 		// user stack
-		if d := r.generateProfilingData(r.processProfiling, event.UserStackID,
+		if d := r.base.GenerateProfilingData(r.processProfiling, event.UserStackID, r.stackMap,
 			v3.EBPFProfilingStackType_PROCESS_USER_SPACE, stackSymbols); d != nil {
 			metadatas = append(metadatas, d)
 		}
@@ -264,30 +261,6 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	}
 
 	return result, nil
-}
-
-func (r *Runner) generateProfilingData(profilingInfo *profiling.Info, stackID uint32,
-	stackType v3.EBPFProfilingStackType, symbolArray []uint64) *v3.EBPFProfilingStackMetadata {
-	if profilingInfo == nil || stackID <= 0 || stackID == math.MaxUint32 {
-		return nil
-	}
-	if err := r.stackMap.Lookup(stackID, symbolArray); err != nil {
-		if r.stackNotFoundCache[stackID] {
-			return nil
-		}
-		r.stackNotFoundCache[stackID] = true
-		log.Warnf("error to lookup %v stack: %d, error: %v", stackType, stackID, err)
-		return nil
-	}
-	symbols := profilingInfo.FindSymbols(symbolArray, base.MissingSymbol)
-	if len(symbols) == 0 {
-		return nil
-	}
-	return &v3.EBPFProfilingStackMetadata{
-		StackType:    stackType,
-		StackId:      int32(stackID),
-		StackSymbols: symbols,
-	}
 }
 
 func (r *Runner) flushStackCounter() map[Event]int {
