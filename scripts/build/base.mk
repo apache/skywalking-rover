@@ -44,7 +44,7 @@ clean:
 	-rm -rf coverage.txt
 
 build-base-container:
-	${CONTAINER_COMMAND_ENGINE} build --no-cache -t ${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
+	${CONTAINER_COMMAND_ENGINE} build -t ${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
 
 container-command: build-base-container
 	${CONTAINER_COMMAND_ENGINE} run --rm \
