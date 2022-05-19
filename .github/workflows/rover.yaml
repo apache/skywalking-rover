@@ -41,6 +41,8 @@ jobs:
         run: make container-test
       - name: Lint
         run: make container-lint
+      - name: BTF Generate
+        run: make container-btfgen
       - name: Make binary
         run: make linux
       - name: Check CI Consistency

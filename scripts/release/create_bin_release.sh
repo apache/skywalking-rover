@@ -56,7 +56,7 @@ fi
 
 git checkout ${TAG_NAME}
 
-make container-generate build
+make container-btfgen build
 
 cd ..
 

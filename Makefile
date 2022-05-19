@@ -17,6 +17,7 @@
 
 include scripts/build/base.mk
 include scripts/build/generate.mk
+include scripts/build/btf.mk
 include scripts/build/test.mk
 include scripts/build/lint.mk
 include scripts/build/build.mk
