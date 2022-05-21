@@ -39,6 +39,8 @@ jobs:
         run: make deps
       - name: Test
         run: make container-test
+      - name: BTF Generate
+        run: make container-btfgen
       - name: Lint
         run: make container-lint
       - name: Make binary

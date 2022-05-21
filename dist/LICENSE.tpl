@@ -43,4 +43,7 @@ The text of each license is also included at licenses/license-[project].txt.
 {{range .Deps}}
     {{.Name}} {{.Version}} {{.LicenseID}}
 {{- end }}
+{{- if eq .LicenseID "Apache-2.0"}}
+    github.com/aquasecurity/btfhub-archive v0.1 Apache-2.0
+{{- end}}
 {{ end }}

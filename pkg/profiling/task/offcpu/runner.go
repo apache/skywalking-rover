@@ -32,6 +32,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
@@ -39,7 +40,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 // nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
 
 var log = logger.GetLogger("profiling", "task", "offcpu")
 
@@ -105,7 +106,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	if !replacedPid {
 		return fmt.Errorf("replace the monitor pid failure")
 	}
-	if err1 := spec.LoadAndAssign(&objs, nil); err1 != nil {
+	if err1 := spec.LoadAndAssign(&objs, btf.GetEBPFCollectionOptionsIfNeed()); err1 != nil {
 		return err1
 	}
 	r.bpf = &objs

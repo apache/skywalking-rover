@@ -47,7 +47,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 // nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/oncpu.c -- -I$REPO_ROOT/bpf/include
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/oncpu.c -- -I$REPO_ROOT/bpf/include
 
 var log = logger.GetLogger("profiling", "task", "oncpu")
 
