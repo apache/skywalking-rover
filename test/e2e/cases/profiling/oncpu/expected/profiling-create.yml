@@ -13,30 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version: '2.1'
-
-services:
-  oap:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: oap
-    ports:
-      - 12800:12800
-
-  rover:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: rover
-    depends_on:
-      oap:
-        condition: service_healthy
-
-  sqrt_c:
-    build:
-      context: .
-      dockerfile: Dockerfile.sqrt
-    networks:
-      - e2e
-
-networks:
-  e2e:
+status: true
+errorreason: null
+id: {{ notEmpty .id }}

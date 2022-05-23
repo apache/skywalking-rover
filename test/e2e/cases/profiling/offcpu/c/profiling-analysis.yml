@@ -13,30 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version: '2.1'
-
-services:
-  oap:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: oap
-    ports:
-      - 12800:12800
-
-  rover:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: rover
-    depends_on:
-      oap:
-        condition: service_healthy
-
-  sqrt_c_plus_plus:
-    build:
-      context: .
-      dockerfile: Dockerfile.sqrt
-    networks:
-      - e2e
-
-networks:
-  e2e:
+tip: null
+trees:
+{{- contains .trees }}
+- elements:
+  {{- contains .elements }}
+  - id: "{{ notEmpty .id }}"
+    parentid: "{{ notEmpty .parentid }}"
+    symbol: "fprintf"
+    stacktype: USER_SPACE
+    dumpcount: {{ gt .dumpcount 0 }}
+{{- end }}
+{{- end }}

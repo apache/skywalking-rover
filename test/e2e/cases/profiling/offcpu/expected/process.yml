@@ -13,8 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=bdcba1c93b1ad702a88f30b798df5e99d963689d
-SW_OAP_COMMIT=47509715f5a76aef33d0987be6302f7b31315bf0
-SW_KUBERNETES_COMMIT_SHA=0f3ec68e5a7e1608cec8688716b848ed15e971e5
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ notEmpty .id }}
+  name: file
+  serviceid: {{ b64enc "file" }}.1
+  servicename: file
+  instanceid: {{ b64enc "file" }}.1_{{ b64enc "test-instance" }}
+  instancename: test-instance
+  agentid: {{ notEmpty .agentid }}
+  detecttype: VM
+  attributes:
+    {{- contains .attributes }}
+    - name: host_ip
+      value: {{ notEmpty .value }}
+    - name: pid
+      value: {{ notEmpty .value }}
+    - name: command_line
+      value: /file
+    {{- end }}
+  labels:
+    {{- contains .labels }}
+    - e2e-label1
+    - e2e-label2
+    {{- end }}
+{{- end }}

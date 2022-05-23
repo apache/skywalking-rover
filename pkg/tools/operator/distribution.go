@@ -132,5 +132,7 @@ func normalizeContent(d string) string {
 	d = strings.TrimSpace(d)
 	d = strings.ToLower(d)
 	d = strings.ReplaceAll(d, "-", "_")
+	d = strings.TrimPrefix(d, "\"")
+	d = strings.TrimSuffix(d, "\"")
 	return d
 }
