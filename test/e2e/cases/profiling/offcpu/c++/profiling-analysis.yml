@@ -20,7 +20,7 @@ trees:
   {{- contains .elements }}
   - id: "{{ notEmpty .id }}"
     parentid: "{{ notEmpty .parentid }}"
-    symbol: "std::basic_ofstream<char, std::char_traits<char> >::open(char const*, std::_Ios_Openmode)"
+    symbol: "fileCPlusPlus()"
     stacktype: USER_SPACE
     dumpcount: {{ gt .dumpcount 0 }}
 {{- end }}

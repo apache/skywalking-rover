@@ -18,7 +18,7 @@
 #include <fstream>
 using namespace std;
 
-int main()
+void fileCPlusPlus()
 {
     for (;;)
     {
@@ -27,5 +27,10 @@ int main()
         myfile << "e2e test.\n";
         myfile.close();
     }
+}
+
+int main()
+{
+    fileCPlusPlus();
     return 0;
 }

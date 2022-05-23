@@ -20,7 +20,7 @@ trees:
   {{- contains .elements }}
   - id: "{{ notEmpty .id }}"
     parentid: "{{ notEmpty .parentid }}"
-    symbol: "write"
+    symbol: {{if ne .symbol "[MISSING]" }}{{.symbol}}{{else}}contains not missing{{end}}
     stacktype: USER_SPACE
     dumpcount: {{ gt .dumpcount 0 }}
 {{- end }}
