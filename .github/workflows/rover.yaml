@@ -75,14 +75,23 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - name: Golang Profiling
-            config: test/e2e/cases/profiling/golang/e2e.yaml
-          - name: C++ Profiling
-            config: test/e2e/cases/profiling/c++/e2e.yaml
-          - name: C Profiling
-            config: test/e2e/cases/profiling/c/e2e.yaml
-          - name: Rust Profiling
-            config: test/e2e/cases/profiling/rust/e2e.yaml
+          - name: Golang On CPU Profiling
+            config: test/e2e/cases/profiling/oncpu/golang/e2e.yaml
+          - name: C++ On CPU Profiling
+            config: test/e2e/cases/profiling/oncpu/c++/e2e.yaml
+          - name: C On CPU Profiling
+            config: test/e2e/cases/profiling/oncpu/c/e2e.yaml
+          - name: Rust On CPU Profiling
+            config: test/e2e/cases/profiling/oncpu/rust/e2e.yaml
+
+          - name: Golang Off CPU Profiling
+            config: test/e2e/cases/profiling/offcpu/golang/e2e.yaml
+          - name: C++ Off CPU Profiling
+            config: test/e2e/cases/profiling/offcpu/c++/e2e.yaml
+          - name: C Off CPU Profiling
+            config: test/e2e/cases/profiling/offcpu/c/e2e.yaml
+          - name: Rust Off CPU Profiling
+            config: test/e2e/cases/profiling/offcpu/rust/e2e.yaml
 
           - name: go2sky Agent Sensor
             config: test/e2e/cases/process/agent_sensor/golang/e2e.yaml

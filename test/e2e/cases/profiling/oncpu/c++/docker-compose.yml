@@ -13,8 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=bdcba1c93b1ad702a88f30b798df5e99d963689d
-SW_OAP_COMMIT=47509715f5a76aef33d0987be6302f7b31315bf0
-SW_KUBERNETES_COMMIT_SHA=0f3ec68e5a7e1608cec8688716b848ed15e971e5
+version: '2.1'
 
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+services:
+  oap:
+    extends:
+      file: ../../../../base/base-compose.yml
+      service: oap
+    ports:
+      - 12800:12800
+
+  rover:
+    extends:
+      file: ../../../../base/base-compose.yml
+      service: rover
+    depends_on:
+      oap:
+        condition: service_healthy
+
+  sqrt_c_plus_plus:
+    build:
+      context: .
+      dockerfile: Dockerfile.sqrt
+    networks:
+      - e2e
+
+networks:
+  e2e:

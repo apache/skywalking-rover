@@ -61,7 +61,7 @@ type Runner struct {
 	kernelProfiling  *profiling.Info
 
 	// runtime
-	previousStacks  map[ProcessStack]*StackCounter
+	previousStacks  map[ProcessStack]StackCounter
 	bpf             *bpfObjects
 	kprobe          link.Link
 	stopChan        chan bool
@@ -82,7 +82,7 @@ func (r *Runner) Init(task *base.ProfilingTask, process api.ProcessInterface) er
 		log.Warnf("could not analyze kernel profiling stats: %v", err)
 	}
 	r.kernelProfiling = kernelProfiling
-	r.previousStacks = make(map[ProcessStack]*StackCounter)
+	r.previousStacks = make(map[ProcessStack]StackCounter)
 	r.stopChan = make(chan bool, 1)
 	return nil
 }
@@ -153,9 +153,6 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	if r.bpf == nil {
 		return nil, nil
 	}
-	if r.flushDataNotify == nil {
-		return nil, nil
-	}
 	var stack ProcessStack
 	var counter StackCounter
 	iterate := r.bpf.Counts.Iterate()
@@ -183,11 +180,11 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 		switchCount := int32(counter.Times)
 		duration := int64(counter.Deltas)
 		existCounter := r.previousStacks[stack]
-		if existCounter != nil {
+		if existCounter.Times > 0 && existCounter.Deltas > 0 {
 			switchCount -= int32(existCounter.Times)
 			duration -= int64(existCounter.Deltas)
 		}
-		r.previousStacks[stack] = &counter
+		r.previousStacks[stack] = counter
 
 		result = append(result, &v3.EBPFProfilingData{
 			Profiling: &v3.EBPFProfilingData_OffCPU{

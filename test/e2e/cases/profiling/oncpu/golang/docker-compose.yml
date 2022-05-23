@@ -18,20 +18,20 @@ version: '2.1'
 services:
   oap:
     extends:
-      file: ../../../base/base-compose.yml
+      file: ../../../../base/base-compose.yml
       service: oap
     ports:
       - 12800:12800
 
   rover:
     extends:
-      file: ../../../base/base-compose.yml
+      file: ../../../../base/base-compose.yml
       service: rover
     depends_on:
       oap:
         condition: service_healthy
 
-  sqrt_c:
+  sqrt_go:
     build:
       context: .
       dockerfile: Dockerfile.sqrt

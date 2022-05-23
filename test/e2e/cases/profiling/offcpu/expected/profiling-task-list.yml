@@ -13,30 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version: '2.1'
-
-services:
-  oap:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: oap
-    ports:
-      - 12800:12800
-
-  rover:
-    extends:
-      file: ../../../base/base-compose.yml
-      service: rover
-    depends_on:
-      oap:
-        condition: service_healthy
-
-  sqrt_c_plus_plus:
-    build:
-      context: .
-      dockerfile: Dockerfile.sqrt
-    networks:
-      - e2e
-
-networks:
-  e2e:
+{{- contains . }}
+- taskid: {{ notEmpty .taskid }}
+  serviceid: {{ b64enc "file" }}.1
+  servicename: file
+  processlabels:
+    {{- contains .processlabels }}
+    - e2e-label1
+    - e2e-label2
+    {{- end }}
+  taskstarttime: {{ gt .taskstarttime 0 }}
+  triggertype: FIXED_TIME
+  fixedtriggerduration: 60
+  targettype: OFF_CPU
+  createtime: {{ gt .createtime 0 }}
+{{- end }}
