@@ -22,6 +22,16 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 
 SEC("perf_event")
 int do_perf_event(struct pt_regs *ctx) {
+    int monitor_pid;
+    asm("%0 = MONITOR_PID ll" : "=r"(monitor_pid));
+
+    // only match the same pid
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid != monitor_pid) {
+        return 0;
+    }
+
     // create map key
     struct key_t key = {};
 
@@ -29,6 +39,15 @@ int do_perf_event(struct pt_regs *ctx) {
     key.kernel_stack_id = bpf_get_stackid(ctx, &stacks, 0);
     key.user_stack_id = bpf_get_stackid(ctx, &stacks, BPF_F_USER_STACK);
 
-    bpf_perf_event_output(ctx, &counts, BPF_F_CURRENT_CPU, &key, sizeof(key));
+    __u32 *val;
+    val = bpf_map_lookup_elem(&counts, &key);
+    if (!val) {
+        __u32 count = 0;
+        bpf_map_update_elem(&counts, &key, &count, BPF_NOEXIST);
+        val = bpf_map_lookup_elem(&counts, &key);
+        if (!val)
+            return 0;
+    }
+    (*val) += 1;
     return 0;
 }

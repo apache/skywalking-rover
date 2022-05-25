@@ -7,6 +7,7 @@ Release Notes.
 #### Features
 * Support `OFF_CPU` Profiling.
 * Introduce the `BTFHub` module.
+* Update to using frequency mode to `ON_CPU` Profiling.
 
 #### Bug Fixes
 
