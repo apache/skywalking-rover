@@ -185,6 +185,9 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 			duration -= int64(existCounter.Deltas)
 		}
 		r.previousStacks[stack] = counter
+		if switchCount <= 0 {
+			continue
+		}
 
 		result = append(result, &v3.EBPFProfilingData{
 			Profiling: &v3.EBPFProfilingData_OffCPU{

@@ -21,7 +21,10 @@ struct key_t {
 };
 
 struct {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct key_t);
+	__type(value, __u32);
+	__uint(max_entries, 10000);
 } counts SEC(".maps");
 
 struct {
