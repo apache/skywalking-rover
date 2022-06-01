@@ -69,6 +69,7 @@ func (c *PodContainer) CGroupID() string {
 	// delete the container runtime prefix is the cgroupid
 	cgroupID = strings.TrimPrefix(cgroupID, "containerd://")
 	cgroupID = strings.TrimPrefix(cgroupID, "dockerd://")
+	cgroupID = strings.TrimPrefix(cgroupID, "docker://")
 	return cgroupID
 }
 

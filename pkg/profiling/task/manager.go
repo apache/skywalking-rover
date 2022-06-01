@@ -98,6 +98,8 @@ func (m *Manager) StartTask(c *Context) {
 	// shutdown task if exists
 	taskIdentity := c.BuildTaskIdentity()
 	if m.tasks[taskIdentity] != nil {
+		id := m.tasks[taskIdentity].TaskID()
+		log.Infof("existing profiling task: %s, so need to stop it", id)
 		if err := m.shutdownAndRemoveTask(m.tasks[taskIdentity]); err != nil {
 			log.Warnf("shutdown existing profiling task failure, so cannot to start new profiling task: %v. reason: %v", c.task.TaskID, err)
 			return
@@ -118,6 +120,7 @@ func (m *Manager) StartTask(c *Context) {
 	go func() {
 		select {
 		case <-time.After(afterRun):
+			log.Infof("the profiling task need to wait %fmin to run: %s", afterRun.Minutes(), c.TaskID())
 			m.runTask(c)
 		case <-c.ctx.Done():
 			return
@@ -126,6 +129,7 @@ func (m *Manager) StartTask(c *Context) {
 }
 
 func (m *Manager) runTask(c *Context) {
+	log.Infof("ready to starting profiling task: %s", c.TaskID())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	c.runningWg = &wg
@@ -148,7 +152,7 @@ func (m *Manager) runTask(c *Context) {
 }
 
 func (m *Manager) afterProfilingStartSuccess(c *Context) {
-	log.Infof("starting the profiling task. taskId: %s, pid: %d", c.task.TaskID, c.process.Pid())
+	log.Infof("profiling task has been started. taskId: %s, pid: %d", c.task.TaskID, c.process.Pid())
 	go func() {
 		select {
 		// shutdown task when arrived task running task
@@ -223,6 +227,7 @@ func (m *Manager) flushProfilingData() error {
 		return err
 	}
 	currentMilli := time.Now().UnixMilli()
+	totalSendCount := make(map[string]int)
 	for _, t := range m.tasks {
 		data, err1 := t.runner.FlushData()
 		if err1 != nil {
@@ -234,6 +239,7 @@ func (m *Manager) flushProfilingData() error {
 			continue
 		}
 
+		totalSendCount[t.TaskID()] += len(data)
 		// only the first data have task metadata
 		data[0].Task = &profiling_v3.EBPFProfilingTaskMetadata{
 			TaskId:             t.task.TaskID,
@@ -250,6 +256,7 @@ func (m *Manager) flushProfilingData() error {
 		}
 	}
 
+	log.Infof("send profiling data summary: %v", totalSendCount)
 	_, err = stream.CloseAndRecv()
 	return err
 }

@@ -8,8 +8,10 @@ Release Notes.
 * Support `OFF_CPU` Profiling.
 * Introduce the `BTFHub` module.
 * Update to using frequency mode to `ON_CPU` Profiling.
+* Add logs in the profiling module logical.
 
 #### Bug Fixes
+* Fix `docker` based process could not be detected.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/134?closed=1)

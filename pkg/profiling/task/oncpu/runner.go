@@ -197,6 +197,8 @@ func (r *Runner) Stop() error {
 				result = multierror.Append(result, err)
 			}
 		}
+
+		close(r.stopChan)
 	})
 	return result
 }
