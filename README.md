@@ -13,6 +13,8 @@ Apache SkyWalking Rover
 
 # Download
 
+Follow the [releases page](https://skywalking.apache.org/downloads/#SkyWalkingRover) or [docker image](https://hub.docker.com/r/apache/skywalking-rover) to download a release of Apache SkyWalking Rover.
+
 # Contact Us
 * Mail list: **dev@skywalking.apache.org**. Mail to `dev-subscribe@skywalking.apache.org`, follow the reply to subscribe the mail list.
 * Join `skywalking` channel at [Apache Slack](http://s.apache.org/slack-invite). If the link is not working, find the latest one at [Apache INFRA WIKI](https://cwiki.apache.org/confluence/display/INFRA/Slack+Guest+Invites).
