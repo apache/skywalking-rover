@@ -20,6 +20,7 @@ package base
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
@@ -28,8 +29,8 @@ import (
 type ProfilingTask struct {
 	// TaskID of profiling task
 	TaskID string
-	// ProcessID of need to monitoring process
-	ProcessID string
+	// ProcessIDList of need to monitoring process
+	ProcessIDList []string
 	// UpdateTime of profiling task
 	UpdateTime int64
 	// StartTime of profiling task, when need to start to profiling
@@ -49,7 +50,7 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 
 	var err error
 	taskID, err := getCommandStringValue(err, command, "TaskId")
-	processID, err := getCommandStringValue(err, command, "ProcessId")
+	processIDList, err := getCommandStringValue(err, command, "ProcessId")
 	taskUpdateTime, err := getCommandIntValue(err, command, "TaskUpdateTime")
 	triggerTypeStr, err := getCommandStringValue(err, command, "TriggerType")
 	triggerType, err := ParseTriggerType(err, triggerTypeStr)
@@ -60,13 +61,15 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 		return nil, err
 	}
 
+	processes := strings.Split(processIDList, ",")
+
 	task := &ProfilingTask{
-		TaskID:      taskID,
-		ProcessID:   processID,
-		UpdateTime:  taskUpdateTime,
-		StartTime:   taskStartTime,
-		TargetType:  targetType,
-		TriggerType: triggerType,
+		TaskID:        taskID,
+		ProcessIDList: processes,
+		UpdateTime:    taskUpdateTime,
+		StartTime:     taskStartTime,
+		TargetType:    targetType,
+		TriggerType:   triggerType,
 	}
 
 	if err := task.TriggerType.InitTask(task, command); err != nil {

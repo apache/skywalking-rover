@@ -78,3 +78,15 @@ func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
 func (m *Module) FindProcessByID(processID string) api.ProcessInterface {
 	return m.manager.FindProcessByID(processID)
 }
+
+func (m *Module) FindProcessByPID(pid int32) []api.ProcessInterface {
+	return m.manager.FindProcessByPID(pid)
+}
+
+func (m *Module) AddListener(listener api.ProcessListener) {
+	m.manager.AddListener(listener)
+}
+
+func (m *Module) DeleteListener(listener api.ProcessListener) {
+	m.manager.DeleteListener(listener)
+}

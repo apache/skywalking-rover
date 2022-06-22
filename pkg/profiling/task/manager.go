@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
+	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process"
+	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 
 	common_v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
@@ -34,6 +36,7 @@ import (
 var log = logger.GetLogger("profiling", "task")
 
 type Manager struct {
+	moduleMgr       *module.Manager
 	processOperator process.Operator
 	profilingClient profiling_v3.EBPFProfilingServiceClient
 	flushInterval   time.Duration
@@ -44,14 +47,16 @@ type Manager struct {
 	tasks map[string]*Context
 }
 
-func NewManager(ctx context.Context, processOperator process.Operator,
+func NewManager(ctx context.Context, moduleMgr *module.Manager,
 	profilingClient profiling_v3.EBPFProfilingServiceClient, flushInterval time.Duration, taskConfig *base.TaskConfig) (*Manager, error) {
-	if err := CheckProfilingTaskConfig(taskConfig); err != nil {
+	processOperator := moduleMgr.FindModule(process.ModuleName).(process.Operator)
+	if err := CheckProfilingTaskConfig(taskConfig, moduleMgr); err != nil {
 		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	manager := &Manager{
+		moduleMgr:       moduleMgr,
 		processOperator: processOperator,
 		profilingClient: profilingClient,
 		taskConfig:      taskConfig,
@@ -74,30 +79,53 @@ func (m *Manager) BuildContext(command *common_v3.Command) (*Context, error) {
 		return nil, fmt.Errorf("parsing profiling task failure, command: %v, reason: %v", command.GetArgs(), err)
 	}
 
-	// find process
-	taskProcess := m.processOperator.FindProcessByID(t.ProcessID)
-	if taskProcess == nil {
-		return nil, fmt.Errorf("could not found %s process %s", t.TaskID, t.ProcessID)
+	// find processes
+	processes := make([]api.ProcessInterface, 0)
+	for _, processID := range t.ProcessIDList {
+		taskProcess := m.processOperator.FindProcessByID(processID)
+		if taskProcess == nil {
+			return nil, fmt.Errorf("could not found %s processes %s", t.TaskID, t.ProcessIDList)
+		}
+		processes = append(processes, taskProcess)
+	}
+
+	taskContext := &Context{task: t, processes: processes, status: NotRunning, recalcDuration: make(chan bool, 1)}
+	// check existing task, extended the running time
+	existTask := m.tasks[taskContext.BuildTaskIdentity()]
+	// if task are same, then just rewrite the task information and return
+	if existTask != nil && existTask.IsSameTask(taskContext) {
+		existTask.task = t
+		return existTask, nil
 	}
 
 	// init runner
 	var r base.ProfileTaskRunner
-	if runner, err := NewProfilingRunner(t.TargetType, m.taskConfig); err != nil {
+	if runner, err := NewProfilingRunner(t.TargetType, m.taskConfig, m.moduleMgr); err != nil {
 		return nil, err
-	} else if err := runner.Init(t, taskProcess); err != nil {
+	} else if err := runner.Init(t, processes); err != nil {
 		return nil, fmt.Errorf("could not init %s runner for task: %s: %v", t.TriggerType, t.TaskID, err)
 	} else {
 		r = runner
 	}
 
-	ctx, cancel := context.WithCancel(m.ctx)
-	return &Context{task: t, process: taskProcess, runner: r, status: NotRunning, ctx: ctx, cancel: cancel}, nil
+	taskContext.runner = r
+	taskContext.ctx, taskContext.cancel = context.WithCancel(m.ctx)
+	return taskContext, nil
 }
 
 func (m *Manager) StartTask(c *Context) {
 	// shutdown task if exists
 	taskIdentity := c.BuildTaskIdentity()
-	if m.tasks[taskIdentity] != nil {
+	existTask := m.tasks[taskIdentity]
+	if existTask != nil {
+		// just extend the task time if the task are same
+		if c.IsSameTask(existTask) {
+			// notify to re-calculate the task duration(task stop timer)
+			c.recalcDuration <- true
+			return
+		}
+
+		// close task if not same
 		id := m.tasks[taskIdentity].TaskID()
 		log.Infof("existing profiling task: %s, so need to stop it", id)
 		if err := m.shutdownAndRemoveTask(m.tasks[taskIdentity]); err != nil {
@@ -138,10 +166,10 @@ func (m *Manager) runTask(c *Context) {
 			wg.Done()
 			c.status = Stopped
 		}()
-		c.status = Running
-		c.startRunningTime = time.Now()
 
 		notify := func() {
+			c.status = Running
+			c.startRunningTime = time.Now()
 			m.afterProfilingStartSuccess(c)
 		}
 		// start running
@@ -152,19 +180,32 @@ func (m *Manager) runTask(c *Context) {
 }
 
 func (m *Manager) afterProfilingStartSuccess(c *Context) {
-	log.Infof("profiling task has been started. taskId: %s, pid: %d", c.task.TaskID, c.process.Pid())
+	pidList := make([]int32, 0)
+	for _, p := range c.processes {
+		pidList = append(pidList, p.Pid())
+	}
+	log.Infof("profiling task has been started. taskId: %s, pid: %d", c.task.TaskID, pidList)
 	go func() {
-		select {
-		// shutdown task when arrived task running task
-		case <-time.After(c.task.MaxRunningDuration):
-			log.Infof("arrived task running time, shutting down task: %s", c.task.TaskID)
-			if err := m.shutdownTask(c); err != nil {
-				log.Warnf("shutting down task failure: %s, reason: %v", c.task.TaskID, err)
-			}
-		// shutdown when context finished
-		case <-c.ctx.Done():
-			if err := m.shutdownTask(c); err != nil {
-				log.Warnf("shutting down task failure: %s, reason: %v", c.task.TaskID, err)
+		for {
+			endTime := c.startRunningTime.Add(c.task.MaxRunningDuration)
+			select {
+			// shutdown task when arrived task running task
+			case <-time.After(time.Until(endTime)):
+				log.Infof("arrived task running time, shutting down task: %s", c.task.TaskID)
+				if err := m.shutdownTask(c); err != nil {
+					log.Warnf("shutting down task failure: %s, reason: %v", c.task.TaskID, err)
+				}
+				return
+			case <-c.recalcDuration:
+				// re-calculate the task end-time
+				log.Infof("received the extend duration task, task id: %s", c.task.TaskID)
+				continue
+			// shutdown when context finished
+			case <-c.ctx.Done():
+				if err := m.shutdownTask(c); err != nil {
+					log.Warnf("shutting down task failure: %s, reason: %v", c.task.TaskID, err)
+				}
+				return
 			}
 		}
 	}()
@@ -243,7 +284,7 @@ func (m *Manager) flushProfilingData() error {
 		// only the first data have task metadata
 		data[0].Task = &profiling_v3.EBPFProfilingTaskMetadata{
 			TaskId:             t.task.TaskID,
-			ProcessId:          t.task.ProcessID,
+			ProcessId:          t.task.ProcessIDList[0], // the profiling(draw flame-graph) task usually have the one process only
 			ProfilingStartTime: t.startRunningTime.UnixMilli(),
 			CurrentTime:        currentMilli,
 		}
@@ -256,7 +297,9 @@ func (m *Manager) flushProfilingData() error {
 		}
 	}
 
-	log.Infof("send profiling data summary: %v", totalSendCount)
+	if len(totalSendCount) > 0 {
+		log.Infof("send profiling data summary: %v", totalSendCount)
+	}
 	_, err = stream.CloseAndRecv()
 	return err
 }

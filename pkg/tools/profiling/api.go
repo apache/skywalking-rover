@@ -126,6 +126,17 @@ func (i *Info) FindSymbolName(address uint64) string {
 	return ""
 }
 
+func (i *Info) FindSymbolAddress(name string) uint64 {
+	for _, m := range i.Modules {
+		for _, sym := range m.Symbols {
+			if sym.Name == name {
+				return sym.Location
+			}
+		}
+	}
+	return 0
+}
+
 func (m *Module) contains(addr uint64) (uint64, bool) {
 	for _, r := range m.Ranges {
 		if addr >= r.StartAddr && addr < r.EndAddr {

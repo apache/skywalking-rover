@@ -57,3 +57,7 @@ func GetLogger(modules ...string) *Logger {
 	}
 	return &Logger{Entry: root.WithField("module", moduleString), module: modules}
 }
+
+func (l *Logger) Enable(level logrus.Level) bool {
+	return root.IsLevelEnabled(level)
+}

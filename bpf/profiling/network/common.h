@@ -15,18 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+#pragma once
 
-type TaskConfig struct {
-	OnCPU   *OnCPUConfig           `mapstructure:"on_cpu"`  // ON_CPU type of profiling task config
-	Network *NetworkTopologyConfig `mapstructure:"network"` // NETWORK type of profiling task config
-}
-
-type OnCPUConfig struct {
-	Period string `mapstructure:"dump_period"` // The duration of dump stack
-}
-
-type NetworkTopologyConfig struct {
-	ReportInterval string `mapstructure:"report_interval"` // The duration of data report interval
-	MeterPrefix    string `mapstructure:"meter_prefix"`    // The prefix of meter name
-}
+typedef enum
+{
+    true=1, false=0
+} bool;

@@ -54,6 +54,16 @@ func HostIPAddressV6(name string) string {
 	return address.ipV6
 }
 
+// IsLocalHostAddress is the address from local
+func IsLocalHostAddress(address string) bool {
+	for _, h := range host.ipAddresses {
+		if h.ipV4 == address || h.ipV6 == address {
+			return true
+		}
+	}
+	return false
+}
+
 // Hostname of machine
 func Hostname() string {
 	return host.name

@@ -38,6 +38,12 @@ type ProcessStorage struct {
 	processes map[api.ProcessDetectType][]*ProcessContext
 	mutex     sync.Mutex
 
+	// process listeners
+	listeners               []api.ProcessListener
+	eventQueue              chan *processEvent
+	initListenQueue         chan api.ProcessListener
+	listenerRecheckInterval time.Duration
+
 	// working with backend
 	reportInterval         time.Duration
 	propertiesReportFactor int
@@ -51,8 +57,8 @@ type ProcessStorage struct {
 	cancel context.CancelFunc
 }
 
-func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
-	reportInterval time.Duration, propertiesReportFactor int, finderList []base.ProcessFinder) (*ProcessStorage, error) {
+func NewProcessStorage(ctx context.Context, moduleManager *module.Manager, reportInterval time.Duration,
+	propertiesReportFactor int, finderList []base.ProcessFinder, listenerRecheckInterval time.Duration) (*ProcessStorage, error) {
 	data := make(map[api.ProcessDetectType][]*ProcessContext)
 	// working with core module
 	coreOperator := moduleManager.FindModule(core.ModuleName).(core.Operator)
@@ -65,19 +71,23 @@ func NewProcessStorage(ctx context.Context, moduleManager *module.Manager,
 		fs[f.DetectType()] = f
 	}
 	return &ProcessStorage{
-		processes:              data,
-		reportInterval:         reportInterval,
-		propertiesReportFactor: propertiesReportFactor,
-		reportedCount:          0,
-		roverID:                roverID,
-		processClient:          processClient,
-		finders:                fs,
-		ctx:                    ctx,
-		cancel:                 cancel,
+		processes:               data,
+		reportInterval:          reportInterval,
+		propertiesReportFactor:  propertiesReportFactor,
+		eventQueue:              make(chan *processEvent, 100),
+		initListenQueue:         make(chan api.ProcessListener, 100),
+		listenerRecheckInterval: listenerRecheckInterval,
+		reportedCount:           0,
+		roverID:                 roverID,
+		processClient:           processClient,
+		finders:                 fs,
+		ctx:                     ctx,
+		cancel:                  cancel,
 	}, nil
 }
 
 func (s *ProcessStorage) StartReport() {
+	// for report all processes
 	go func() {
 		timeTicker := time.NewTicker(s.reportInterval)
 		for {
@@ -86,6 +96,24 @@ func (s *ProcessStorage) StartReport() {
 				if err := s.reportAllProcesses(); err != nil {
 					log.Errorf("report all processes error: %v", err)
 				}
+			case <-s.ctx.Done():
+				timeTicker.Stop()
+				return
+			}
+		}
+	}()
+
+	// for start listener
+	go func() {
+		timeTicker := time.NewTicker(s.listenerRecheckInterval)
+		for {
+			select {
+			case <-timeTicker.C:
+				s.notifyToRecheckAllProcesses(s.listeners)
+			case e := <-s.eventQueue:
+				s.consumeProcessEvent(s.listeners, e)
+			case l := <-s.initListenQueue:
+				s.notifyToRecheckAllProcesses([]api.ProcessListener{l})
 			case <-s.ctx.Done():
 				timeTicker.Stop()
 				return
@@ -185,6 +213,7 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 		return err
 	}
 
+	eventBuilder := s.newProcessEventBuilder(ProcessOperateAdd)
 	for _, waitProcess := range waitReportProcesses {
 		found := false
 		for _, reportedProcess := range processes.GetProcesses() {
@@ -195,6 +224,7 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 
 			s.updateProcessToUploadSuccess(waitProcess, id)
 			found = true
+			eventBuilder.AddProcess(waitProcess.Pid(), waitProcess)
 			break
 		}
 
@@ -202,6 +232,8 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 			s.updateProcessToUploadIgnored(waitProcess)
 		}
 	}
+
+	eventBuilder.Send()
 	return nil
 }
 
@@ -236,14 +268,17 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 	}
 
 	// log the dead processes
+	eventBuilder := s.newProcessEventBuilder(ProcessOperateDelete)
 	for p, found := range existingProcessHasFounded {
 		if found {
 			continue
 		}
 		log.Infof("the process has been recognized as dead, so deleted. pid: %d, entity: %s, id: %s", p.Pid(), p.Entity(), p.id)
+		eventBuilder.AddProcess(p.Pid(), p)
 	}
 
 	s.processes[finder] = newProcesses
+	eventBuilder.Send()
 }
 
 func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType, process base.DetectedProcess) *ProcessContext {
@@ -277,4 +312,100 @@ func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface 
 		}
 	}
 	return nil
+}
+
+func (s *ProcessStorage) FindProcessByPID(pid int32) []api.ProcessInterface {
+	result := make([]api.ProcessInterface, 0)
+	for _, finderProcesses := range s.processes {
+		for _, p := range finderProcesses {
+			if p.Pid() == pid {
+				result = append(result, p)
+			}
+		}
+	}
+	return result
+}
+
+func (s *ProcessStorage) AddListener(listener api.ProcessListener) {
+	s.listeners = append(s.listeners, listener)
+	s.initListenQueue <- listener
+}
+
+func (s *ProcessStorage) DeleteListener(listener api.ProcessListener) {
+	result := make([]api.ProcessListener, 0)
+	for _, l := range s.listeners {
+		if l != listener {
+			result = append(result, l)
+		}
+	}
+	s.listeners = result
+}
+
+type ProcessOperate int
+
+const (
+	ProcessOperateAdd    = 1
+	ProcessOperateDelete = 2
+)
+
+type processEventBuilder struct {
+	processes map[int32][]api.ProcessInterface
+	operate   ProcessOperate
+	storage   *ProcessStorage
+}
+
+func (s *ProcessStorage) newProcessEventBuilder(operate ProcessOperate) *processEventBuilder {
+	return &processEventBuilder{
+		processes: make(map[int32][]api.ProcessInterface),
+		operate:   operate,
+		storage:   s,
+	}
+}
+
+func (p *processEventBuilder) AddProcess(pid int32, pi api.ProcessInterface) {
+	ps := p.processes[pid]
+	ps = append(ps, pi)
+	p.processes[pid] = ps
+}
+
+func (p *processEventBuilder) Send() {
+	for pid, processes := range p.processes {
+		p.storage.eventQueue <- &processEvent{
+			pid:       pid,
+			processes: processes,
+			operate:   p.operate,
+		}
+	}
+}
+
+type processEvent struct {
+	pid       int32
+	processes []api.ProcessInterface
+	operate   ProcessOperate
+}
+
+func (s *ProcessStorage) consumeProcessEvent(listeners []api.ProcessListener, e *processEvent) {
+	for _, l := range listeners {
+		if e.operate == ProcessOperateAdd {
+			l.AddNewProcess(e.pid, e.processes)
+		} else {
+			l.RemoveProcess(e.pid, e.processes)
+		}
+	}
+}
+
+func (s *ProcessStorage) notifyToRecheckAllProcesses(listeners []api.ProcessListener) {
+	if len(listeners) == 0 {
+		return
+	}
+	// build all processes
+	events := s.newProcessEventBuilder(ProcessOperateAdd)
+	for _, pcs := range s.processes {
+		for _, pc := range pcs {
+			events.AddProcess(pc.Pid(), pc)
+		}
+	}
+	for _, l := range listeners {
+		l.RecheckAllProcesses(events.processes)
+	}
 }

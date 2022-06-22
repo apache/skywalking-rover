@@ -17,11 +17,10 @@
 FROM golang:1.17
 
 RUN apt update && \
-    apt install -y libbpf-dev lsb-release wget software-properties-common && \
-    mkdir -p /usr/include/asm /usr/include/bits /usr/include/sys && \
-    cp -r /usr/include/$(uname -m)*/asm/* /usr/include/asm && \
-    cp -r /usr/include/$(uname -m)*/bits/* /usr/include/bits && \
-    cp -r /usr/include/asm-generic/* /usr/include/asm && \
+    git clone --depth 1 --branch v0.8.0 https://github.com/libbpf/libbpf.git && \
+    mkdir -p /usr/include/bpf && cp libbpf/src/*.h /usr/include/bpf && \
+    apt install -y lsb-release wget software-properties-common libc6-dev-i386 && \
+    cp -rf /usr/include/asm-generic/* /usr/include/asm && \
     wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 13

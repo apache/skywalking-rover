@@ -29,6 +29,7 @@ import (
 	"github.com/cilium/ebpf/link"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
+	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/tools"
@@ -68,13 +69,17 @@ type Runner struct {
 	flushDataNotify context.CancelFunc
 }
 
-func NewRunner(config *base.TaskConfig) (base.ProfileTaskRunner, error) {
+func NewRunner(config *base.TaskConfig, moduleMgr *module.Manager) (base.ProfileTaskRunner, error) {
 	return &Runner{
 		base: base.NewBaseRunner(),
 	}, nil
 }
 
-func (r *Runner) Init(task *base.ProfilingTask, process api.ProcessInterface) error {
+func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface) error {
+	if len(processes) != 1 {
+		return fmt.Errorf("the processes count must be 1, current is: %d", len(processes))
+	}
+	process := processes[0]
 	r.pid = process.Pid()
 	r.processProfiling = process.ProfilingStat()
 	kernelProfiling, err := tools.KernelFileProfilingStat()

@@ -15,18 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package api
 
-type TaskConfig struct {
-	OnCPU   *OnCPUConfig           `mapstructure:"on_cpu"`  // ON_CPU type of profiling task config
-	Network *NetworkTopologyConfig `mapstructure:"network"` // NETWORK type of profiling task config
-}
-
-type OnCPUConfig struct {
-	Period string `mapstructure:"dump_period"` // The duration of dump stack
-}
-
-type NetworkTopologyConfig struct {
-	ReportInterval string `mapstructure:"report_interval"` // The duration of data report interval
-	MeterPrefix    string `mapstructure:"meter_prefix"`    // The prefix of meter name
+type ProcessListener interface {
+	// AddNewProcess detect new process
+	AddNewProcess(pid int32, entities []ProcessInterface)
+	// RemoveProcess process been dead
+	RemoveProcess(pid int32, entities []ProcessInterface)
+	// RecheckAllProcesses recheck all process with interval, make sure all processes synchronize success
+	RecheckAllProcesses(processes map[int32][]ProcessInterface)
 }

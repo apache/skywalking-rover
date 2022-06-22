@@ -22,4 +22,10 @@ import "github.com/apache/skywalking-rover/pkg/process/api"
 type Operator interface {
 	// FindProcessById the processID is received from the backend, if not found then return nil
 	FindProcessByID(processID string) api.ProcessInterface
+	// FindProcessByPID get all processes with difference entity through process PID
+	FindProcessByPID(pid int32) []api.ProcessInterface
+	// AddListener add new process listener
+	AddListener(listener api.ProcessListener)
+	// DeleteListener delete the process listener
+	DeleteListener(listener api.ProcessListener)
 }

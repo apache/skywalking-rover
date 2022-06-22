@@ -32,7 +32,7 @@ type ProfilingRunningSuccessNotify func()
 // ProfileTaskRunner is use to running different type of profiling task, such as on-cpu profiling task
 type ProfileTaskRunner interface {
 	// Init runner with profiling task and process
-	Init(task *ProfilingTask, process api.ProcessInterface) error
+	Init(task *ProfilingTask, processes []api.ProcessInterface) error
 	// Run profiling, if throw error or method finish means the profiling task finished
 	Run(ctx context.Context, notify ProfilingRunningSuccessNotify) error
 	// Stop the runner initiative, is typically used to specify the profiling duration
