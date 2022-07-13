@@ -118,4 +118,4 @@ profiling:
       # The interval of send metrics to the backend
       report_interval: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL:2s}
       # The prefix of network profiling metrics name
-      meter_prefix: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX:rover_network_profiling}
+      meter_prefix: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX:rover_net_p}
