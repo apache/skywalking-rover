@@ -24,7 +24,6 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
 	"github.com/apache/skywalking-rover/pkg/profiling/task"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
@@ -58,8 +57,7 @@ func NewManager(ctx context.Context, manager *module.Manager, conf *Config) (*Ma
 		return nil, fmt.Errorf("parse profiling data flush interval failure: %v", err)
 	}
 
-	taskManager, err := task.NewManager(ctx, manager.FindModule(process.ModuleName).(process.Operator),
-		profilingClient, flushDuration, conf.TaskConfig)
+	taskManager, err := task.NewManager(ctx, manager, profilingClient, flushDuration, conf.TaskConfig)
 	if err != nil {
 		return nil, err
 	}

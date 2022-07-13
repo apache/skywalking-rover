@@ -20,8 +20,11 @@ package task
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
+
+	"k8s.io/utils/strings/slices"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
@@ -39,11 +42,12 @@ const (
 // Context of profiling task
 type Context struct {
 	task             *base.ProfilingTask
-	process          api.ProcessInterface
+	processes        []api.ProcessInterface
 	runner           base.ProfileTaskRunner
 	status           RunningStatus
 	startRunningTime time.Time
 	runningWg        *sync.WaitGroup
+	recalcDuration   chan bool
 	ctx              context.Context
 	cancel           context.CancelFunc
 }
@@ -59,8 +63,19 @@ func (c *Context) TaskID() string {
 
 // BuildTaskIdentity for filter with same identity task
 func (c *Context) BuildTaskIdentity() string {
-	// use process id, target type, trigger type
-	return fmt.Sprintf("%s_%s_%s", c.task.ProcessID, c.task.TargetType, c.task.TriggerType)
+	// use processes id, target type, trigger type
+	return fmt.Sprintf("%v_%s_%s", c.task.ProcessIDList, c.task.TargetType, c.task.TriggerType)
+}
+
+func (c *Context) IsSameTask(other *Context) bool {
+	task1 := c.task
+	task2 := other.task
+
+	sort.Strings(task1.ProcessIDList)
+	sort.Strings(task2.ProcessIDList)
+
+	return task1.TaskID == task2.TaskID && slices.Equal(task1.ProcessIDList, task2.ProcessIDList) &&
+		task1.StartTime == task2.StartTime && task1.TriggerType == task2.TriggerType && task1.TargetType == task2.TargetType
 }
 
 // CheckTaskRunnable means checks the task could be running

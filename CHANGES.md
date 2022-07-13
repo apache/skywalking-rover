@@ -2,6 +2,17 @@ Changes by Version
 ==================
 Release Notes.
 
+0.3.0
+------------------
+#### Features
+* Support `NETWORK` Profiling.
+
+#### Bug Fixes
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/144?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/3?closed=1)
+
 0.2.0
 ------------------
 #### Features

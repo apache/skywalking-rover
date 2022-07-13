@@ -22,33 +22,36 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
+	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/offcpu"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/oncpu"
 )
 
-var profilingRunners = make(map[base.TargetType]func(config *base.TaskConfig) (base.ProfileTaskRunner, error))
+var profilingRunners = make(map[base.TargetType]func(config *base.TaskConfig, moduleMgr *module.Manager) (base.ProfileTaskRunner, error))
 
 func init() {
 	profilingRunners[base.TargetTypeOnCPU] = oncpu.NewRunner
 	profilingRunners[base.TargetTypeOffCPU] = offcpu.NewRunner
+	profilingRunners[base.TargetTypeNetworkTopology] = network.NewRunner
 }
 
-func NewProfilingRunner(taskType base.TargetType, taskConfig *base.TaskConfig) (base.ProfileTaskRunner, error) {
+func NewProfilingRunner(taskType base.TargetType, taskConfig *base.TaskConfig, moduleMgr *module.Manager) (base.ProfileTaskRunner, error) {
 	if profilingRunners[taskType] == nil {
 		return nil, fmt.Errorf("could not found %s runner", taskType)
 	}
-	return profilingRunners[taskType](taskConfig)
+	return profilingRunners[taskType](taskConfig, moduleMgr)
 }
 
-func CheckProfilingTaskConfig(taskConfig *base.TaskConfig) error {
+func CheckProfilingTaskConfig(taskConfig *base.TaskConfig, moduleMgr *module.Manager) error {
 	if taskConfig == nil {
 		return fmt.Errorf("please provide the profiling task config")
 	}
 
 	var err error
 	for _, runner := range profilingRunners {
-		if _, e := runner(taskConfig); e != nil {
+		if _, e := runner(taskConfig, moduleMgr); e != nil {
 			err = multierror.Append(err, e)
 		}
 	}

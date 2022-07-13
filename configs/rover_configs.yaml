@@ -112,5 +112,10 @@ profiling:
   task:
     # The config when executing ON_CPU profiling task
     on_cpu:
-      # the profiling stack dump period
+      # The profiling stack dump period
       dump_period: ${ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD:9ms}
+    network:
+      # The interval of send metrics to the backend
+      report_interval: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL:2s}
+      # The prefix of network profiling metrics name
+      meter_prefix: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX:rover_net_p}

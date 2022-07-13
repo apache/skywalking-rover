@@ -52,6 +52,8 @@ type ProcessInterface interface {
 	Entity() *ProcessEntity
 	// ProfilingStat of process
 	ProfilingStat() *profiling.Info
+	// ExeName get execute file name
+	ExeName() (string, error)
 }
 
 // ProcessEntity is related to backend entity concept

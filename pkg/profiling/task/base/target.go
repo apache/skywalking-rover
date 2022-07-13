@@ -26,8 +26,9 @@ import (
 type TargetType string
 
 const (
-	TargetTypeOnCPU  TargetType = "ON_CPU"
-	TargetTypeOffCPU TargetType = "OFF_CPU"
+	TargetTypeOnCPU           TargetType = "ON_CPU"
+	TargetTypeOffCPU          TargetType = "OFF_CPU"
+	TargetTypeNetworkTopology TargetType = "NETWORK"
 )
 
 func ParseTargetType(err error, val string) (TargetType, error) {
@@ -38,6 +39,8 @@ func ParseTargetType(err error, val string) (TargetType, error) {
 		return TargetTypeOnCPU, nil
 	} else if TargetType(val) == TargetTypeOffCPU {
 		return TargetTypeOffCPU, nil
+	} else if TargetType(val) == TargetTypeNetworkTopology {
+		return TargetTypeNetworkTopology, nil
 	}
 	return "", fmt.Errorf("could not found target type: %s", val)
 }

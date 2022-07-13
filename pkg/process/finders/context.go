@@ -45,6 +45,9 @@ type ProcessContext struct {
 	// detectProcess from finder
 	detectProcess base.DetectedProcess
 	detectType    api.ProcessDetectType
+
+	// cache
+	exeName string
 }
 
 func (p *ProcessContext) ID() string {
@@ -65,4 +68,15 @@ func (p *ProcessContext) Entity() *api.ProcessEntity {
 
 func (p *ProcessContext) ProfilingStat() *profiling.Info {
 	return p.detectProcess.ProfilingStat()
+}
+
+func (p *ProcessContext) ExeName() (string, error) {
+	if p.exeName == "" {
+		exe, err := p.detectProcess.OriginalProcess().Name()
+		if err != nil {
+			return "", err
+		}
+		p.exeName = exe
+	}
+	return p.exeName, nil
 }

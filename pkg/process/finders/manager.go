@@ -33,6 +33,9 @@ import (
 
 var log = logger.GetLogger("process", "finder")
 
+// when there have process listener been registered, how often to confrim(recheck) the processes
+var processListenerRecheckInterval = time.Minute
+
 // ProcessManager means Manage all Process
 type ProcessManager struct {
 	moduleManager *module.Manager
@@ -65,7 +68,7 @@ func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
 	}
 
 	// start new storage
-	storage, err := NewProcessStorage(ctx, moduleManager, reportInterval, propertiesReportFactor, fsList)
+	storage, err := NewProcessStorage(ctx, moduleManager, reportInterval, propertiesReportFactor, fsList, processListenerRecheckInterval)
 	if err != nil {
 		return nil, err
 	}
@@ -120,4 +123,16 @@ func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []base.Detec
 
 func (m *ProcessManager) FindProcessByID(processID string) api.ProcessInterface {
 	return m.storage.FindProcessByID(processID)
+}
+
+func (m *ProcessManager) FindProcessByPID(pid int32) []api.ProcessInterface {
+	return m.storage.FindProcessByPID(pid)
+}
+
+func (m *ProcessManager) AddListener(listener api.ProcessListener) {
+	m.storage.AddListener(listener)
+}
+
+func (m *ProcessManager) DeleteListener(listener api.ProcessListener) {
+	m.storage.DeleteListener(listener)
 }
