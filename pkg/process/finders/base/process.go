@@ -36,4 +36,6 @@ type DetectedProcess interface {
 	DetectType() api.ProcessDetectType
 	// ProfilingStat of process
 	ProfilingStat() *profiling.Info
+	// ExposePorts define which ports are exposed
+	ExposePorts() []int
 }

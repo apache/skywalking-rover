@@ -123,3 +123,15 @@ func (p *TemplateProcess) Pid() int32 {
 func (p *TemplateProcess) WorkDir() (string, error) {
 	return p.Cwd()
 }
+
+// ExeNameInCommandLine means the executed file name in the command line string
+func (p *TemplateProcess) ExeNameInCommandLine() (string, error) {
+	cmdline, err := p.CmdlineSlice()
+	if err != nil {
+		return "", err
+	}
+	if len(cmdline) == 0 {
+		return "", fmt.Errorf("cannot found the command line")
+	}
+	return cmdline[0], nil
+}

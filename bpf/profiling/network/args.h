@@ -19,7 +19,7 @@
 
 #pragma once
 
-#define MAX_SOCKET_BUFFER_READ_LENGTH 1024
+#define MAX_SOCKET_BUFFER_READ_LENGTH 4095
 
 // unknown the connection type, not trigger the syscall connect,accept
 #define AF_UNKNOWN 0xff
@@ -41,6 +41,7 @@
 #define SOCKET_OPTS_TYPE_RECVFROM   14
 #define SOCKET_OPTS_TYPE_RECVMSG    15
 #define SOCKET_OPTS_TYPE_RECVMMSG   16
+#define SOCKET_OPTS_TYPE_RESENT   17
 
 // tracepoint enter
 struct trace_event_raw_sys_enter {
@@ -106,7 +107,7 @@ struct sock_data_args_t {
     // current read/write is calls on the sockets.
     __u32 is_sock_event;
     size_t iovlen;
-    struct mmsghdr *mmsg;
+    unsigned int* msg_len;
     __u64 start_nacs;
     // rtt
     __u64 rtt_count;
@@ -147,13 +148,18 @@ struct {
     __uint(max_entries, 1);
 } socket_buffer_reader_map SEC(".maps");
 static __inline struct socket_buffer_reader_t* read_socket_data(void *buf, __u32 data_bytes) {
+    __u64 size;
     __u32 kZero = 0;
     struct socket_buffer_reader_t* reader = bpf_map_lookup_elem(&socket_buffer_reader_map, &kZero);
     if (reader == NULL) {
         return NULL;
     }
-    __u32 max_len = data_bytes < MAX_SOCKET_BUFFER_READ_LENGTH ? (data_bytes & MAX_SOCKET_BUFFER_READ_LENGTH - 1) : MAX_SOCKET_BUFFER_READ_LENGTH;
-    reader->data_len = bpf_probe_read_str(&reader->buffer, max_len, buf);
-//    reader->data_len = max_len;
+    size = data_bytes;
+    if (size > MAX_SOCKET_BUFFER_READ_LENGTH) {
+        size = MAX_SOCKET_BUFFER_READ_LENGTH;
+    }
+    asm volatile("%[size] &= 0xfff;\n" ::[size] "+r"(size) :);
+    bpf_probe_read(&reader->buffer, size, buf);
+    reader->data_len = size;
     return reader;
 }

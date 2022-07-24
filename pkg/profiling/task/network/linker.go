@@ -26,6 +26,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/apache/skywalking-rover/pkg/tools"
+
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
@@ -33,8 +35,41 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
+const defaultSymbolPrefix = "sys_"
+
 type LinkFunc func(symbol string, prog *ebpf.Program) (link.Link, error)
 type RingBufferReader func(data interface{})
+
+var syscallPrefix string
+
+func init() {
+	stat, err := tools.KernelFileProfilingStat()
+	if err != nil {
+		syscallPrefix = defaultSymbolPrefix
+		return
+	}
+	var possiblePrefixes = []string{
+		defaultSymbolPrefix,
+		"__x64_sys_",
+		"__x32_compat_sys_",
+		"__ia32_compat_sys_",
+		"__arm64_sys_",
+		"__s390x_sys_",
+		"__s390_sys_",
+	}
+
+	found := false
+	for _, p := range possiblePrefixes {
+		if stat.FindSymbolAddress(fmt.Sprintf("%sbpf", p)) != 0 {
+			found = true
+			syscallPrefix = p
+			break
+		}
+	}
+	if !found {
+		syscallPrefix = "sys_"
+	}
+}
 
 type Linker struct {
 	closers   []io.Closer
@@ -64,11 +99,12 @@ func (m *Linker) AddSysCall(call string, enter, exit *ebpf.Program) {
 }
 
 func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Program) {
-	kprobe, err := linkK("sys_"+call, p)
+	kprobe, err := linkK(syscallPrefix+call, p)
 
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("could not attach syscall with %s: %v", "sys_"+call, err))
 	} else {
+		log.Debugf("attach to the syscall: %s", syscallPrefix+call)
 		m.closers = append(m.closers, kprobe)
 	}
 }
@@ -108,7 +144,7 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSup
 
 			data := dataSupplier()
 			if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
-				log.Warnf("parsing data from %s ringbuffer error: %v", emap.String(), err)
+				log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
 				continue
 			}
 

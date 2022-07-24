@@ -45,17 +45,17 @@ struct protocol_message_t {
   __u32 type;
 };
 
-#define BPF_PROBE_READ_VAR(value, ptr) bpf_probe_read(&value, sizeof(value), ptr)
+#define BPF_PROBE_READ_VAR1(value, ptr) bpf_probe_read(&value, sizeof(value), ptr)
 
 static __inline int32_t read_big_endian_int32(const char* buf) {
   int32_t length;
-  BPF_PROBE_READ_VAR(length, buf);
+  BPF_PROBE_READ_VAR1(length, buf);
   return bpf_ntohl(length);
 }
 
 static __inline int32_t read_big_endian_int16(const char* buf) {
   int16_t val;
-  BPF_PROBE_READ_VAR(val, buf);
+  BPF_PROBE_READ_VAR1(val, buf);
   return bpf_ntohl(val);
 }
 
@@ -299,9 +299,12 @@ if (len < kMinPayloadLen || len > kMaxPayloadLen) {
 return kUnknown;
 }
 // If the input includes a whole message (1 byte tag + length), check the last character.
-//if ((len + 1 <= (int)count) && (buf[count-1] != '\0')) {
-//return kUnknown;
-//}
+if (count > MAX_SOCKET_BUFFER_READ_LENGTH) {
+    count = MAX_SOCKET_BUFFER_READ_LENGTH;
+}
+if ((len + 1 <= (int)count) && (buf[count-1] != '\0')) {
+return kUnknown;
+}
 return kRequest;
 }
 
@@ -346,7 +349,7 @@ static const uint8_t kComStmtExecute = 0x17;
 static const uint8_t kComStmtClose = 0x19;
 
 // Second statement checks whether suspected header matches the length of current packet.
-bool use_prev_buf = (conn_info->prev_count == 4) && (*((uint32_t*)conn_info->prev_buf) == count);
+bool use_prev_buf = (conn_info->prev_count == 4) && ((size_t)read_big_endian_int32(conn_info->prev_buf) == count);
 
 if (use_prev_buf) {
 // Check the header_state to find out if the header has been read. MySQL server tends to
@@ -588,6 +591,9 @@ default:
   return kUnknown;
 }
 if (mux_type == kRerr || mux_type == kRerrOld) {
+if (length > MAX_SOCKET_BUFFER_READ_LENGTH) {
+    length = MAX_SOCKET_BUFFER_READ_LENGTH;
+}
 if (buf[length - 5] != 'c' || buf[length - 4] != 'h' || buf[length - 3] != 'e' ||
     buf[length - 2] != 'c' || buf[length - 1] != 'k')
   return kUnknown;
@@ -618,6 +624,9 @@ static __inline enum message_type_t infer_nats_message(const char* buf, size_t c
 // NATS messages start with an one-byte type marker, and end with \r\n terminal sequence.
 if (count < 3) {
 return kUnknown;
+}
+if (count > MAX_SOCKET_BUFFER_READ_LENGTH) {
+    count = MAX_SOCKET_BUFFER_READ_LENGTH;
 }
 // The last two chars are \r\n, the terminal sequence of all NATS messages.
 if (buf[count - 2] != '\r') {
@@ -673,8 +682,8 @@ static __inline enum message_type_t analyze_protocol(char *buf, __u32 count, str
         inferred_message.protocol = kProtocolCQL;
     } else if ((inferred_message.type = infer_mongo_message(buf, count)) != kUnknown) {
         inferred_message.protocol = kProtocolMongo;
-    } else if ((inferred_message.type = infer_pgsql_message(buf, count)) != kUnknown) {
-        inferred_message.protocol = kProtocolPGSQL;
+//    } else if ((inferred_message.type = infer_pgsql_message(buf, count)) != kUnknown) {
+//        inferred_message.protocol = kProtocolPGSQL;
     } else if ((inferred_message.type = infer_mysql_message(buf, count, conn_info)) != kUnknown) {
         inferred_message.protocol = kProtocolMySQL;
 //    } else if ((inferred_message.type = infer_mux_message(buf, count)) != kUnknown) {

@@ -54,6 +54,11 @@ type ProcessInterface interface {
 	ProfilingStat() *profiling.Info
 	// ExeName get execute file name
 	ExeName() (string, error)
+
+	// PortIsExpose check the port is exposed
+	PortIsExpose(port int) bool
+	// DetectNewExposePort add a new detected expose port
+	DetectNewExposePort(port int)
 }
 
 // ProcessEntity is related to backend entity concept

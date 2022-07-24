@@ -81,7 +81,10 @@ static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 fun
     } else {
         con.role = CONNECTION_ROLE_TYPE_UNKNOWN;
     }
+    __u16 port;
+    __u32 need_complete_addr = 1;
     if (socket != NULL) {
+        need_complete_addr = 0;
         // only get from accept function(server side)
         struct sock* s;
         BPF_CORE_READ_INTO(&s, socket, sk);
@@ -89,32 +92,55 @@ static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 fun
         short unsigned int skc_family;
         BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
         con.socket_family = skc_family;
+
+        if (con.socket_family == AF_INET) {
+            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
+            con.local_port = port;
+            BPF_CORE_READ_INTO(&con.local_addr_v4, s, __sk_common.skc_rcv_saddr);
+            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
+            con.remote_port = bpf_ntohs(port);
+            BPF_CORE_READ_INTO(&con.remote_addr_v4, s, __sk_common.skc_daddr);
+        } else if (con.socket_family == AF_INET6) {
+            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
+            con.local_port = port;
+            BPF_CORE_READ_INTO(&con.local_addr_v6, s, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr8);
+            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
+            con.remote_port = bpf_ntohs(port);
+            BPF_CORE_READ_INTO(&con.remote_addr_v6, s, __sk_common.skc_v6_daddr.in6_u.u6_addr8);
+       }
     } else if (addr != NULL) {
         con.socket_family = _(addr->sa_family);
+        if (con.socket_family == AF_INET) {
+            struct sockaddr_in *daddr = (struct sockaddr_in *)addr;
+            bpf_probe_read(&con.remote_addr_v4, sizeof(con.remote_addr_v4), &daddr->sin_addr.s_addr);
+            bpf_probe_read(&port, sizeof(port), &daddr->sin_port);
+            con.remote_port = bpf_ntohs(port);
+        } else if (con.socket_family == AF_INET6) {
+            struct sockaddr_in6 *daddr = (struct sockaddr_in6 *)addr;
+            bpf_probe_read(&con.remote_addr_v6, sizeof(con.remote_addr_v6), &daddr->sin6_addr.s6_addr);
+            bpf_probe_read(&port, sizeof(port), &daddr->sin6_port);
+            con.remote_port = bpf_ntohs(port);
+        }
     } else {
         con.socket_family = AF_UNKNOWN;
     }
 
     // save to the active connection map
     __u64 conid = gen_tgid_fd(tgid, fd);
+    struct socket_connect_event_t *event = create_socket_connect_event();
+    // only trace ipv4, v6, or unknown
+    // pid is not contains(monitored)
+    // cannot create connect event object
+    if (family_should_trace(con.socket_family) == false || tgid_should_trace(tgid) == false || !event) {
+        con.connect_event_send = false;
+        bpf_map_update_elem(&active_connection_map, &conid, &con, 0);
+        return;
+    }
+    // default setting as sent
+    con.connect_event_send = true;
     bpf_map_update_elem(&active_connection_map, &conid, &con, 0);
 
-    // only trace ipv4, v6, or unknown
-    if (family_should_trace(con.socket_family) == false) {
-        return;
-    }
-
-    // pid is contains
-    if (tgid_should_trace(tgid) == false) {
-        return;
-    }
-
     // send to user-space that have connection activated
-    struct socket_connect_event_t *event = create_socket_connect_event();
-    if (!event) {
-//        bpf_printk("cannot create the socket connect event");
-        return;
-    }
     event->conid = conid;
     event->random_id = con.random_id;
     event->func_name = func_name;
@@ -127,63 +153,36 @@ static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 fun
     // fill the connection
     event->role = con.role;
     event->socket_family = con.socket_family;
-    __u16 port;
-    if (socket != NULL) {
-        event->need_complete_addr = 0;
-        // only get from accept function(server side)
-        struct sock* s;
-        BPF_CORE_READ_INTO(&s, socket, sk);
+    event->need_complete_addr = need_complete_addr;
+    event->local_addr_v4 = con.local_addr_v4;
+    __builtin_memcpy(&event->local_addr_v6, &con.local_addr_v4, 16*sizeof(__u8));
+    event->local_port = con.local_port;
+    event->remote_addr_v4 = con.remote_addr_v4;
+    __builtin_memcpy(&event->remote_addr_v6, &con.remote_addr_v6, 16*sizeof(__u8));
+    event->remote_port = con.remote_port;
 
-        if (con.socket_family == AF_INET) {
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
-            event->local_port = port;
-            BPF_CORE_READ_INTO(&event->local_addr_v4, s, __sk_common.skc_rcv_saddr);
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
-            event->remote_port = bpf_ntohs(port);
-            BPF_CORE_READ_INTO(&event->remote_addr_v4, s, __sk_common.skc_daddr);
-        } else if (con.socket_family == AF_INET6) {
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
-            event->local_port = port;
-            BPF_CORE_READ_INTO(&event->local_addr_v6, s, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr8);
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
-            event->remote_port = bpf_ntohs(port);
-            BPF_CORE_READ_INTO(&event->remote_addr_v6, s, __sk_common.skc_v6_daddr.in6_u.u6_addr8);
-       } else {
-            event->local_port = 0;
-            event->remote_port = 0;
-       }
-    } else if (addr != NULL) {
-        event->need_complete_addr = 1;
-        if (con.socket_family == AF_INET) {
-            struct sockaddr_in *daddr = (struct sockaddr_in *)addr;
-            bpf_probe_read(&event->remote_addr_v4, sizeof(event->remote_addr_v4), &daddr->sin_addr.s_addr);
-            bpf_probe_read(&port, sizeof(port), &daddr->sin_port);
-            event->remote_port = bpf_ntohs(port);
-        } else if (con.socket_family == AF_INET6) {
-            struct sockaddr_in6 *daddr = (struct sockaddr_in6 *)addr;
-            bpf_probe_read(&event->remote_addr_v6, sizeof(event->remote_addr_v6), &daddr->sin6_addr.s6_addr);
-            bpf_probe_read(&port, sizeof(port), &daddr->sin6_port);
-            event->remote_port = bpf_ntohs(port);
-        } else {
-            event->remote_port = 0;
+    __u32 ret = bpf_perf_event_output(ctx, &socket_connection_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    // if not send event success, then update to the event not sent
+    if (ret < 0) {
+        struct active_connection_t *con = bpf_map_lookup_elem(&active_connection_map, &conid);
+        if (con != NULL) {
+            con->connect_event_send = false;
+            bpf_map_update_elem(&active_connection_map, &conid, con, 0);
         }
-    } else {
-        event->need_complete_addr = 1;
-        // clean the cache in LRU(remote port is enough)
-        event->remote_port = 0;
     }
-
-    bpf_perf_event_output(ctx, &socket_connection_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
 }
 
 static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, struct active_connection_t* con, __u64 start_time, __u64 end_time) {
-    // only trace ipv4, v6, or unknown
-    if (family_should_trace(con->socket_family) == false) {
-        return;
-    }
-    // pid is contains
-    if (tgid_should_trace(con->pid) == false) {
-        return;
+    // if the connect event not send, then check the pid or socket family
+    if (con->connect_event_send == false) {
+        // only trace ipv4, v6, or unknown
+        if (family_should_trace(con->socket_family) == false) {
+            return;
+        }
+        // ignore send close event if current process should not trace
+        if (tgid_should_trace(con->pid) == false) {
+            return;
+        }
     }
 
     __u64 exe_time = (__u64)(end_time - start_time);
@@ -196,6 +195,14 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.sockfd = con->sockfd;
     close_event.role = con->role;
 
+    close_event.socket_family = con->socket_family;
+    close_event.local_addr_v4 = con->local_addr_v4;
+    __builtin_memcpy(&close_event.local_addr_v6, &con->local_addr_v4, 16*sizeof(__u8));
+    close_event.local_port = con->local_port;
+    close_event.remote_addr_v4 = con->remote_addr_v4;
+    __builtin_memcpy(&close_event.remote_addr_v6, &con->remote_addr_v6, 16*sizeof(__u8));
+    close_event.remote_port = con->remote_port;
+
     close_event.write_bytes = con->write_bytes;
     close_event.write_count = con->write_count;
     close_event.write_exe_time = con->write_exe_time;
@@ -206,7 +213,6 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.write_rtt_time = con->write_rtt_time;
 
     bpf_perf_event_output(ctx, &socket_close_event_queue, BPF_F_CURRENT_CPU, &close_event, sizeof(close_event));
-//    bpf_printk("submit new close: conid: %lld, write bytes: %lld, write count: %lld\n", conid, con->write_bytes, con->write_count);
 }
 
 static __inline void submit_close_connection(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u64 start_nacs) {
@@ -214,7 +220,6 @@ static __inline void submit_close_connection(struct pt_regs* ctx, __u32 tgid, __
     __u64 conid = gen_tgid_fd(tgid, fd);
     struct active_connection_t* con = bpf_map_lookup_elem(&active_connection_map, &conid);
     if (con == NULL) {
-//        bpf_printk("connection id not exists: tgid: %d, fd: %d -> %lld", tgid, fd, conid);
         return;
     }
     notify_close_connection(ctx, conid, con, start_nacs, curr_nacs);
@@ -247,7 +252,28 @@ static __inline void submit_connection_when_not_exists(struct pt_regs *ctx, __u6
     submit_new_connection(ctx, func_name, tgid, connect_args->fd, connect_args->start_nacs, connect_args->addr, NULL);
 }
 
-static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
+static __always_inline void resent_connect_event(struct pt_regs *ctx, __u32 tgid, __u32 fd, __u64 conid, struct active_connection_t *con) {
+    struct socket_connect_event_t *event = create_socket_connect_event();
+    if (!event) {
+        return;
+    }
+    event->conid = conid;
+    event->random_id = con->random_id;
+    event->func_name = SOCKET_OPTS_TYPE_RESENT;
+    event->pid = tgid;
+    event->sockfd = fd;
+    event->role = con->role;
+    event->socket_family = con->socket_family;
+    event->need_complete_addr = 1;
+    event->remote_port = 0;
+    __u32 ret = bpf_perf_event_output(ctx, &socket_connection_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    if (ret >= 0) {
+        con->connect_event_send = true;
+        bpf_map_update_elem(&active_connection_map, &conid, con, 0);
+    }
+}
+
+static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
                                         __u32 data_direction, const bool vecs, __u32 func_name) {
     __u64 curr_nacs = bpf_ktime_get_ns();
     __u32 tgid = (__u32)(id >> 32);
@@ -273,26 +299,35 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
         return;
     }
 
-    // pid is contains
-    if (tgid_should_trace(tgid) == false) {
-        return;
+    // if connect event is not sent
+    if (conn->connect_event_send == false) {
+        // if the connection should trace, double check
+        if (tgid_should_trace(tgid) == false) {
+            return;
+        }
+        // resent the connection event
+        resent_connect_event(ctx, tgid, args->fd, conid, conn);
     }
 
     // unknown connection role, then try to use procotol analyzer to analyze request or response
     if (conn->role == CONNECTION_ROLE_TYPE_UNKNOWN) {
-//        bpf_printk("connection role is unknown, buf exists: %d, ioves exists: %d, func: %d\n", args->buf != NULL ? 1 : 0, args->iovec != NULL ? 1 : 0, func_name);
         struct socket_buffer_reader_t *buf_reader = NULL;
         if (args->buf != NULL) {
             buf_reader = read_socket_data(args->buf, bytes_count);
         } else if (args->iovec != NULL) {
-            struct iovec *iovec = _(args->iovec);
-            char *buff = _(iovec->iov_base);
-            buf_reader = read_socket_data(buff, bytes_count);
+            struct iovec iov;
+            int err = bpf_probe_read(&iov, sizeof(iov), args->iovec);
+            if (err >= 0) {
+                __u64 size = iov.iov_len;
+                if (size > bytes_count) {
+                    size = bytes_count;
+                }
+                buf_reader = read_socket_data((char *)iov.iov_base, size);
+            }
         }
 
         if (buf_reader != NULL) {
             enum message_type_t msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
-//            bpf_printk("connection: %lld, message type: %d\n", conid, msg_type);
             // if send request data to remote address or receive response data from remote address
             // then, recognized current connection is client
             if ((msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
@@ -301,8 +336,8 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
 
             // if send response data to remote address or receive request data from remote address
             // then, recognized current connection is server
-            } else if ((msg_type == kResponse && data_direction == SOCK_DATA_DIRECTION_INGRESS) ||
-                       (msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_EGRESS)) {
+            } else if ((msg_type == kResponse && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
+                       (msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
                 conn->role = CONNECTION_ROLE_TYPE_SERVER;
             }
         }
@@ -650,8 +685,11 @@ int sys_sendmmsg(struct pt_regs* ctx) {
 
     struct sock_data_args_t data_args = {};
     data_args.fd = fd;
-    data_args.mmsg = mmsghdr;
-    data_args.iovec = _(mmsghdr->msg_hdr.msg_iov);
+    struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
+    data_args.iovec = msg_iov;
+    size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
+    data_args.iovlen = msg_iovlen;
+    data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
     data_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
@@ -671,9 +709,8 @@ int sys_sendmmsg_ret(struct pt_regs* ctx) {
     // socket data
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        struct mmsghdr *mmsg = data_args->mmsg;
-        __u32 bytes_count = _(mmsg->msg_len);
-        data_args->iovlen = _(mmsg->msg_hdr.msg_iovlen);
+        __u32 bytes_count;
+        BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
         process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMMSG);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -937,8 +974,11 @@ int sys_recvmmsg(struct pt_regs* ctx) {
 
     struct sock_data_args_t data_args = {};
     data_args.fd = fd;
-    data_args.mmsg = mmsghdr;
-    data_args.iovec = _(mmsghdr->msg_hdr.msg_iov);
+    struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
+    data_args.iovec = msg_iov;
+    size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
+    data_args.iovlen = msg_iovlen;
+    data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
     data_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
@@ -958,9 +998,8 @@ int sys_recvmmsg_ret(struct pt_regs* ctx) {
     // socket data
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        struct mmsghdr *mmsg = data_args->mmsg;
-        __u32 bytes_count = _(mmsg->msg_len);
-        data_args->iovlen = _(mmsg->msg_hdr.msg_iovlen);
+        __u32 bytes_count;
+        BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
         process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMMSG);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
