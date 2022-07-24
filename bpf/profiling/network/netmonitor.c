@@ -179,7 +179,7 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
         if (family_should_trace(con->socket_family) == false) {
             return;
         }
-        // pid is contains
+        // ignore send close event if current process should not trace
         if (tgid_should_trace(con->pid) == false) {
             return;
         }
@@ -213,7 +213,6 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.write_rtt_time = con->write_rtt_time;
 
     bpf_perf_event_output(ctx, &socket_close_event_queue, BPF_F_CURRENT_CPU, &close_event, sizeof(close_event));
-//    bpf_printk("submit new close: conid: %lld, write bytes: %lld, write count: %lld\n", conid, con->write_bytes, con->write_count);
 }
 
 static __inline void submit_close_connection(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u64 start_nacs) {
@@ -221,7 +220,6 @@ static __inline void submit_close_connection(struct pt_regs* ctx, __u32 tgid, __
     __u64 conid = gen_tgid_fd(tgid, fd);
     struct active_connection_t* con = bpf_map_lookup_elem(&active_connection_map, &conid);
     if (con == NULL) {
-//        bpf_printk("connection id not exists: tgid: %d, fd: %d -> %lld", tgid, fd, conid);
         return;
     }
     notify_close_connection(ctx, conid, con, start_nacs, curr_nacs);
@@ -301,7 +299,7 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
         return;
     }
 
-    // if connection not sent
+    // if connect event is not sent
     if (conn->connect_event_send == false) {
         // if the connection should trace, double check
         if (tgid_should_trace(tgid) == false) {
@@ -313,7 +311,6 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
 
     // unknown connection role, then try to use procotol analyzer to analyze request or response
     if (conn->role == CONNECTION_ROLE_TYPE_UNKNOWN) {
-//        bpf_printk("connection role is unknown, buf exists: %d, ioves exists: %d, func: %d\n", args->buf != NULL ? 1 : 0, args->iovec != NULL ? 1 : 0, func_name);
         struct socket_buffer_reader_t *buf_reader = NULL;
         if (args->buf != NULL) {
             buf_reader = read_socket_data(args->buf, bytes_count);
@@ -325,7 +322,6 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
                 if (size > bytes_count) {
                     size = bytes_count;
                 }
-//                bpf_printk("iov read buffer size: %lld, connect event send status: %d\n", size, conn->connect_event_send);
                 buf_reader = read_socket_data((char *)iov.iov_base, size);
             }
         }
@@ -344,8 +340,6 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
                        (msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
                 conn->role = CONNECTION_ROLE_TYPE_SERVER;
             }
-//            bpf_printk("connection: %lld, data_len: %d, original len: %d", conid, buf_reader->data_len, bytes_count);
-//            bpf_printk("message type: %d, data_direction: %d, new role: %d", msg_type, data_direction, conn->role);
         }
     }
 
