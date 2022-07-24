@@ -47,7 +47,8 @@ type ProcessContext struct {
 	detectType    api.ProcessDetectType
 
 	// cache
-	exeName string
+	exeName      string
+	exposedPorts map[int]bool
 }
 
 func (p *ProcessContext) ID() string {
@@ -79,4 +80,12 @@ func (p *ProcessContext) ExeName() (string, error) {
 		p.exeName = exe
 	}
 	return p.exeName, nil
+}
+
+func (p *ProcessContext) PortIsExpose(port int) bool {
+	return p.exposedPorts[port]
+}
+
+func (p *ProcessContext) DetectNewExposePort(port int) {
+	p.exposedPorts[port] = true
 }

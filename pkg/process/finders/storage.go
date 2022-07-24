@@ -282,10 +282,15 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 }
 
 func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType, process base.DetectedProcess) *ProcessContext {
+	exporsedPorts := make(map[int]bool)
+	for _, p := range process.ExposePorts() {
+		exporsedPorts[p] = true
+	}
 	return &ProcessContext{
 		syncStatus:    NotReport,
 		detectProcess: process,
 		detectType:    finder,
+		exposedPorts:  exporsedPorts,
 	}
 }
 

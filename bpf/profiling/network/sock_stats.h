@@ -33,6 +33,15 @@ struct active_connection_t {
     // socket type
     __u32 socket_family;
 
+    // remote address
+    __u32 remote_addr_v4;
+    __u8 remote_addr_v6[16];
+    __u32 remote_port;
+    // local address
+    __u32 local_addr_v4;
+    __u8 local_addr_v6[16];
+    __u16 local_port;
+
     // basic stats(bytes, avg(exe_time/count))
     __u64 write_bytes;
     __u64 write_count;
@@ -50,6 +59,9 @@ struct active_connection_t {
     __u64 prev_count;
     char prev_buf[4];
     __u32 prepend_length_header;
+
+    // connect event already send
+    __u32 connect_event_send;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -125,6 +137,18 @@ struct socket_close_event_t {
     // the type of role in current connection
     __u32 role;
     __u32 fix;
+
+    // socket type
+    __u32 socket_family;
+    // upstream
+    __u32 remote_addr_v4;
+    __u8 remote_addr_v6[16];
+    __u32 remote_port;
+    // downstream
+    __u32 local_addr_v4;
+    __u8 local_addr_v6[16];
+    __u16 local_port;
+    __u32 fix1;
 
     // basic stats(bytes, avg(exe_time/count))
     __u64 write_bytes;

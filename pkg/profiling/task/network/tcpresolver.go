@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	notBlankRegex = regexp.MustCompile(`\\s+`)
+	notBlankRegex = regexp.MustCompile(`\s+`)
 	ipv4StrLen    = 8
 	ipv6StrLen    = 32
 )
@@ -59,8 +59,6 @@ func ParseSocket(pid, sockfd uint32) (*SocketPair, error) {
 	var s *SocketPair
 	s, err = foundAddressByFile(s, err, fmt.Sprintf(host.GetFileInHost("/proc/%d/net/tcp"), pid), inode)
 	s, err = foundAddressByFile(s, err, fmt.Sprintf(host.GetFileInHost("/proc/%d/net/tcp6"), pid), inode)
-	s, err = foundAddressByFile(s, err, host.GetFileInHost("/proc/net/tcp"), inode)
-	s, err = foundAddressByFile(s, err, host.GetFileInHost("/proc/net/tcp6"), inode)
 	return s, err
 }
 

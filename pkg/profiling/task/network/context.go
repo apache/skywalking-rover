@@ -18,12 +18,15 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"unsafe"
+
+	cmap "github.com/orcaman/concurrent-map"
 
 	"github.com/sirupsen/logrus"
 
@@ -42,12 +45,10 @@ type Context struct {
 	bpf *bpfObjects // current bpf programs
 
 	// standard syscall connections
-	activeConnections map[string]*ConnectionContext // current activeConnections connections
-	closedConnections []*ConnectionContext          // closed connections'
-	flushClosedEvents chan *SocketCloseEventWrapper // connection have been closed, it is a queue to cache unknown active connections
-	connectionLock    sync.Mutex                    // make sure read write closedConnections is synchronized
-	// if the socket close event not handled when flushing, then cache to this array to prevent dead-lock with flushClosedEvents
-	secondCloseEventCache []*SocketCloseEventWrapper
+	activeConnections cmap.ConcurrentMap      // current activeConnections connections
+	closedConnections []*ConnectionContext    // closed connections'
+	flushClosedEvents chan *SocketCloseEvent  // connection have been closed, it is a queue to cache unknown active connections
+	sockParseQueue    chan *ConnectionContext // socket address parse queue
 
 	// socket retransmit/drop
 	socketExceptionStatics       map[SocketBasicKey]*SocketExceptionValue
@@ -114,10 +115,10 @@ type ConnectionContext struct {
 
 func NewContext() *Context {
 	return &Context{
-		activeConnections:      make(map[string]*ConnectionContext),
+		activeConnections:      cmap.New(),
 		closedConnections:      make([]*ConnectionContext, 0),
-		flushClosedEvents:      make(chan *SocketCloseEventWrapper, 5000),
-		secondCloseEventCache:  make([]*SocketCloseEventWrapper, 0),
+		flushClosedEvents:      make(chan *SocketCloseEvent, 5000),
+		sockParseQueue:         make(chan *ConnectionContext, 5000),
 		processes:              make(map[int32][]api.ProcessInterface),
 		socketExceptionStatics: make(map[SocketBasicKey]*SocketExceptionValue),
 	}
@@ -160,6 +161,34 @@ func (c *Context) FlushAllConnection() ([]*ConnectionContext, error) {
 	c.combineExceptionToConnections(allContexts, exceptionContexts)
 
 	return allContexts, nil
+}
+
+func (c *Context) StartSocketAddressParser(ctx context.Context) {
+	for i := 0; i < 2; i++ {
+		go c.handleSocketParseQueue(ctx)
+	}
+}
+
+func (c *Context) handleSocketParseQueue(ctx context.Context) {
+	for {
+		select {
+		case cc := <-c.sockParseQueue:
+			socket, err := ParseSocket(cc.LocalPid, cc.SocketFD)
+			if err != nil {
+				// if the remote port of connection is empty, then this connection not available basically
+				if cc.RemotePort == 0 {
+					log.Warnf("complete the socket error, pid: %d, fd: %d, error: %v", cc.LocalPid, cc.SocketFD, err)
+				}
+				continue
+			}
+			cc.LocalIP = socket.SrcIP
+			cc.LocalPort = socket.SrcPort
+			cc.RemoteIP = socket.DestIP
+			cc.RemotePort = socket.DestPort
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (c *Context) combineExceptionToConnections(ccs []*ConnectionContext, exps map[SocketBasicKey]*SocketExceptionValue) {
@@ -213,13 +242,10 @@ func (c *Context) cleanAndGetAllExceptionContexts() map[SocketBasicKey]*SocketEx
 }
 
 func (c *Context) getAllConnectionWithContext() []*ConnectionContext {
-	c.connectionLock.Lock()
-	defer c.connectionLock.Unlock()
-
 	result := make([]*ConnectionContext, 0)
 	result = append(result, c.closedConnections...)
-	for _, con := range c.activeConnections {
-		result = append(result, con)
+	for _, con := range c.activeConnections.Items() {
+		result = append(result, con.(*ConnectionContext))
 	}
 
 	c.closedConnections = make([]*ConnectionContext, 0)
@@ -232,6 +258,13 @@ type ActiveConnectionInBPF struct {
 	SocketFD     uint32
 	Role         ConnectionRole
 	SocketFamily uint32
+
+	RemoteAddrV4   uint32
+	RemoteAddrV6   [16]uint8
+	RemoteAddrPort uint32
+	LocalAddrV4    uint32
+	LocalAddrV6    [16]uint8
+	LocalAddrPort  uint32
 
 	WriteBytes   uint64
 	WriteCount   uint64
@@ -248,6 +281,9 @@ type ActiveConnectionInBPF struct {
 	ProtocolPrevCount     uint64
 	ProtocolPrevBuf       [4]byte
 	ProtocolPrependHeader uint32
+
+	// the connect event is already sent
+	ConnectEventIsSent uint32
 }
 
 type HistogramDataKey struct {
@@ -289,7 +325,6 @@ func (c *Context) fillConnectionMetrics(ccs []*ConnectionContext) {
 			}
 
 			// update the role
-			cc.Role = activeConnection.Role
 			cc.WriteCounter.UpdateToCurrent(activeConnection.WriteBytes, activeConnection.WriteCount, activeConnection.WriteExeTime)
 			cc.ReadCounter.UpdateToCurrent(activeConnection.ReadBytes, activeConnection.ReadCount, activeConnection.ReadExeTime)
 			cc.WriteRTTCounter.UpdateToCurrent(0, activeConnection.WriteRTTCount, activeConnection.WriteRTTExeTime)
@@ -371,29 +406,10 @@ func (c *Context) handleSocketConnectEvent(data interface{}) {
 	}
 
 	// build active connection information
-	con := &ConnectionContext{
-		// metadata
-		ConnectionID:     event.ConID,
-		RandomID:         event.RandomID,
-		LocalPid:         event.Pid,
-		SocketFD:         event.FD,
-		LocalProcesses:   processes,
-		ConnectionClosed: false,
-
-		// metrics
-		WriteCounter:          NewSocketDataCounterWithHistory(),
-		ReadCounter:           NewSocketDataCounterWithHistory(),
-		WriteRTTCounter:       NewSocketDataCounterWithHistory(),
-		WriteRTTHistogram:     NewSocketDataHistogramWithHistory(),
-		WriteExeTimeHistogram: NewSocketDataHistogramWithHistory(),
-		ReadExeTimeHistogram:  NewSocketDataHistogramWithHistory(),
-		ConnectExecuteTime:    event.ExeTime,
-	}
-
+	con := c.newConnectionContext(event.ConID, event.RandomID, event.Pid, event.FD, processes, false)
+	con.ConnectExecuteTime = event.ExeTime
 	con.Role = event.Role
-	var trace string
 	if event.NeedComplete == 0 {
-		trace = "0"
 		con.RemotePort = uint16(event.RemoteAddrPort)
 		con.LocalPort = uint16(event.LocalAddrPort)
 		if event.SocketFamily == unix.AF_INET {
@@ -404,27 +420,16 @@ func (c *Context) handleSocketConnectEvent(data interface{}) {
 			con.RemoteIP = parseAddressV6(event.RemoteAddrV6)
 		}
 	} else {
-		socket, err := ParseSocket(event.Pid, event.FD)
-		if err != nil {
-			trace = "1-1"
-			// if the remote address exists then setting it
-			if event.RemoteAddrPort == 0 {
-				log.Debugf("complete the socket error, pid: %d, fd: %d, error: %v", event.Pid, event.FD, err)
+		// if the remote address exists then setting it
+		if event.RemoteAddrPort != 0 {
+			con.RemotePort = uint16(event.RemoteAddrPort)
+			if event.SocketFamily == unix.AF_INET {
+				con.RemoteIP = parseAddressV4(event.RemoteAddrV4)
 			} else {
-				con.RemotePort = uint16(event.RemoteAddrPort)
-				if event.SocketFamily == unix.AF_INET {
-					con.RemoteIP = parseAddressV4(event.RemoteAddrV4)
-				} else {
-					con.RemoteIP = parseAddressV6(event.RemoteAddrV6)
-				}
+				con.RemoteIP = parseAddressV6(event.RemoteAddrV6)
 			}
-		} else {
-			trace = "1-2"
-			con.LocalIP = socket.SrcIP
-			con.LocalPort = socket.SrcPort
-			con.RemoteIP = socket.DestIP
-			con.RemotePort = socket.DestPort
 		}
+		c.sockParseQueue <- con
 	}
 
 	// add to the context
@@ -432,15 +437,13 @@ func (c *Context) handleSocketConnectEvent(data interface{}) {
 
 	if log.Enable(logrus.DebugLevel) {
 		marshal, _ := json.Marshal(event)
-		log.Debugf("found connect event(%s): role: %s, %s:%d:%d -> %s:%d, json: %s", trace, con.Role.String(),
+		log.Debugf("found connect event: role: %s, %s:%d:%d -> %s:%d, json: %s", con.Role.String(),
 			con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort, string(marshal))
 	}
 }
 
 func (c *Context) saveActiveConnection(con *ConnectionContext) {
-	c.connectionLock.Lock()
-	defer c.connectionLock.Unlock()
-	c.activeConnections[c.generateConnectionKey(con.ConnectionID, con.RandomID)] = con
+	c.activeConnections.Set(c.generateConnectionKey(con.ConnectionID, con.RandomID), con)
 }
 
 type SocketCloseEvent struct {
@@ -451,6 +454,15 @@ type SocketCloseEvent struct {
 	SocketFD uint32
 	Role     ConnectionRole
 	Fix      uint32
+
+	SocketFamily   uint32
+	RemoteAddrV4   uint32
+	RemoteAddrV6   [16]uint8
+	RemoteAddrPort uint32
+	LocalAddrV4    uint32
+	LocalAddrV6    [16]uint8
+	LocalAddrPort  uint32
+	Fix1           uint32
 
 	WriteBytes   uint64
 	WriteCount   uint64
@@ -463,50 +475,67 @@ type SocketCloseEvent struct {
 	WriteRTTExeTime uint64
 }
 
-type SocketCloseEventWrapper struct {
-	*SocketCloseEvent
-	NotExistsCount int
+// batch to re-process all cached closed event
+func (c *Context) batchReProcessCachedCloseEvent() {
+	for len(c.flushClosedEvents) > 0 {
+		event := <-c.flushClosedEvents
+		if !c.socketClosedEvent0(event) {
+			// if cannot the found the active connection, then just create a new closed connection context
+			processes := c.processes[int32(event.Pid)]
+			if len(processes) == 0 {
+				continue
+			}
+			cc := c.newConnectionContext(event.ConID, event.RandomID, event.Pid, event.SocketFD, processes, true)
+			if event.SocketFamily == unix.AF_INET {
+				cc.RemoteIP = parseAddressV4(event.RemoteAddrV4)
+				cc.LocalIP = parseAddressV4(event.LocalAddrV4)
+			} else if event.SocketFamily == unix.AF_INET6 {
+				cc.RemoteIP = parseAddressV6(event.RemoteAddrV6)
+				cc.LocalIP = parseAddressV6(event.LocalAddrV6)
+			} else {
+				continue
+			}
+
+			// append to the closed connection
+			c.closedConnections = append(c.closedConnections, c.combineClosedConnection(cc, event))
+		}
+	}
 }
 
-// batch to re-process all cached closed event
-// if the event re-processes once, then just ignore it
-func (c *Context) batchReProcessCachedCloseEvent() {
-	// handling the second close event cache first, if it's could not be handle, then ignored
-	if len(c.secondCloseEventCache) > 0 {
-		for _, wrapper := range c.secondCloseEventCache {
-			event := wrapper.SocketCloseEvent
-			if !c.socketClosedEvent0(event) {
-				log.Warnf("found close connection event, but current connection is not in active cache: pid: %d, "+
-					"socket fd: %d", event.Pid, event.SocketFD)
-			}
-		}
-		c.secondCloseEventCache = make([]*SocketCloseEventWrapper, 0)
-	}
+func (c *Context) newConnectionContext(conID, randomID uint64, pid, fd uint32, processes []api.ProcessInterface, conClosed bool) *ConnectionContext {
+	return &ConnectionContext{
+		// metadata
+		ConnectionID:     conID,
+		RandomID:         randomID,
+		LocalPid:         pid,
+		SocketFD:         fd,
+		LocalProcesses:   processes,
+		ConnectionClosed: conClosed,
 
-	for len(c.flushClosedEvents) > 0 {
-		wrapper := <-c.flushClosedEvents
-		if c.socketClosedEvent0(wrapper.SocketCloseEvent) {
-			continue
-		}
-		wrapper.NotExistsCount++
-		// try to add the flush queue to re-process when next flush all connections
-		c.secondCloseEventCache = append(c.secondCloseEventCache, wrapper)
+		// metrics
+		WriteCounter:          NewSocketDataCounterWithHistory(),
+		ReadCounter:           NewSocketDataCounterWithHistory(),
+		WriteRTTCounter:       NewSocketDataCounterWithHistory(),
+		WriteRTTHistogram:     NewSocketDataHistogramWithHistory(),
+		WriteExeTimeHistogram: NewSocketDataHistogramWithHistory(),
+		ReadExeTimeHistogram:  NewSocketDataHistogramWithHistory(),
 	}
 }
 
 func (c *Context) handleSocketCloseEvent(data interface{}) {
 	event := data.(*SocketCloseEvent)
 
+	if log.Enable(logrus.DebugLevel) {
+		marshal, _ := json.Marshal(event)
+		log.Debugf("found close event: %s", string(marshal))
+	}
+
 	// try to handle the socket close event
 	if !c.socketClosedEvent0(event) {
 		// is not in active connection, maybe it's not have been added to activate first
 		// just add to the close queue, wait for the flush connection with interval
-		c.flushClosedEvents <- &SocketCloseEventWrapper{SocketCloseEvent: event, NotExistsCount: 1}
+		c.flushClosedEvents <- event
 		return
-	}
-	if log.Enable(logrus.DebugLevel) {
-		marshal, _ := json.Marshal(event)
-		log.Debugf("found close event: %s", string(marshal))
 	}
 }
 
@@ -554,28 +583,28 @@ func (c *Context) handleSocketExceptionOperationEvent(data interface{}) {
 }
 
 func (c *Context) socketClosedEvent0(event *SocketCloseEvent) bool {
-	c.connectionLock.Lock()
-	defer c.connectionLock.Unlock()
-
-	conKey := c.generateConnectionKey(event.ConID, event.RandomID)
-	activeCon := c.activeConnections[conKey]
+	activeCon := c.foundAndDeleteConnection(event)
 	if activeCon == nil {
 		return false
 	}
-
-	// delete the active connection
-	delete(c.activeConnections, conKey)
 
 	// combine the connection data
 	c.closedConnections = append(c.closedConnections, c.combineClosedConnection(activeCon, event))
 	return true
 }
 
+func (c *Context) foundAndDeleteConnection(event *SocketCloseEvent) *ConnectionContext {
+	conKey := c.generateConnectionKey(event.ConID, event.RandomID)
+	val, exists := c.activeConnections.Pop(conKey)
+	if !exists {
+		return nil
+	}
+	return val.(*ConnectionContext)
+}
+
 func (c *Context) deleteConnectionOnly(ccs []string) {
-	c.connectionLock.Lock()
-	defer c.connectionLock.Unlock()
 	for _, cc := range ccs {
-		delete(c.activeConnections, cc)
+		c.activeConnections.Remove(cc)
 	}
 }
 
@@ -620,6 +649,7 @@ func (c *Context) AddProcesses(processes []api.ProcessInterface) error {
 		if err1 := c.bpf.ProcessMonitorControl.Update(uint32(pid), uint32(1), ebpf.UpdateAny); err1 != nil {
 			err = multierror.Append(err, err1)
 		}
+		log.Debugf("add monitor process, pid: %d", pid)
 	}
 	return err
 }
@@ -650,6 +680,7 @@ func (c *Context) DeleteProcesses(processes []api.ProcessInterface) (emptyProces
 			if err1 := c.bpf.ProcessMonitorControl.Delete(uint32(pid)); err1 != nil {
 				err = multierror.Append(err, err1)
 			}
+			log.Debugf("delete monitor process: %d", pid)
 			delete(c.processes, pid)
 			continue
 		}

@@ -48,12 +48,12 @@ var log = logger.GetLogger("profiling", "task", "network", "topology")
 
 type Runner struct {
 	initOnce       sync.Once
-	startOnce      sync.Once
+	startLock      sync.Mutex
+	stopOnce       sync.Once
 	meterClient    v3.MeterReportServiceClient
 	reportInterval time.Duration
 	meterPrefix    string
 
-	processes  map[int32][]api.ProcessInterface
 	bpf        *bpfObjects
 	linker     *Linker
 	bpfContext *Context
@@ -64,7 +64,6 @@ type Runner struct {
 
 func NewGlobalRunnerContext() *Runner {
 	return &Runner{
-		processes:  make(map[int32][]api.ProcessInterface),
 		bpfContext: NewContext(),
 		linker:     &Linker{},
 	}
@@ -78,24 +77,18 @@ func (r *Runner) init(config *base.TaskConfig, moduleMgr *module.Manager) error 
 	return err
 }
 
-func (r *Runner) AddProcess(processes []api.ProcessInterface) error {
-	// adding processes
-	return r.bpfContext.AddProcesses(processes)
-}
-
 func (r *Runner) DeleteProcesses(processes []api.ProcessInterface) (bool, error) {
 	return r.bpfContext.DeleteProcesses(processes)
 }
 
-func (r *Runner) Start(ctx context.Context) error {
-	var err error
-	r.startOnce.Do(func() {
-		err = r.start0(ctx)
-	})
-	return err
-}
+func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) error {
+	r.startLock.Lock()
+	defer r.startLock.Unlock()
+	// if already start, then just adding the processes
+	if r.bpf != nil {
+		return r.bpfContext.AddProcesses(processes)
+	}
 
-func (r *Runner) start0(ctx context.Context) error {
 	r.ctx, r.cancel = context.WithCancel(ctx)
 	// load bpf program
 	objs := bpfObjects{}
@@ -104,6 +97,14 @@ func (r *Runner) start0(ctx context.Context) error {
 	}
 	r.bpf = &objs
 	r.bpfContext.Init(&objs)
+
+	if err := r.bpfContext.AddProcesses(processes); err != nil {
+		return err
+	}
+
+	// register all handlers
+	r.bpfContext.RegisterAllHandlers(r.linker)
+	r.bpfContext.StartSocketAddressParser(r.ctx)
 
 	// sock opts
 	r.linker.AddSysCall("connect", objs.SysConnect, objs.SysConnectRet)
@@ -137,9 +138,6 @@ func (r *Runner) start0(ctx context.Context) error {
 
 	// close socket
 	r.linker.AddSysCall("close", objs.SysClose, objs.SysCloseRet)
-
-	// register all handlers
-	r.bpfContext.RegisterAllHandlers(r.linker)
 
 	if err := r.linker.HasError(); err != nil {
 		_ = r.linker.Close()
@@ -180,13 +178,14 @@ func (r *Runner) flushMetrics() error {
 
 	if log.Enable(logrus.DebugLevel) {
 		for _, con := range connections {
-			log.Debugf("found connection: %s relation: %s:%d(%d) -> %s:%d, read: %d bytes/%d, write: %d bytes/%d", con.Role.String(),
+			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, read: %d bytes/%d, write: %d bytes/%d",
+				con.ConnectionID, con.Role.String(),
 				con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort, con.WriteCounter.Cur.Bytes, con.WriteCounter.Cur.Count,
 				con.ReadCounter.Cur.Bytes, con.ReadCounter.Cur.Count)
 		}
 	}
 	// combine all connection
-	analyzer := NewTrafficAnalyzer()
+	analyzer := NewTrafficAnalyzer(r.bpfContext.processes)
 	traffics := analyzer.CombineConnectionToTraffics(connections)
 	if len(traffics) == 0 {
 		return nil
@@ -246,10 +245,14 @@ func (r *Runner) logTheMetricsConnections(traffices []*ProcessTraffic) {
 }
 
 func (r *Runner) Stop() error {
-	r.cancel()
+	if r.cancel != nil {
+		r.cancel()
+	}
 	var result error
-	result = r.closeWhenExists(result, r.linker)
-	result = r.closeWhenExists(result, r.bpf)
+	r.stopOnce.Do(func() {
+		result = r.closeWhenExists(result, r.linker)
+		result = r.closeWhenExists(result, r.bpf)
+	})
 	return result
 }
 

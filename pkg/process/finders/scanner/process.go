@@ -109,6 +109,20 @@ func (p *Process) BuildIdentity() string {
 		p.entity.InstanceName, p.entity.ProcessName)
 }
 
+func (p *Process) ExposePorts() []int {
+	connections, err := p.original.Connections()
+	if err != nil {
+		log.Warnf("error getting the process connections, pid: %d, error: %v", p.pid, err)
+	}
+	ports := make([]int, 0)
+	for _, con := range connections {
+		if con.Status == "LISTEN" {
+			ports = append(ports, int(con.Laddr.Port))
+		}
+	}
+	return ports
+}
+
 func requiredNotNull(err error, key, value string) error {
 	if err != nil {
 		return err

@@ -69,3 +69,25 @@ func (p *Process) DetectType() api.ProcessDetectType {
 func (p *Process) ProfilingStat() *profiling.Info {
 	return p.profiling
 }
+
+func (p *Process) ExposePorts() []int {
+	result := make([]int, 0)
+	for _, cp := range p.podContainer.ContainerSpec.Ports {
+		result = append(result, int(cp.ContainerPort))
+		if cp.HostPort > 0 {
+			result = append(result, int(cp.HostPort))
+		}
+	}
+	connections, err := p.original.Connections()
+	if err != nil {
+		log.Warnf("query the process connection error: pid: %d, error: %v", p.pid, err)
+		return result
+	}
+	for _, c := range connections {
+		if c.Status == "LISTEN" {
+			result = append(result, int(c.Laddr.Port))
+		}
+	}
+
+	return result
+}

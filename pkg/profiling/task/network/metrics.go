@@ -181,6 +181,8 @@ func subtractionValue(v1, v2 uint64) uint64 {
 }
 
 type ProcessTraffic struct {
+	analyzer *TrafficAnalyzer
+
 	// local process information
 	LocalPid       uint32
 	LocalProcesses []api.ProcessInterface
@@ -350,7 +352,7 @@ func (r *ProcessTraffic) appendRemoteAddrssInfo(labels []*v3.Label, prefix strin
 		}
 	}
 
-	if tools.IsLocalHostAddress(r.RemoteIP) {
+	if tools.IsLocalHostAddress(r.RemoteIP) || r.analyzer.IsLocalAddressInCache(r.RemoteIP) {
 		return r.appendMeterValue(labels, prefix+"_local", "true")
 	}
 

@@ -62,11 +62,7 @@ func (r *DelegateRunner) Init(task *base.ProfilingTask, processes []api.ProcessI
 
 func (r *DelegateRunner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNotify) error {
 	r.ctx, r.cancel = context.WithCancel(ctx)
-	if err := realRunner.Start(ctx); err != nil {
-		return err
-	}
-	// add processes
-	if err := realRunner.AddProcess(r.processes); err != nil {
+	if err := realRunner.Start(ctx, r.processes); err != nil {
 		return err
 	}
 	notify()

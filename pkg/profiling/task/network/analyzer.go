@@ -19,9 +19,17 @@ package network
 
 import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/tools"
+)
+
+const (
+	layerMeshDP  = "MESH_DP"
+	layerMeshApp = "MESH"
+	processEnvoy = "envoy"
 )
 
 type TrafficAnalyzer struct {
+	existingProcesses map[int32][]api.ProcessInterface
 	// used to find local same with remote address
 	// the connect request(local:a -> remote:b) same with accept address(remote:a -> local:b)
 	// key: localIP:port+RemoteIP+port
@@ -31,8 +39,8 @@ type TrafficAnalyzer struct {
 	// used to find only have the remote address connection
 	// the connect request(local:unknown -> remote:b), server side accept(local:b)
 	// key: RemoteIP:port
-	// value: remotePid
-	peerAddressCache map[PeerAddress]uint32
+	// value: remotePid list
+	peerAddressCache map[PeerAddress][]uint32
 
 	// used to find the envoy client, service connect to the service(outbound), but envoy accept the request through iptables
 	// the connect request(local:a -> remote:b(upstream service)), envoy side accept(local:c -> remote:a)
@@ -44,14 +52,21 @@ type TrafficAnalyzer struct {
 	// key: pid
 	// value: process entities
 	processData map[uint32][]api.ProcessInterface
+
+	// all local addresses(host only)
+	// key: ip
+	// value: [entity layer]process
+	localAddresses map[string]map[string]api.ProcessInterface
 }
 
-func NewTrafficAnalyzer() *TrafficAnalyzer {
+func NewTrafficAnalyzer(processes map[int32][]api.ProcessInterface) *TrafficAnalyzer {
 	return &TrafficAnalyzer{
+		existingProcesses:             processes,
 		localWithPeerCache:            make(map[LocalWithPeerAddress]*PidWithRole),
-		peerAddressCache:              make(map[PeerAddress]uint32),
+		peerAddressCache:              make(map[PeerAddress][]uint32),
 		envoyAcceptClientAddressCache: make(map[PeerAddress]*AddressWithPid),
 		processData:                   make(map[uint32][]api.ProcessInterface),
+		localAddresses:                make(map[string]map[string]api.ProcessInterface),
 	}
 }
 
@@ -86,6 +101,7 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 			continue
 		}
 
+		t.tryingToGenerateTheRoleWhenRemotePidCannotFound(con)
 		var pidToRemoteKey PidToRemoteTrafficKey
 		pidToRemoteKey.LocalPid = con.LocalPid
 		pidToRemoteKey.RemoteIP = con.RemoteIP
@@ -122,9 +138,33 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 	return result
 }
 
+func (t *TrafficAnalyzer) tryingToGenerateTheRoleWhenRemotePidCannotFound(con *ConnectionContext) {
+	if con.Role != ConnectionRoleUnknown {
+		return
+	}
+	// local process address or process could not found, then could analyze the role
+	if con.LocalPort == 0 || len(con.LocalProcesses) == 0 {
+		return
+	}
+	var role ConnectionRole
+	// if port is expose, and remote address is not local pid
+	// then the role of connection is server side usually
+	if con.LocalProcesses[0].PortIsExpose(int(con.LocalPort)) {
+		role = ConnectionRoleServer
+	} else {
+		role = ConnectionRoleClient
+	}
+
+	con.Role = role
+	log.Debugf("found current connection role is unknown, analyzed role is %s through local port. %s:%d(%d)->%s:%d",
+		role.String(), con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort)
+}
+
 func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con *ConnectionContext, remotePid uint32) *ProcessTraffic {
 	if traffic == nil {
 		traffic = &ProcessTraffic{
+			analyzer: t,
+
 			LocalPid:       con.LocalPid,
 			LocalProcesses: con.LocalProcesses,
 			LocalIP:        con.LocalIP,
@@ -181,6 +221,10 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 	return traffic
 }
 
+func (t *TrafficAnalyzer) IsLocalAddressInCache(ip string) bool {
+	return len(t.localAddresses[ip]) > 0
+}
+
 func (t *TrafficAnalyzer) buildCache(connections []*ConnectionContext) {
 	for _, con := range connections {
 		if t.ipNotEmpty(con.LocalIP, con.LocalPort) && t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
@@ -193,14 +237,32 @@ func (t *TrafficAnalyzer) buildCache(connections []*ConnectionContext) {
 				Pid:  con.LocalPid,
 				Role: con.Role,
 			}
+		}
+		if t.ipNotEmpty(con.LocalIP, con.LocalPort) {
+			peerAddress := PeerAddress{
+				RemoteIP:   con.LocalIP,
+				RemotePort: con.LocalPort,
+			}
+			t.peerAddressCache[peerAddress] = append(t.peerAddressCache[peerAddress], con.LocalPid)
 
+			if len(con.LocalProcesses) > 0 {
+				localAddressProcesses := t.localAddresses[con.LocalIP]
+				if len(localAddressProcesses) == 0 {
+					localAddressProcesses = make(map[string]api.ProcessInterface)
+					t.localAddresses[con.LocalIP] = localAddressProcesses
+				}
+				for _, p := range con.LocalProcesses {
+					localAddressProcesses[p.Entity().Layer] = p
+				}
+			}
+		} else if t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
 			// if server side is envoy
 			if con.Role == ConnectionRoleServer && len(con.LocalProcesses) > 0 {
 				name, err := con.LocalProcesses[0].ExeName()
 				if err != nil {
 					log.Warnf("get process exe name failure, pid: %d, error: %v", con.LocalPid, err)
 				}
-				if name == "envoy" {
+				if name == processEnvoy {
 					t.envoyAcceptClientAddressCache[PeerAddress{
 						RemoteIP:   con.RemoteIP,
 						RemotePort: con.RemotePort,
@@ -212,27 +274,45 @@ func (t *TrafficAnalyzer) buildCache(connections []*ConnectionContext) {
 				}
 			}
 		}
-		if t.ipNotEmpty(con.LocalIP, con.LocalPort) {
-			t.peerAddressCache[PeerAddress{
-				RemoteIP:   con.LocalIP,
-				RemotePort: con.LocalPort,
-			}] = con.LocalPid
-		}
 
 		if len(t.processData[con.LocalPid]) == 0 {
 			t.processData[con.LocalPid] = con.LocalProcesses
+		}
+		t.processExportPortAnalyze(con)
+	}
+}
+
+func (t *TrafficAnalyzer) processExportPortAnalyze(con *ConnectionContext) {
+	// if the process exists, role of connection is server mode and local port is exists1
+	// add the detected port into the processes
+	if len(con.LocalProcesses) > 0 && con.Role == ConnectionRoleServer && con.LocalPort > 0 {
+		for _, p := range con.LocalProcesses {
+			p.DetectNewExposePort(int(con.LocalPort))
 		}
 	}
 }
 
 func (t *TrafficAnalyzer) findRemotePid(con *ConnectionContext) uint32 {
-	if !t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
-		return 0
+	// full address
+	if pid := t.findRemotePidWhenContainsFullAddress(con); pid > 0 {
+		return pid
 	}
 
-	// try to find the target pid first
+	// only remote address
+	if pid := t.findRemotePidWhenContainsRemoteAddress(con); pid > 0 {
+		return pid
+	}
+
+	// mesh environment
+	if pid := t.findRemotePidWhenMeshEnvironment(con); pid > 0 {
+		return pid
+	}
+	return 0
+}
+
+func (t *TrafficAnalyzer) findRemotePidWhenContainsFullAddress(con *ConnectionContext) uint32 {
 	// match to localWithPeerCache
-	if t.ipNotEmpty(con.LocalIP, con.LocalPort) {
+	if t.ipNotEmpty(con.LocalIP, con.LocalPort) && t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
 		data := t.localWithPeerCache[LocalWithPeerAddress{
 			LocalIP:    con.RemoteIP,
 			LocalPort:  con.RemotePort,
@@ -258,8 +338,10 @@ func (t *TrafficAnalyzer) findRemotePid(con *ConnectionContext) uint32 {
 				RemotePort: con.LocalPort,
 			}]
 			if addr != nil {
-				con.RemoteIP = addr.RemoteIP
-				con.RemotePort = addr.RemotePort
+				if t.ipNotEmpty(addr.RemoteIP, addr.RemotePort) {
+					con.RemoteIP = addr.RemoteIP
+					con.RemotePort = addr.RemotePort
+				}
 				log.Debugf("found envoy connection: %s:%d->%s:%d", con.LocalIP, con.LocalPort, con.RemoteIP, con.RemotePort)
 				return addr.Pid
 			}
@@ -267,24 +349,79 @@ func (t *TrafficAnalyzer) findRemotePid(con *ConnectionContext) uint32 {
 		}
 	}
 
+	return 0
+}
+
+func (t *TrafficAnalyzer) findRemotePidWhenContainsRemoteAddress(con *ConnectionContext) uint32 {
+	if !t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
+		return 0
+	}
 	// use non-strict verification, don't verify the client role, ensure that pid is available to be greatest extent
 	// because the information of role maybe missing when not trigger the connect/accept
-	pid := t.peerAddressCache[PeerAddress{
+	pidCaches := t.peerAddressCache[PeerAddress{
 		RemoteIP:   con.RemoteIP,
 		RemotePort: con.RemotePort,
 	}]
-	if pid != 0 {
-		return pid
+	if len(pidCaches) > 0 {
+		result := pidCaches[0]
+		// when the remote peer address contains multiple pid
+		// the process usually not self
+		for _, pid := range pidCaches {
+			if pid != con.LocalPid {
+				result = pid
+			}
+		}
+		log.Debugf("found remote address by peer address cache: %s:%d -> %d", con.RemoteIP, con.RemotePort, result)
+		return result
 	}
-	// trying to parse the address with revert the network port
-	// pid = t.peerAddressCache[PeerAddress{
-	//	RemoteIP:   con.RemoteIP,
-	//	RemotePort: parsePort(con.RemotePort),
-	// }]
-	// if pid != 0 {
-	//	return pid
-	//}
+	return 0
+}
 
+func (t *TrafficAnalyzer) findRemotePidWhenMeshEnvironment(con *ConnectionContext) uint32 {
+	// special handle for mesh application, when it could not match the process through address
+	if len(con.LocalProcesses) == 0 || !t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
+		return 0
+	}
+	for _, localProcess := range con.LocalProcesses {
+		// match when the MESH data plane not found the MESH application
+		if localProcess.Entity().Layer == layerMeshDP {
+			addresses := t.localAddresses[con.RemoteIP]
+			if len(addresses) == 0 {
+				continue
+			}
+			if p := addresses[layerMeshApp]; p != nil {
+				log.Debugf("found in the mesh application, remote ip: %s", con.RemoteIP)
+				return uint32(p.Pid())
+			}
+			continue
+		}
+		// if current is mesh application, and remote address is not local and dns, them it's must be sent to the MESH_DP
+		if localProcess.Entity().Layer == layerMeshApp && con.RemotePort != 53 &&
+			len(t.localAddresses[con.RemoteIP]) == 0 && !tools.IsLocalHostAddress(con.RemoteIP) {
+			if envoyPid := t.findSameInstanceMeshDP(localProcess.Entity()); envoyPid != 0 {
+				log.Debugf("found in the mesh data plane, remote ip: %s", con.RemoteIP)
+				return envoyPid
+			}
+		}
+	}
+	return 0
+}
+
+func (t *TrafficAnalyzer) findSameInstanceMeshDP(entity *api.ProcessEntity) uint32 {
+	for _, psList := range t.existingProcesses {
+		for _, p := range psList {
+			if p.Entity().Layer == layerMeshDP && p.Entity().ServiceName == entity.ServiceName && p.Entity().InstanceName == entity.InstanceName {
+				name, err := p.ExeName()
+				if err != nil {
+					log.Warnf("query the process execute file name failure: %d, error: %v", p.Pid(), err)
+					continue
+				}
+				if name == processEnvoy {
+					return uint32(p.Pid())
+				}
+			}
+		}
+	}
 	return 0
 }
 
