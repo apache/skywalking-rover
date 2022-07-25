@@ -18,29 +18,40 @@
 package logger
 
 import (
-	"strings"
+	"context"
 
-	"github.com/sirupsen/logrus"
+	"github.com/apache/skywalking-rover/pkg/module"
 )
 
-var (
-	root = initializeDefaultLogger()
-)
+const ModuleName = "logger"
 
-type Logger struct {
-	*logrus.Entry
-	module []string
+type Module struct {
+	config *Config
 }
 
-// GetLogger for the module
-func GetLogger(modules ...string) *Logger {
-	moduleString := ""
-	if len(modules) > 0 {
-		moduleString = strings.Join(modules, ".")
-	}
-	return &Logger{Entry: root.WithField("module", moduleString), module: modules}
+func NewModule() *Module {
+	return &Module{config: &Config{}}
 }
 
-func (l *Logger) Enable(level logrus.Level) bool {
-	return root.IsLevelEnabled(level)
+func (m *Module) Name() string {
+	return ModuleName
+}
+
+func (m *Module) RequiredModules() []string {
+	return []string{}
+}
+
+func (m *Module) Config() module.ConfigInterface {
+	return m.config
+}
+
+func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+	return setupLogger(m.config)
+}
+
+func (m *Module) NotifyStartSuccess() {
+}
+
+func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+	return nil
 }

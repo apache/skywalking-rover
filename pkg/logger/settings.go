@@ -23,6 +23,15 @@ const (
 	DefaultLoggerLevel = logrus.InfoLevel
 )
 
+type Config struct {
+	Level string `mapstructure:"level"`
+}
+
+// setupLogger when Bootstrap
+func setupLogger(config *Config) (err error) {
+	return updateLogger(root, config)
+}
+
 func updateLogger(log *logrus.Logger, config *Config) error {
 	level, err := logrus.ParseLevel(config.Level)
 	if err != nil {
@@ -40,4 +49,8 @@ func initializeDefaultLogger() *logrus.Logger {
 		DisableColors: true,
 	})
 	return l
+}
+
+func (c *Config) IsActive() bool {
+	return true
 }

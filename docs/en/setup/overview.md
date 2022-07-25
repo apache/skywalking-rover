@@ -42,6 +42,7 @@ You can quickly build your Rover according to the following examples:
 The core concept behind this setting file is, that SkyWalking Rover is based on pure modularization design. The end-user can switch or assemble the collector features to their requirements.
 
 So, in rover_configs.yaml, there contains these parts.
+1. [Logger Module](./configuration/logger.md).
 1. [Core Module](./configuration/core.md).
 2. [Process Discovery Module](./configuration/process_discovery/overview.md).
 3. [Profiling Module](./configuration/profiling.md).

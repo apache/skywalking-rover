@@ -35,6 +35,8 @@ catalog:
           path: /en/setup/overview
         - name: Configuration
           catalog:
+            - name: Logger Module
+              path: /en/setup/configuration/logger
             - name: Core Module
               path: /en/setup/configuration/core
             - name: Process Discovery Module
