@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+logger:
+  # The lowest level of printing allowed.
+  level: ${ROVER_LOGGER_LEVEL:INFO}
+
 core:
   backend:
     # The backend server address

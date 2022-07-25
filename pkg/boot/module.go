@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
 )
 
@@ -119,6 +121,11 @@ func (m *ModuleStarter) Run(ctx context.Context) error {
 }
 
 func (m *ModuleStarter) ResolveDependency() error {
+	// make the log module as first active module
+	sort.Slice(m.activeModules, func(i, j int) bool {
+		return m.activeModules[i].Name() == logger.ModuleName
+	})
+
 	// check has required module is not include
 	for _, module := range m.activeModules {
 		for _, reqModule := range module.RequiredModules() {

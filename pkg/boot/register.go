@@ -19,6 +19,7 @@ package boot
 
 import (
 	"github.com/apache/skywalking-rover/pkg/core"
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process"
 	"github.com/apache/skywalking-rover/pkg/profiling"
@@ -26,6 +27,7 @@ import (
 
 func init() {
 	// register all active module
+	module.Register(logger.NewModule())
 	module.Register(core.NewModule())
 	module.Register(process.NewModule())
 	module.Register(profiling.NewModule())

@@ -6,6 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Support `NETWORK` Profiling.
+* Let the logger as a configurable module.
 
 #### Bug Fixes
 

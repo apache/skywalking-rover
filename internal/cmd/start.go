@@ -23,19 +23,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/apache/skywalking-rover/pkg/boot"
-	"github.com/apache/skywalking-rover/pkg/logger"
 )
 
 func newStartCmd() *cobra.Command {
-	logConfig := &logger.Config{}
 	configPath := ""
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "start the rover",
-		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			// setup logger
-			return logger.SetupLogger(logConfig)
-		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
@@ -44,7 +38,6 @@ func newStartCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&logConfig.Level, "verbosity", "v", "info", "the level of logger")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/rover_configs.yaml", "the rover config file path")
 	return cmd
 }
