@@ -9,6 +9,7 @@ Release Notes.
 * Let the logger as a configurable module.
 
 #### Bug Fixes
+* Fixed reading process paths incorrect when running as a container.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/144?closed=1)

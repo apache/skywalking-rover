@@ -22,7 +22,15 @@ import (
 	"strings"
 )
 
-var hostMappingPath = os.Getenv("ROVER_HOST_MAPPING")
+var hostMappingPath string
+
+func init() {
+	hostMappingPath = os.Getenv("ROVER_HOST_MAPPING")
+	// adapt with gopsutil framework to read the right process directory of host
+	if hostMappingPath != "" {
+		os.Setenv("HOST_PROC", hostMappingPath+"/proc")
+	}
+}
 
 // GetFileInHost means add the host root mapping prefix, it's dependent when the rover is deploy in a container
 func GetFileInHost(absPath string) string {
