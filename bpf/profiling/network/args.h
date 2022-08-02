@@ -41,7 +41,9 @@
 #define SOCKET_OPTS_TYPE_RECVFROM   14
 #define SOCKET_OPTS_TYPE_RECVMSG    15
 #define SOCKET_OPTS_TYPE_RECVMMSG   16
-#define SOCKET_OPTS_TYPE_RESENT   17
+#define SOCKET_OPTS_TYPE_RESENT     17
+#define SOCKET_OPTS_TYPE_SSL_WRITE  18
+#define SOCKET_OPTS_TYPE_SSL_READ   19
 
 // tracepoint enter
 struct trace_event_raw_sys_enter {

@@ -7,6 +7,7 @@ Release Notes.
 #### Features
 * Support `NETWORK` Profiling.
 * Let the logger as a configurable module.
+* Support analyze the data of OpenSSL library in `NETWORK` Profiling.
 
 #### Bug Fixes
 * Fixed reading process paths incorrect when running as a container.

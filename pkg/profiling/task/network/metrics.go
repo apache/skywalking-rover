@@ -191,6 +191,10 @@ type ProcessTraffic struct {
 
 	// current connection role of local process
 	ConnectionRole ConnectionRole
+	// the protocol of the connection
+	Protocol ConnectionProtocol
+	// current connection is SSL
+	IsSSL bool
 
 	// remote process/address information
 	RemoteIP        string
@@ -338,6 +342,10 @@ func (r *ProcessTraffic) buildBasicMeterLabels(local api.ProcessInterface) (Conn
 	labels = r.appendRemoteAddrssInfo(labels, curRole.Revert().String(), local)
 
 	labels = r.appendMeterValue(labels, "side", curRole.String())
+
+	// protocol and ssl
+	labels = r.appendMeterValue(labels, "protocol", r.Protocol.String())
+	labels = r.appendMeterValue(labels, "is_ssl", fmt.Sprintf("%t", r.IsSSL))
 	return curRole, labels
 }
 

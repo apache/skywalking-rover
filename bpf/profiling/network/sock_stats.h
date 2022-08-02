@@ -59,6 +59,8 @@ struct active_connection_t {
     __u64 prev_count;
     char prev_buf[4];
     __u32 prepend_length_header;
+    // current connection is ssl
+    __u32 ssl;
 
     // connect event already send
     __u32 connect_event_send;
@@ -136,6 +138,10 @@ struct socket_close_event_t {
     __u32 sockfd;
     // the type of role in current connection
     __u32 role;
+    // the protocol type of the connection
+    __u32 protocol;
+    // the connection is ssl
+    __u32 ssl;
     __u32 fix;
 
     // socket type

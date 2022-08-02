@@ -42,7 +42,8 @@ import (
 type Context struct {
 	processes map[int32][]api.ProcessInterface
 
-	bpf *bpfObjects // current bpf programs
+	bpf    *bpfObjects // current bpf programs
+	linker *Linker
 
 	// standard syscall connections
 	activeConnections cmap.ConcurrentMap      // current activeConnections connections
@@ -79,6 +80,8 @@ type ConnectionContext struct {
 	SocketFD         uint32
 	LocalProcesses   []api.ProcessInterface
 	ConnectionClosed bool
+	Protocol         ConnectionProtocol
+	IsSSL            bool
 
 	// socket metadata
 	Role       ConnectionRole
@@ -124,21 +127,22 @@ func NewContext() *Context {
 	}
 }
 
-func (c *Context) Init(bpf *bpfObjects) {
+func (c *Context) Init(bpf *bpfObjects, linker *Linker) {
 	c.bpf = bpf
+	c.linker = linker
 }
 
-func (c *Context) RegisterAllHandlers(linker *Linker) {
+func (c *Context) RegisterAllHandlers() {
 	// socket connect
-	linker.ReadEventAsync(c.bpf.SocketConnectionEventQueue, c.handleSocketConnectEvent, func() interface{} {
+	c.linker.ReadEventAsync(c.bpf.SocketConnectionEventQueue, c.handleSocketConnectEvent, func() interface{} {
 		return &SocketConnectEvent{}
 	})
 	// socket close
-	linker.ReadEventAsync(c.bpf.SocketCloseEventQueue, c.handleSocketCloseEvent, func() interface{} {
+	c.linker.ReadEventAsync(c.bpf.SocketCloseEventQueue, c.handleSocketCloseEvent, func() interface{} {
 		return &SocketCloseEvent{}
 	})
 	// socket retransmit
-	linker.ReadEventAsync(c.bpf.SocketExceptionOperationEventQueue, c.handleSocketExceptionOperationEvent, func() interface{} {
+	c.linker.ReadEventAsync(c.bpf.SocketExceptionOperationEventQueue, c.handleSocketExceptionOperationEvent, func() interface{} {
 		return &SocketExceptionOperationEvent{}
 	})
 }
@@ -277,10 +281,11 @@ type ActiveConnectionInBPF struct {
 	WriteRTTExeTime uint64
 
 	// Protocol analyze context
-	Protocol              uint32
+	Protocol              ConnectionProtocol
 	ProtocolPrevCount     uint64
 	ProtocolPrevBuf       [4]byte
 	ProtocolPrependHeader uint32
+	IsSSL                 uint32
 
 	// the connect event is already sent
 	ConnectEventIsSent uint32
@@ -322,6 +327,12 @@ func (c *Context) fillConnectionMetrics(ccs []*ConnectionContext) {
 
 			if cc.Role == ConnectionRoleUnknown && activeConnection.Role != ConnectionRoleUnknown {
 				cc.Role = activeConnection.Role
+			}
+			if cc.Protocol == ConnectionProtocolUnknown && activeConnection.Protocol != ConnectionProtocolUnknown {
+				cc.Protocol = activeConnection.Protocol
+			}
+			if !cc.IsSSL && activeConnection.IsSSL == 1 {
+				cc.IsSSL = true
 			}
 
 			// update the role
@@ -453,6 +464,8 @@ type SocketCloseEvent struct {
 	Pid      uint32
 	SocketFD uint32
 	Role     ConnectionRole
+	Protocol ConnectionProtocol
+	IsSSL    uint32
 	Fix      uint32
 
 	SocketFamily   uint32
@@ -614,6 +627,12 @@ func (c *Context) combineClosedConnection(active *ConnectionContext, closed *Soc
 	if active.Role == ConnectionRoleUnknown && closed.Role != ConnectionRoleUnknown {
 		active.Role = closed.Role
 	}
+	if active.Protocol == ConnectionProtocolUnknown && closed.Protocol != ConnectionProtocolUnknown {
+		active.Protocol = closed.Protocol
+	}
+	if !active.IsSSL && closed.IsSSL == 1 {
+		active.IsSSL = true
+	}
 
 	active.WriteCounter.UpdateToCurrent(closed.WriteBytes, closed.WriteCount, closed.WriteExeTime)
 	active.ReadCounter.UpdateToCurrent(closed.ReadBytes, closed.ReadCount, closed.ReadExeTime)
@@ -646,9 +665,16 @@ func (c *Context) AddProcesses(processes []api.ProcessInterface) error {
 
 		c.processes[pid] = append(c.processes[pid], p)
 
+		// add to the process let it could be monitored
 		if err1 := c.bpf.ProcessMonitorControl.Update(uint32(pid), uint32(1), ebpf.UpdateAny); err1 != nil {
 			err = multierror.Append(err, err1)
 		}
+
+		// add process ssl config
+		if err1 := addSSLProcess(int(pid), c.bpf, c.linker); err1 != nil {
+			err = multierror.Append(err, err1)
+		}
+
 		log.Debugf("add monitor process, pid: %d", pid)
 	}
 	return err
