@@ -96,14 +96,14 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 		return err
 	}
 	r.bpf = &objs
-	r.bpfContext.Init(&objs)
+	r.bpfContext.Init(&objs, r.linker)
 
 	if err := r.bpfContext.AddProcesses(processes); err != nil {
 		return err
 	}
 
 	// register all handlers
-	r.bpfContext.RegisterAllHandlers(r.linker)
+	r.bpfContext.RegisterAllHandlers()
 	r.bpfContext.StartSocketAddressParser(r.ctx)
 
 	// sock opts
@@ -238,8 +238,8 @@ func (r *Runner) logTheMetricsConnections(traffices []*ProcessTraffic) {
 				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid)
 		}
 		side := traffic.ConnectionRole.String()
-		log.Debugf("connection analyze result: %s : %s -> %s, read: %d bytes/%d, write: %d bytes/%d",
-			side, localInfo, remoteInfo, traffic.WriteCounter.Bytes, traffic.WriteCounter.Count,
+		log.Debugf("connection analyze result: %s : %s -> %s, protocol: %s, is SSL: %t, read: %d bytes/%d, write: %d bytes/%d",
+			side, localInfo, remoteInfo, traffic.Protocol.String(), traffic.IsSSL, traffic.WriteCounter.Bytes, traffic.WriteCounter.Count,
 			traffic.ReadCounter.Bytes, traffic.ReadCounter.Count)
 	}
 }

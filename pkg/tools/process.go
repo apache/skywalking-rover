@@ -27,6 +27,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	host2 "github.com/apache/skywalking-rover/pkg/tools/host"
+	"github.com/apache/skywalking-rover/pkg/tools/path"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
@@ -82,6 +83,16 @@ func ProcessProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
 	return analyzeProfilingInfo(context, pid)
 }
 
+// ProcessModules Read the profiling info of the process, without the symbol check
+func ProcessModules(pid int32) ([]*profiling.Module, error) {
+	context := newAnalyzeContext()
+	info, err := analyzeProfilingInfo(context, pid)
+	if err != nil {
+		return nil, err
+	}
+	return info.Modules, nil
+}
+
 func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, error) {
 	// analyze process mapping
 	mapFile, _ := os.Open(host2.GetFileInHost(fmt.Sprintf("/proc/%d/maps", pid)))
@@ -116,6 +127,10 @@ func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, 
 			continue
 		}
 		modulePath := host2.GetFileInHost(fmt.Sprintf("/proc/%d/root%s", pid, moduleName))
+		if !path.Exists(modulePath) {
+			log.Debugf("could not found the module, ignore. name: %s, path: %s", moduleName, modulePath)
+			continue
+		}
 
 		module, err = context.GetFinder(modulePath).ToModule(pid, moduleName, modulePath, []*profiling.ModuleRange{moduleRange})
 		if err != nil {
@@ -149,6 +164,7 @@ func isIgnoreModuleName(name string) bool {
 			strings.HasPrefix(name, "/memfd:") ||
 			strings.HasPrefix(name, "[vdso]") ||
 			strings.HasPrefix(name, "[vsyscall]") ||
+			strings.HasPrefix(name, "[uprobes]") ||
 			strings.HasSuffix(name, ".map"))
 }
 

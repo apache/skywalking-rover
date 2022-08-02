@@ -192,6 +192,12 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 	if traffic.ConnectionRole == ConnectionRoleUnknown && con.Role != ConnectionRoleUnknown {
 		traffic.ConnectionRole = con.Role
 	}
+	if traffic.Protocol == ConnectionProtocolUnknown && con.Protocol != ConnectionProtocolUnknown {
+		traffic.Protocol = con.Protocol
+	}
+	if !traffic.IsSSL && con.IsSSL {
+		traffic.IsSSL = true
+	}
 
 	if remotePid != 0 {
 		traffic.RemotePid = remotePid

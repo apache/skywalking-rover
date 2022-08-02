@@ -192,8 +192,9 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.random_id = con->random_id;
     close_event.exe_time = exe_time;
     close_event.pid = con->pid;
-    close_event.sockfd = con->sockfd;
     close_event.role = con->role;
+    close_event.protocol = con->protocol;
+    close_event.ssl = con->ssl;
 
     close_event.socket_family = con->socket_family;
     close_event.local_addr_v4 = con->local_addr_v4;
@@ -236,6 +237,14 @@ static __inline struct active_connection_t* get_or_create_active_conn(struct pt_
     return bpf_map_lookup_elem(&active_connection_map, &conid);
 }
 
+static __inline void set_conn_as_ssl(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u32 func_name) {
+    struct active_connection_t* conn = get_or_create_active_conn(ctx, tgid, fd, func_name);
+    if (conn == NULL) {
+        return;
+    }
+    conn->ssl = true;
+};
+
 static __inline void submit_connection_when_not_exists(struct pt_regs *ctx, __u64 id, const struct connect_args_t* connect_args, __u32 func_name) {
     __u32 tgid = (__u32)(id >> 32);
     __u32 fd = connect_args->fd;
@@ -274,7 +283,7 @@ static __always_inline void resent_connect_event(struct pt_regs *ctx, __u32 tgid
 }
 
 static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
-                                        __u32 data_direction, const bool vecs, __u32 func_name) {
+                                        __u32 data_direction, const bool vecs, __u32 func_name, bool ssl) {
     __u64 curr_nacs = bpf_ktime_get_ns();
     __u32 tgid = (__u32)(id >> 32);
 
@@ -309,8 +318,9 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
         resent_connect_event(ctx, tgid, args->fd, conid, conn);
     }
 
-    // unknown connection role, then try to use procotol analyzer to analyze request or response
-    if (conn->role == CONNECTION_ROLE_TYPE_UNKNOWN) {
+    // if the protocol or role is unknown in the connection and the current data content is plaintext
+    // then try to use protocol analyzer to analyze request or response and protocol type
+    if ((conn->role == CONNECTION_ROLE_TYPE_UNKNOWN || conn->protocol == 0) && conn->ssl == ssl) {
         struct socket_buffer_reader_t *buf_reader = NULL;
         if (args->buf != NULL) {
             buf_reader = read_socket_data(args->buf, bytes_count);
@@ -506,7 +516,7 @@ int sys_sendto_ret(struct pt_regs *ctx) {
 
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_SENDTO);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_SENDTO, false);
     }
 
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -551,7 +561,7 @@ int sys_write_ret(struct pt_regs *ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_WRITE);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_WRITE, false);
     }
 
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -576,7 +586,7 @@ int sys_send_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_SEND);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_SEND, false);
     }
 
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -605,7 +615,7 @@ int sys_writev_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_WRITEV);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_WRITEV, false);
     }
 
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -655,7 +665,7 @@ int sys_sendmsg_ret(struct pt_regs* ctx) {
     // socket data
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMSG);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -711,7 +721,7 @@ int sys_sendmmsg_ret(struct pt_regs* ctx) {
     if (data_args) {
         __u32 bytes_count;
         BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMMSG);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -796,7 +806,7 @@ int sys_read_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_READ);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_READ, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -824,7 +834,7 @@ int sys_readv_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_READV);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_READV, false);
     }
 
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -849,7 +859,7 @@ int sys_recv_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
         ssize_t bytes_count = PT_REGS_RC(ctx);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_RECV);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_RECV, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -895,7 +905,7 @@ int sys_recvfrom_ret(struct pt_regs* ctx) {
     // socket data
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_RECVFROM);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_RECVFROM, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -944,7 +954,7 @@ int sys_recvmsg_ret(struct pt_regs* ctx) {
     // socket data
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMSG);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -1000,7 +1010,7 @@ int sys_recvmmsg_ret(struct pt_regs* ctx) {
     if (data_args) {
         __u32 bytes_count;
         BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
-        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMMSG);
+        process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
     return 0;
@@ -1110,3 +1120,5 @@ int tcp_drop(struct pt_regs *ctx) {
     send_socket_exception_operation_event(ctx, SOCKET_EXCEPTION_OPERATION_TYPE_DROP, s);
     return 0;
 }
+
+#include "openssl.c"

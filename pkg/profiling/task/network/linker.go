@@ -77,18 +77,28 @@ type Linker struct {
 	closeOnce sync.Once
 }
 
+type UProbeExeFile struct {
+	addr     string
+	found    bool
+	liker    *Linker
+	realFile *link.Executable
+}
+
 func (m *Linker) AddLink(linkF LinkFunc, p *ebpf.Program, trySymbolNames ...string) {
 	var lk link.Link
 	var err error
+	var realSym string
 	for _, n := range trySymbolNames {
 		lk, err = linkF(n, p)
 		if err == nil {
+			realSym = n
 			break
 		}
 	}
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", trySymbolNames, err))
 	} else {
+		log.Debugf("attach to the kprobe: %s", realSym)
 		m.closers = append(m.closers, lk)
 	}
 }
@@ -151,6 +161,56 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSup
 			reader(data)
 		}
 	}()
+}
+
+func (m *Linker) OpenUProbeExeFile(path string) *UProbeExeFile {
+	executable, err := link.OpenExecutable(path)
+	if err != nil {
+		m.errors = multierror.Append(m.errors, fmt.Errorf("cannot found the execute file: %s, error: %v", path, err))
+		return &UProbeExeFile{
+			found: false,
+		}
+	}
+
+	return &UProbeExeFile{
+		found:    true,
+		addr:     path,
+		liker:    m,
+		realFile: executable,
+	}
+}
+
+func (m *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program, pid int) {
+	m.AddLinkWithType(symbol, true, enter, pid)
+	m.AddLinkWithType(symbol, false, exit, pid)
+}
+
+func (m *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Program, pid int) {
+	if !m.found {
+		return
+	}
+	var fun func(symbol string, prog *ebpf.Program, opts *link.UprobeOptions) (link.Link, error)
+	if enter {
+		fun = m.realFile.Uprobe
+	} else {
+		fun = m.realFile.Uretprobe
+	}
+
+	var t string
+	if enter {
+		t = "enter"
+	} else {
+		t = "exit"
+	}
+
+	lk, err := fun(symbol, p, &link.UprobeOptions{PID: pid})
+	if err != nil {
+		m.liker.errors = multierror.Append(m.liker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, pid: %d, error: %v",
+			m.addr, symbol, t, pid, err))
+	} else {
+		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s, pid: %d", m.addr, symbol, t, pid)
+		m.liker.closers = append(m.liker.closers, lk)
+	}
 }
 
 func (m *Linker) HasError() error {
