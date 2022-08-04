@@ -39,14 +39,14 @@ static int get_fd_symaddr(__u32 tgid, bool read, void* ssl) {
 }
 
 static int get_fd(uint32_t tgid, bool read, void* ssl) {
-    int fd = -1;
+    int fd = 0;
 
     fd = get_fd_symaddr(tgid, read, ssl);
     if (fd > 2) {
         return fd;
     }
 
-    return -1;
+    return 0;
 }
 
 SEC("uprobe/ssl_write")
@@ -56,10 +56,6 @@ int openssl_write(struct pt_regs* ctx) {
 
     void* ssl = (void*)PT_REGS_PARM1(ctx);
     __u32 fd = get_fd(tgid, false, ssl);
-    bpf_printk("ssl_write fd: %d\n", fd);
-    if (fd < 0) {
-        return 0;
-    }
 
     char* buf = (char*)PT_REGS_PARM2(ctx);
     struct sock_data_args_t data_args = {};
@@ -75,7 +71,7 @@ SEC("uretprobe/ssl_write")
 int openssl_write_ret(struct pt_regs* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *args = bpf_map_lookup_elem(&openssl_sock_data_args, &id);
-    if (args) {
+    if (args && args->fd > 0) {
         process_openssl_data(ctx, id, SOCK_DATA_DIRECTION_EGRESS, args, SOCKET_OPTS_TYPE_SSL_WRITE);
     }
     bpf_map_delete_elem(&openssl_sock_data_args, &id);
@@ -89,10 +85,6 @@ int openssl_read(struct pt_regs* ctx) {
 
     void* ssl = (void*)PT_REGS_PARM1(ctx);
     __u32 fd = get_fd(tgid, true, ssl);
-    bpf_printk("ssl_read fd: %d\n", fd);
-    if (fd < 0) {
-        return 0;
-    }
 
     char* buf = (char*)PT_REGS_PARM2(ctx);
     struct sock_data_args_t data_args = {};
@@ -108,7 +100,7 @@ SEC("uretprobe/ssl_read")
 int openssl_read_ret(struct pt_regs* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *args = bpf_map_lookup_elem(&openssl_sock_data_args, &id);
-    if (args) {
+    if (args && args->fd > 0) {
         process_openssl_data(ctx, id, SOCK_DATA_DIRECTION_INGRESS, args, SOCKET_OPTS_TYPE_SSL_READ);
     }
     bpf_map_delete_elem(&openssl_sock_data_args, &id);

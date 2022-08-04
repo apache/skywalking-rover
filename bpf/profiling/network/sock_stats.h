@@ -56,6 +56,7 @@ struct active_connection_t {
 
     // for protocol analyze
     __u32 protocol;
+    __u32 fix;
     __u64 prev_count;
     char prev_buf[4];
     __u32 prepend_length_header;
@@ -246,3 +247,11 @@ struct socket_exception_operation_event_t {
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } socket_exception_operation_event_queue SEC(".maps");
+
+// openssl read or write
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 10000);
+	__type(key, __u64);
+	__type(value, struct sock_data_args_t);
+} openssl_sock_data_args SEC(".maps");

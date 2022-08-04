@@ -107,6 +107,7 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 	r.bpfContext.StartSocketAddressParser(r.ctx)
 
 	// sock opts
+	r.linker.AddSysCall("close", objs.SysClose, objs.SysCloseRet)
 	r.linker.AddSysCall("connect", objs.SysConnect, objs.SysConnectRet)
 	r.linker.AddSysCall("accept", objs.SysAccept, objs.SysAcceptRet)
 	r.linker.AddSysCall("accept4", objs.SysAccept, objs.SysAcceptRet)
@@ -135,9 +136,6 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 	// retransmit/drop
 	r.linker.AddLink(link.Kprobe, objs.TcpRetransmit, "tcp_retransmit_skb")
 	r.linker.AddLink(link.Kprobe, objs.TcpDrop, "tcp_drop")
-
-	// close socket
-	r.linker.AddSysCall("close", objs.SysClose, objs.SysCloseRet)
 
 	if err := r.linker.HasError(); err != nil {
 		_ = r.linker.Close()
@@ -178,9 +176,10 @@ func (r *Runner) flushMetrics() error {
 
 	if log.Enable(logrus.DebugLevel) {
 		for _, con := range connections {
-			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, read: %d bytes/%d, write: %d bytes/%d",
+			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, protocol: %s, is_ssl: %t, read: %d bytes/%d, write: %d bytes/%d",
 				con.ConnectionID, con.Role.String(),
-				con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort, con.WriteCounter.Cur.Bytes, con.WriteCounter.Cur.Count,
+				con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort,
+				con.Protocol.String(), con.IsSSL, con.WriteCounter.Cur.Bytes, con.WriteCounter.Cur.Count,
 				con.ReadCounter.Cur.Bytes, con.ReadCounter.Cur.Count)
 		}
 	}
