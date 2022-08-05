@@ -50,6 +50,11 @@ func addSSLProcess(pid int, bpf *bpfObjects, linker *Linker) error {
 		return err1
 	}
 
+	// envoy with boring ssl
+	if err1 := processEnvoyProcess(pid, bpf, linker, modules); err1 != nil {
+		return err1
+	}
+
 	return nil
 }
 
@@ -85,6 +90,39 @@ func processOpenSSLProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*
 
 	// attach the linker
 	libSSLLinker := linker.OpenUProbeExeFile(libsslPath)
+	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet, pid)
+	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet, pid)
+	return linker.HasError()
+}
+
+func processEnvoyProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+	moduleName := "/envoy"
+	processModules, err := findProcessModules(modules, moduleName)
+	if err != nil {
+		return err
+	}
+	envoyModule := processModules[moduleName]
+	if envoyModule == nil {
+		return nil
+	}
+	var readSymbol, writeSymbol bool
+	for _, sym := range envoyModule.Symbols {
+		if sym.Name == "SSL_read" {
+			readSymbol = true
+		} else if sym.Name == "SSL_write" {
+			writeSymbol = true
+		}
+	}
+	if !readSymbol || !writeSymbol {
+		log.Debugf("found the envoy process, but the ssl read or write symbol not exists, so ignore. read: %t, write: %t",
+			readSymbol, writeSymbol)
+		return nil
+	}
+
+	log.Debugf("found current module is envoy, so attach to the SSL read and write")
+
+	// attach the linker
+	libSSLLinker := linker.OpenUProbeExeFile(envoyModule.Path)
 	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet, pid)
 	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet, pid)
 	return linker.HasError()

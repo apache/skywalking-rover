@@ -282,6 +282,7 @@ type ActiveConnectionInBPF struct {
 
 	// Protocol analyze context
 	Protocol              ConnectionProtocol
+	Fix                   uint32
 	ProtocolPrevCount     uint64
 	ProtocolPrevBuf       [4]byte
 	ProtocolPrependHeader uint32
@@ -323,6 +324,11 @@ func (c *Context) fillConnectionMetrics(ccs []*ConnectionContext) {
 					log.Warnf("lookup the active connection error, connection id: %d, error: %v", cc.ConnectionID, err)
 				}
 				continue
+			}
+
+			if log.Enable(logrus.DebugLevel) {
+				marshal, _ := json.Marshal(activeConnection)
+				log.Debugf("found the active connection, conid: %d, data: %s", cc.ConnectionID, string(marshal))
 			}
 
 			if cc.Role == ConnectionRoleUnknown && activeConnection.Role != ConnectionRoleUnknown {

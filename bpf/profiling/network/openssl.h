@@ -33,11 +33,3 @@ static __inline struct openssl_fd_symaddr* get_openssl_fd_symaddr(__u32 tgid) {
     struct openssl_fd_symaddr *addr = bpf_map_lookup_elem(&openssl_fd_symaddr_finder, &tgid);
     return addr;
 }
-
-// openssl read or write
-struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
-	__type(key, __u64);
-	__type(value, struct sock_data_args_t);
-} openssl_sock_data_args SEC(".maps");

@@ -307,6 +307,12 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
     if (family_should_trace(conn->socket_family) == false) {
         return;
     }
+    // process the ssl request if the fd not found
+    struct sock_data_args_t *ssl_data_args = bpf_map_lookup_elem(&openssl_sock_data_args, &id);
+    if (ssl_data_args != NULL && ssl_data_args->fd == 0) {
+        ssl_data_args->fd = args->fd;
+        conn->ssl = true;
+    }
 
     // if connect event is not sent
     if (conn->connect_event_send == false) {
