@@ -65,7 +65,7 @@ type Runner struct {
 func NewGlobalRunnerContext() *Runner {
 	return &Runner{
 		bpfContext: NewContext(),
-		linker:     &Linker{},
+		linker:     NewLinker(),
 	}
 }
 

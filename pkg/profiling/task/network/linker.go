@@ -75,6 +75,14 @@ type Linker struct {
 	closers   []io.Closer
 	errors    error
 	closeOnce sync.Once
+
+	linkedUProbes map[string]bool
+}
+
+func NewLinker() *Linker {
+	return &Linker{
+		linkedUProbes: make(map[string]bool),
+	}
 }
 
 type UProbeExeFile struct {
@@ -180,22 +188,15 @@ func (m *Linker) OpenUProbeExeFile(path string) *UProbeExeFile {
 	}
 }
 
-func (m *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program, pid int) {
-	m.AddLinkWithType(symbol, true, enter, pid)
-	m.AddLinkWithType(symbol, false, exit, pid)
+func (m *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program) {
+	m.AddLinkWithType(symbol, true, enter)
+	m.AddLinkWithType(symbol, false, exit)
 }
 
-func (m *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Program, pid int) {
+func (m *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Program) {
 	if !m.found {
 		return
 	}
-	var fun func(symbol string, prog *ebpf.Program, opts *link.UprobeOptions) (link.Link, error)
-	if enter {
-		fun = m.realFile.Uprobe
-	} else {
-		fun = m.realFile.Uretprobe
-	}
-
 	var t string
 	if enter {
 		t = "enter"
@@ -203,12 +204,27 @@ func (m *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 		t = "exit"
 	}
 
-	lk, err := fun(symbol, p, &link.UprobeOptions{PID: pid})
-	if err != nil {
-		m.liker.errors = multierror.Append(m.liker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, pid: %d, error: %v",
-			m.addr, symbol, t, pid, err))
+	// check already linked
+	uprobeIdentity := fmt.Sprintf("%s_%s_%t", m.addr, symbol, enter)
+	if m.liker.linkedUProbes[uprobeIdentity] {
+		log.Debugf("the uprobe already attached, so ignored. file: %s, symbol: %s, type: %s", m.addr, symbol, t)
+		return
+	}
+	m.liker.linkedUProbes[uprobeIdentity] = true
+
+	var fun func(symbol string, prog *ebpf.Program, opts *link.UprobeOptions) (link.Link, error)
+	if enter {
+		fun = m.realFile.Uprobe
 	} else {
-		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s, pid: %d", m.addr, symbol, t, pid)
+		fun = m.realFile.Uretprobe
+	}
+
+	lk, err := fun(symbol, p, nil)
+	if err != nil {
+		m.liker.errors = multierror.Append(m.liker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
+			m.addr, symbol, t, err))
+	} else {
+		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s", m.addr, symbol, t)
 		m.liker.closers = append(m.liker.closers, lk)
 	}
 }
