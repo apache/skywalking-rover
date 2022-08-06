@@ -90,12 +90,12 @@ func processOpenSSLProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*
 
 	// attach the linker
 	libSSLLinker := linker.OpenUProbeExeFile(libsslPath)
-	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet, pid)
-	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet, pid)
+	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet)
+	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet)
 	return linker.HasError()
 }
 
-func processEnvoyProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+func processEnvoyProcess(_ int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
 	moduleName := "/envoy"
 	processModules, err := findProcessModules(modules, moduleName)
 	if err != nil {
@@ -123,8 +123,8 @@ func processEnvoyProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*pr
 
 	// attach the linker
 	libSSLLinker := linker.OpenUProbeExeFile(envoyModule.Path)
-	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet, pid)
-	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet, pid)
+	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet)
+	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet)
 	return linker.HasError()
 }
 
