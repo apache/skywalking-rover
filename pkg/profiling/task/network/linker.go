@@ -26,7 +26,10 @@ import (
 	"os"
 	"sync"
 
+	"golang.org/x/arch/x86/x86asm"
+
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/elf"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -88,7 +91,7 @@ func NewLinker() *Linker {
 type UProbeExeFile struct {
 	addr     string
 	found    bool
-	liker    *Linker
+	linker   *Linker
 	realFile *link.Executable
 }
 
@@ -183,50 +186,138 @@ func (m *Linker) OpenUProbeExeFile(path string) *UProbeExeFile {
 	return &UProbeExeFile{
 		found:    true,
 		addr:     path,
-		liker:    m,
+		linker:   m,
 		realFile: executable,
 	}
 }
 
-func (m *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program) {
-	m.AddLinkWithType(symbol, true, enter)
-	m.AddLinkWithType(symbol, false, exit)
+func (u *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program) {
+	u.AddLinkWithType(symbol, true, enter)
+	u.AddLinkWithType(symbol, false, exit)
 }
 
-func (m *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Program) {
-	if !m.found {
-		return
-	}
-	var t string
-	if enter {
-		t = "enter"
-	} else {
-		t = "exit"
-	}
+func (u *UProbeExeFile) AddGoLink(symbol string, enter, exit *ebpf.Program, elfFile *elf.File) {
+	u.AddGoLinkWithType(symbol, true, enter, elfFile)
+	u.AddGoLinkWithType(symbol, false, exit, elfFile)
+}
 
-	// check already linked
-	uprobeIdentity := fmt.Sprintf("%s_%s_%t", m.addr, symbol, enter)
-	if m.liker.linkedUProbes[uprobeIdentity] {
-		log.Debugf("the uprobe already attached, so ignored. file: %s, symbol: %s, type: %s", m.addr, symbol, t)
+func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Program) {
+	if !u.found {
 		return
 	}
-	m.liker.linkedUProbes[uprobeIdentity] = true
+	lk, err := u.addLinkWithType0(symbol, enter, p, 0)
+	if err != nil {
+		u.linker.errors = multierror.Append(u.linker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
+			u.addr, symbol, u.parseEnterOrExitString(enter), err))
+	} else if lk != nil {
+		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s", u.addr, symbol, u.parseEnterOrExitString(enter))
+		u.linker.closers = append(u.linker.closers, lk)
+	}
+}
+
+func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Program, customizeOffset uint64) (link.Link, error) {
+	// check already linked
+	uprobeIdentity := fmt.Sprintf("%s_%s_%t_%d", u.addr, symbol, enter, customizeOffset)
+	if u.linker.linkedUProbes[uprobeIdentity] {
+		log.Debugf("the uprobe already attached, so ignored. file: %s, symbol: %s, type: %s", u.addr, symbol,
+			u.parseEnterOrExitString(enter))
+		return nil, nil
+	}
+	u.linker.linkedUProbes[uprobeIdentity] = true
 
 	var fun func(symbol string, prog *ebpf.Program, opts *link.UprobeOptions) (link.Link, error)
 	if enter {
-		fun = m.realFile.Uprobe
+		fun = u.realFile.Uprobe
 	} else {
-		fun = m.realFile.Uretprobe
+		fun = u.realFile.Uretprobe
 	}
 
-	lk, err := fun(symbol, p, nil)
-	if err != nil {
-		m.liker.errors = multierror.Append(m.liker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
-			m.addr, symbol, t, err))
-	} else {
-		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s", m.addr, symbol, t)
-		m.liker.closers = append(m.liker.closers, lk)
+	var opts *link.UprobeOptions
+	if customizeOffset > 0 {
+		opts = &link.UprobeOptions{
+			Offset: customizeOffset,
+		}
 	}
+	return fun(symbol, p, opts)
+}
+
+func (u *UProbeExeFile) AddGoLinkWithType(symbol string, enter bool, p *ebpf.Program, elfFile *elf.File) {
+	// if is entered type of probe, then same with the other programs
+	if enter {
+		u.AddLinkWithType(symbol, enter, p)
+		return
+	}
+
+	links, err := u.addGoExitLink0(symbol, p, elfFile)
+	if err != nil {
+		u.linker.errors = multierror.Append(u.linker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
+			u.addr, symbol, u.parseEnterOrExitString(enter), err))
+	} else {
+		log.Debugf("attach to the go uprobe, file: %s, symbol: %s, type: %s", u.addr, symbol, u.parseEnterOrExitString(enter))
+		for _, l := range links {
+			u.linker.closers = append(u.linker.closers, l)
+		}
+	}
+}
+
+func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *elf.File) ([]link.Link, error) {
+	// find the symbol
+	targetSymbol := elfFile.FindSymbol(symbol)
+	if targetSymbol == nil {
+		return nil, fmt.Errorf("could not found the symbol")
+	}
+
+	// find the symbol real data buffer
+	buffer, err := elfFile.ReadSymbolData(".text", targetSymbol.Location, targetSymbol.Size)
+	if err != nil {
+		return nil, fmt.Errorf("reading symbol data error: %v", err)
+	}
+
+	// find the base offset
+	targetBaseOffset := elfFile.FindBaseOffsetForAttach(targetSymbol.Location)
+	if targetBaseOffset == 0 {
+		return nil, fmt.Errorf("could not found the symbol base address")
+	}
+
+	// based on the base offset and symbol data buffer
+	// calculate all RET addresses
+	// https://github.com/iovisor/bcc/issues/1320#issuecomment-407927542
+	var offsets []uint64
+	for i := 0; i < int(targetSymbol.Size); {
+		inst, err := x86asm.Decode(buffer[i:], 64)
+		if err != nil {
+			return nil, fmt.Errorf("error decode the function data: %v", err)
+		}
+
+		if inst.Op == x86asm.RET {
+			offsets = append(offsets, targetBaseOffset+uint64(i))
+		}
+
+		i += inst.Len
+	}
+
+	if len(offsets) == 0 {
+		return nil, fmt.Errorf("could not found any return offsets")
+	}
+	log.Debugf("found reuturn offsets of the symbol, symbol: %s, size: %d", symbol, len(offsets))
+
+	var result []link.Link
+	for _, offset := range offsets {
+		l, err := u.addLinkWithType0(symbol, true, p, offset)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, l)
+		log.Debugf("attach to the return probe of the go program, symbol: %s, offset: %d", symbol, offset)
+	}
+	return result, nil
+}
+
+func (u *UProbeExeFile) parseEnterOrExitString(enter bool) string {
+	if enter {
+		return "enter"
+	}
+	return "exit"
 }
 
 func (m *Linker) HasError() error {

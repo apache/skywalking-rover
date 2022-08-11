@@ -359,22 +359,24 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
         }
     }
 
-    // add statics
-    __u64 exe_time = curr_nacs - args->start_nacs;
-    if (data_direction == SOCK_DATA_DIRECTION_EGRESS) {
-        conn->write_bytes += bytes_count;
-        conn->write_count++;
-        conn->write_exe_time += exe_time;
+    // add statics when is not ssl(native buffer)
+    if (ssl == false) {
+        __u64 exe_time = curr_nacs - args->start_nacs;
+        if (data_direction == SOCK_DATA_DIRECTION_EGRESS) {
+            conn->write_bytes += bytes_count;
+            conn->write_count++;
+            conn->write_exe_time += exe_time;
 
-        add_to_socket_connection_stats_histogram(conid, conn->random_id, SOCK_DATA_DIRECTION_EGRESS,
-                        SOCKET_CONNECTION_STATS_HISTOGRAM_DATA_TYPE_EXE_TIME, exe_time);
-    } else {
-        conn->read_bytes += bytes_count;
-        conn->read_count++;
-        conn->read_exe_time += exe_time;
+            add_to_socket_connection_stats_histogram(conid, conn->random_id, SOCK_DATA_DIRECTION_EGRESS,
+                            SOCKET_CONNECTION_STATS_HISTOGRAM_DATA_TYPE_EXE_TIME, exe_time);
+        } else {
+            conn->read_bytes += bytes_count;
+            conn->read_count++;
+            conn->read_exe_time += exe_time;
 
-        add_to_socket_connection_stats_histogram(conid, conn->random_id, SOCK_DATA_DIRECTION_INGRESS,
-                                SOCKET_CONNECTION_STATS_HISTOGRAM_DATA_TYPE_EXE_TIME, exe_time);
+            add_to_socket_connection_stats_histogram(conid, conn->random_id, SOCK_DATA_DIRECTION_INGRESS,
+                                    SOCKET_CONNECTION_STATS_HISTOGRAM_DATA_TYPE_EXE_TIME, exe_time);
+        }
     }
 
     // RTT
@@ -1128,3 +1130,4 @@ int tcp_drop(struct pt_regs *ctx) {
 }
 
 #include "openssl.c"
+#include "go_tls.c"

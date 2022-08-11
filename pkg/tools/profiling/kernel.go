@@ -63,6 +63,7 @@ func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
 		symbols = append(symbols, &Symbol{
 			Name:     info[2],
 			Location: atoi,
+			Size:     0,
 		})
 	}
 

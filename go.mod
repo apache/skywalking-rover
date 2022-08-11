@@ -13,6 +13,7 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.3.0
 	github.com/spf13/viper v1.10.1
+	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7
 	golang.org/x/sys v0.0.0-20211210111614-af8b64212486
 	google.golang.org/grpc v1.44.0
 	k8s.io/api v0.23.5

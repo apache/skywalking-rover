@@ -44,6 +44,8 @@
 #define SOCKET_OPTS_TYPE_RESENT     17
 #define SOCKET_OPTS_TYPE_SSL_WRITE  18
 #define SOCKET_OPTS_TYPE_SSL_READ   19
+#define SOCKET_OPTS_TYPE_GOTLS_WRITE 20
+#define SOCKET_OPTS_TYPE_GOTLS_READ  21
 
 // tracepoint enter
 struct trace_event_raw_sys_enter {
