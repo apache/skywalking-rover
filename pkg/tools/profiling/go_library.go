@@ -62,7 +62,7 @@ func (l *GoLibrary) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
 	// adapt symbol struct
 	data := make([]*Symbol, len(symbols))
 	for i, sym := range symbols {
-		data[i] = &Symbol{Name: sym.Name, Location: sym.Value}
+		data[i] = &Symbol{Name: sym.Name, Location: sym.Value, Size: sym.Size}
 	}
 
 	sort.SliceStable(data, func(i, j int) bool {

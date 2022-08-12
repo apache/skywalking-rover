@@ -62,6 +62,7 @@ type ModuleRange struct {
 type Symbol struct {
 	Name     string
 	Location uint64
+	Size     uint64
 }
 
 type StatFinder interface {

@@ -124,3 +124,10 @@ func (c ConnectionProtocol) String() string {
 		return unknown
 	}
 }
+
+type GoTLSArgsLocationType uint32
+
+const (
+	GoTLSArgsLocationTypeStack    GoTLSArgsLocationType = 1
+	GoTLSArgsLocationTypeRegister GoTLSArgsLocationType = 2
+)
