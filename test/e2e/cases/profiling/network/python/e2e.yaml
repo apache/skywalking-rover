@@ -13,20 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- contains . }}
-- taskid: {{ notEmpty .taskid }}
-  serviceid: {{ b64enc "file" }}.1
-  servicename: file
-  serviceinstanceid: null
-  serviceinstancename: null
-  processlabels:
-    {{- contains .processlabels }}
-    - e2e-label1
-    - e2e-label2
-    {{- end }}
-  taskstarttime: {{ gt .taskstarttime 0 }}
-  triggertype: FIXED_TIME
-  fixedtriggerduration: 60
-  targettype: OFF_CPU
-  createtime: {{ gt .createtime 0 }}
-{{- end }}
+setup:
+  env: compose
+  file: docker-compose.yml
+  timeout: 20m
+  init-system-environment: ../../../../base/env
+  steps:
+    - name: set PATH
+      command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
+    - name: install yq
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
+    - name: install swctl
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh swctl
+
+trigger:
+  action: http
+  interval: 3s
+  times: 10
+  url: https://${service_host}:${service_10443}/consumer
+  method: GET
+
+verify:
+  # verify with retry strategy
+  retry:
+    # max retry count
+    count: 20
+    # the interval between two retries, in millisecond.
+    interval: 10s
+  cases:
+    - includes:
+        - ../network-cases.yaml

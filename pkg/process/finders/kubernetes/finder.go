@@ -167,12 +167,18 @@ func (f *ProcessFinder) analyzeProcesses() error {
 			continue
 		}
 
-		cgroup, err := f.getProcessCGroup(p.Pid)
+		cgroups, err := f.getProcessCGroup(p.Pid)
 		if err != nil {
 			continue
 		}
 
-		c := containers[cgroup]
+		var c *PodContainer
+		for _, cgroup := range cgroups {
+			if cc := containers[cgroup]; cc != nil {
+				c = cc
+				break
+			}
+		}
 		if c == nil {
 			continue
 		}
@@ -244,30 +250,34 @@ func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodConta
 	return renderTemplate(entity, ps, pc, f)
 }
 
-func (f *ProcessFinder) getProcessCGroup(pid int32) (string, error) {
+func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
 	processCgroupFilePath := host.GetFileInHost(fmt.Sprintf("/proc/%d/cgroup", pid))
 	cgroupFile, err := os.Open(processCgroupFilePath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer cgroupFile.Close()
 
+	cache := make(map[string]bool)
 	scanner := bufio.NewScanner(cgroupFile)
 	for scanner.Scan() {
 		infos := strings.Split(scanner.Text(), ":")
 		if len(infos) < 3 {
 			continue
 		}
-		// find by most common type of cgroup
-		if infos[1] == "memory" {
-			lastPath := strings.LastIndex(infos[2], "/")
-			if lastPath > 1 && lastPath != len(infos[2])-1 {
-				return infos[2][lastPath+1:], nil
-			}
-			return "", nil
+		lastPath := strings.LastIndex(infos[2], "/")
+		if lastPath > 1 && lastPath != len(infos[2])-1 {
+			cache[infos[2][lastPath+1:]] = true
 		}
 	}
-	return "", fmt.Errorf("no memory config")
+	if len(cache) == 0 {
+		return nil, fmt.Errorf("no cgroups")
+	}
+	result := make([]string, 0)
+	for k := range cache {
+		result = append(result, k)
+	}
+	return result, nil
 }
 
 func (f *ProcessFinder) Stop() error {

@@ -216,6 +216,11 @@ func (m *Manager) shutdownTask(c *Context) error {
 	if c.runningWg == nil {
 		return nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnf("recover from shutdown task, id: %s, error: %v", c.TaskID(), r)
+		}
+	}()
 	err := c.runner.Stop()
 	c.runningWg.Wait()
 	c.cancel()

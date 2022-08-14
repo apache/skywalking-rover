@@ -142,12 +142,64 @@ jobs:
           name: logs
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
 
+
+  https-e2e-test:
+    name: HTTPS E2E test
+    needs: [ docker ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: Golang Profiling
+            config: test/e2e/cases/profiling/network/golang/e2e.yaml
+          - name: Python Profiling
+            config: test/e2e/cases/profiling/network/golang/e2e.yaml
+          - name: Envoy Profiling
+            config: test/e2e/cases/profiling/network/envoy/e2e.yaml
+            env: ISTIO_VERSION=1.13.1
+          - name: C++ Profiling
+            config: test/e2e/cases/profiling/network/c_plus_plus/e2e.yaml
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: actions/download-artifact@v2
+        name: Download docker images
+        with:
+          name: docker-images-skywalking-rover
+          path: docker-images
+      - name: Load docker images
+        run: find docker-images -name "*.tar" -exec docker load -i {} \;
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.16'
+      - name: Set env var
+        run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
+      - name: Setup SSL Certs
+        run: |
+          bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh service
+          bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh proxy
+      - name: ${{ matrix.test.name }}
+        uses: apache/skywalking-infra-e2e@main
+        with:
+          e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.config }}
+      - uses: actions/upload-artifact@v2
+        if: ${{ failure() }}
+        name: Upload Logs
+        with:
+          name: logs
+          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
+
   required:
     if: always()
     name: Required
     needs:
       - build
       - e2e-test
+      - https-e2e-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -157,5 +209,8 @@ jobs:
             exit -1
           fi
           if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
+            exit -1
+          fi
+          if [[ ${{ needs.https-e2e-test.result }} != 'success' ]]; then
             exit -1
           fi
