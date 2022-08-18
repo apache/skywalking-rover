@@ -244,6 +244,9 @@ func (r *Runner) logTheMetricsConnections(traffices []*ProcessTraffic) {
 }
 
 func (r *Runner) Stop() error {
+	// if starting, then need to wait start finished
+	r.startLock.Lock()
+	defer r.startLock.Unlock()
 	if r.cancel != nil {
 		r.cancel()
 	}

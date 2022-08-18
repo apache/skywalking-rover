@@ -8,9 +8,11 @@ Release Notes.
 * Support `NETWORK` Profiling.
 * Let the logger as a configurable module.
 * Support analyze the data of OpenSSL, BoringSSL library, GoTLS in `NETWORK` Profiling.
+* Enhancing the kubernetes process finder.
 
 #### Bug Fixes
 * Fixed reading process paths incorrect when running as a container.
+* Fix the crash caused by multiple profiling tasks.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/144?closed=1)
