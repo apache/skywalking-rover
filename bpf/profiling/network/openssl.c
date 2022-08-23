@@ -16,6 +16,7 @@
 // under the License.
 
 #include "openssl.h"
+#include "node_tls.h"
 
 static __inline void process_openssl_data(struct pt_regs* ctx, __u64 id, __u32 data_direction, struct sock_data_args_t* args, __u32 func_name) {
     int bytes_count = PT_REGS_RC(ctx);
@@ -43,6 +44,11 @@ static int get_fd(uint32_t tgid, bool read, void* ssl) {
 
     fd = get_fd_symaddr(tgid, read, ssl);
     if (fd > 2) {
+        return fd;
+    }
+
+    fd = get_node_tls_fd(tgid, ssl);
+    if (fd > 0) {
         return fd;
     }
 

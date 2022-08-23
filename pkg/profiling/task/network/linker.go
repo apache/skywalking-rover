@@ -196,6 +196,13 @@ func (u *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program) {
 	u.AddLinkWithType(symbol, false, exit)
 }
 
+func (u *UProbeExeFile) AddLinkWithSymbols(symbol []string, enter, exit *ebpf.Program) {
+	for _, s := range symbol {
+		u.AddLinkWithType(s, true, enter)
+		u.AddLinkWithType(s, false, exit)
+	}
+}
+
 func (u *UProbeExeFile) AddGoLink(symbol string, enter, exit *ebpf.Program, elfFile *elf.File) {
 	u.AddGoLinkWithType(symbol, true, enter, elfFile)
 	u.AddGoLinkWithType(symbol, false, exit, elfFile)

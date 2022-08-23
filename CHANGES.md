@@ -7,7 +7,7 @@ Release Notes.
 #### Features
 * Support `NETWORK` Profiling.
 * Let the logger as a configurable module.
-* Support analyze the data of OpenSSL, BoringSSL library, GoTLS in `NETWORK` Profiling.
+* Support analyze the data of OpenSSL, BoringSSL library, GoTLS, NodeTLS in `NETWORK` Profiling.
 * Enhancing the kubernetes process finder.
 
 #### Bug Fixes

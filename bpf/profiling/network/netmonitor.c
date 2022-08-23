@@ -1131,3 +1131,4 @@ int tcp_drop(struct pt_regs *ctx) {
 
 #include "openssl.c"
 #include "go_tls.c"
+#include "node_tls.c"

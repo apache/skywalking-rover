@@ -31,6 +31,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/path"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+	"github.com/apache/skywalking-rover/pkg/tools/version"
 )
 
 var (
@@ -42,6 +43,7 @@ var (
 	goTLSPollFDSymbol    = "internal/poll.FD"
 	goTLSConnSymbol      = "crypto/tls.Conn"
 	goTLSRuntimeG        = "runtime.g"
+	nodeVersionRegex     = regexp.MustCompile(`^node\.js/v(?P<Major>\d+)\.(?P<Minor>\d+)\.(?P<Patch>\d+)$`)
 )
 
 type OpenSSLFdSymAddrConfigInBPF struct {
@@ -68,6 +70,11 @@ func addSSLProcess(pid int, bpf *bpfObjects, linker *Linker) error {
 
 	// GoTLS
 	if err1 := processGoProcess(pid, bpf, linker, modules); err1 != nil {
+		return err1
+	}
+
+	// Nodejs
+	if err1 := processNodeProcess(pid, bpf, linker, modules); err1 != nil {
 		return err1
 	}
 
@@ -105,7 +112,11 @@ func processOpenSSLProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*
 	}
 
 	// attach the linker
-	libSSLLinker := linker.OpenUProbeExeFile(libsslPath)
+	return processOpenSSLModule(bpf, processModules[libsslName], linker)
+}
+
+func processOpenSSLModule(bpf *bpfObjects, libSSLModule *profiling.Module, linker *Linker) error {
+	libSSLLinker := linker.OpenUProbeExeFile(libSSLModule.Path)
 	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet)
 	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet)
 	return linker.HasError()
@@ -194,13 +205,13 @@ func processGoProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profi
 	}
 	defer elfFile.Close()
 
-	_, minor, err := getGoVersion(elfFile, buildVersionSymbol)
+	v, err := getGoVersion(elfFile, buildVersionSymbol)
 	if err != nil {
 		return err
 	}
 
 	// generate symbol offsets
-	symbolConfig, elfFile, err := generateGOTLSSymbolOffsets(modules, pid, elfFile, minor)
+	symbolConfig, elfFile, err := generateGOTLSSymbolOffsets(modules, pid, elfFile, v)
 	if err != nil {
 		return err
 	}
@@ -222,40 +233,177 @@ func processGoProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profi
 	return linker.HasError()
 }
 
-func getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symbol) (major, minor int, err error) {
+func processNodeProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+	moduleName1, moduleName2, libsslName := "/nodejs", "/node", "libssl.so"
+	processModules, err := findProcessModules(modules, moduleName1, moduleName2, libsslName)
+	if err != nil {
+		return err
+	}
+	nodeModule := processModules[moduleName1]
+	libsslModule := processModules[libsslName]
+	needsReAttachSSL := false
+	if nodeModule == nil {
+		nodeModule = processModules[moduleName2]
+	}
+	if nodeModule == nil {
+		log.Debugf("current process is not nodejs program, so won't add the nodejs protos. pid: %d", pid)
+		return nil
+	}
+	if libsslModule == nil {
+		if searchSymbol([]*profiling.Module{nodeModule}, func(a, b string) bool {
+			return a == b
+		}, "SSL_read") == nil || searchSymbol([]*profiling.Module{nodeModule}, func(a, b string) bool {
+			return a == b
+		}, "SSL_write") == nil {
+			log.Warnf("could not found the SSL_read/SSL_write under the nodejs program, so ignore. pid: %d", pid)
+			return nil
+		}
+		libsslModule = nodeModule
+		needsReAttachSSL = true
+	}
+	v, err := getNodeVersion(nodeModule.Path)
+	if err != nil {
+		return fmt.Errorf("read nodejs version failure, pid: %d, error: %v", pid, err)
+	}
+	log.Debugf("read the nodejs version, pid: %d, version: %s", pid, v)
+	config, err := findNodeTLSAddrConfig(v)
+	if err != nil {
+		return err
+	}
+	// setting the locations
+	if err := bpf.NodeTlsSymaddrMap.Put(uint32(pid), config); err != nil {
+		return fmt.Errorf("setting the node TLS location failure, pid: %d, error: %v", pid, err)
+	}
+	// register node tls
+	if err := registerNodeTLSProbes(v, bpf, linker, nodeModule, libsslModule); err != nil {
+		return fmt.Errorf("register node TLS probes failure, pid: %d, error: %v", pid, err)
+	}
+	// attach the OpenSSL Probe if needs
+	if needsReAttachSSL {
+		return processOpenSSLModule(bpf, libsslModule, linker)
+	}
+	return nil
+}
+
+var nodeTLSAddrWithVersions = []struct {
+	v    *version.Version
+	conf *NodeTLSAddrInBPF
+}{
+	{version.Build(10, 19, 0), &NodeTLSAddrInBPF{0x0130, 0x08, 0x00, 0x50, 0x90, 0x88, 0x30}},
+	{version.Build(12, 3, 1), &NodeTLSAddrInBPF{0x0130, 0x08, 0x00, 0x50, 0x90, 0x88, 0x30}},
+	{version.Build(12, 16, 2), &NodeTLSAddrInBPF{0x0138, 0x08, 0x00, 0x58, 0x98, 0x88, 0x30}},
+	{version.Build(13, 0, 0), &NodeTLSAddrInBPF{0x0130, 0x08, 0x00, 0x50, 0x90, 0x88, 0x30}},
+	{version.Build(13, 2, 0), &NodeTLSAddrInBPF{0x0130, 0x08, 0x00, 0x58, 0x98, 0x88, 0x30}},
+	{version.Build(13, 10, 1), &NodeTLSAddrInBPF{0x0140, 0x08, 0x00, 0x60, 0xa0, 0x88, 0x30}},
+	{version.Build(14, 5, 0), &NodeTLSAddrInBPF{0x138, 0x08, 0x00, 0x58, 0x98, 0x88, 0x30}},
+	{version.Build(15, 0, 0), &NodeTLSAddrInBPF{0x78, 0x08, 0x00, 0x58, 0x98, 0x88, 0x30}},
+}
+
+var nodeTLSProbeWithVersions = []struct {
+	v *version.Version
+	f func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module)
+}{
+	{version.Build(10, 19, 0), func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module) {
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrapC2E"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap7ClearInE"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap8ClearOutE"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+	}},
+	{version.Build(15, 0, 0), func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module) {
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrapC2E"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrap7ClearInE"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrap8ClearOutE"),
+			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
+	}},
+}
+
+type NodeTLSAddrInBPF struct {
+	TLSWrapStreamListenerOffset     uint32
+	StreamListenerStreamOffset      uint32
+	StreamBaseStreamResourceOffset  uint32
+	LibuvStreamWrapStreamBaseOffset uint32
+	LibuvStreamWrapStreamOffset     uint32
+	UVStreamSIOWatcherOffset        uint32
+	UVIOSFDOffset                   uint32
+}
+
+func findNodeTLSAddrConfig(v *version.Version) (*NodeTLSAddrInBPF, error) {
+	var lastest *NodeTLSAddrInBPF
+	for _, c := range nodeTLSAddrWithVersions {
+		if v.GreaterOrEquals(c.v) {
+			lastest = c.conf
+		}
+	}
+	if lastest != nil {
+		return lastest, nil
+	}
+	return nil, fmt.Errorf("could not support version: %s", v)
+}
+
+func registerNodeTLSProbes(v *version.Version, bpf *bpfObjects, linker *Linker, nodeModule, libSSLModule *profiling.Module) error {
+	var probeFunc func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module)
+	for _, c := range nodeTLSProbeWithVersions {
+		if v.GreaterOrEquals(c.v) {
+			probeFunc = c.f
+		}
+	}
+	if probeFunc == nil {
+		return fmt.Errorf("the version is not support: %v", v)
+	}
+	file := linker.OpenUProbeExeFile(nodeModule.Path)
+	probeFunc(file, bpf, nodeModule)
+
+	// find the SSL_new, and register
+	file = linker.OpenUProbeExeFile(libSSLModule.Path)
+	file.AddLinkWithType("SSL_new", false, bpf.NodeTlsRetSsl)
+	return linker.HasError()
+}
+
+func getNodeVersion(p string) (*version.Version, error) {
+	result, err := exec.Command("strings", p).Output()
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range strings.Split(string(result), "\n") {
+		versionInfo := nodeVersionRegex.FindStringSubmatch(strings.TrimSpace(d))
+		if len(versionInfo) != 4 {
+			continue
+		}
+		return version.Read(versionInfo[1], versionInfo[2], versionInfo[3])
+	}
+
+	return nil, fmt.Errorf("nodejs version is not found")
+}
+
+func getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symbol) (*version.Version, error) {
 	buffer, err := elfFile.ReadSymbolData(".data", versionSymbol.Location, versionSymbol.Size)
 	if err != nil {
-		return 0, 0, fmt.Errorf("reading go version struct info failure: %v", err)
+		return nil, fmt.Errorf("reading go version struct info failure: %v", err)
 	}
 	var t = GoStringInC{}
 	buf := bytes.NewReader(buffer)
 	err = binary.Read(buf, binary.LittleEndian, &t)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read the go structure failure: %v", err)
+		return nil, fmt.Errorf("read the go structure failure: %v", err)
 	}
 	buffer, err = elfFile.ReadSymbolData(".data", t.Ptr, t.Size)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read the go version failure: %v", err)
+		return nil, fmt.Errorf("read the go version failure: %v", err)
 	}
 
 	// parse versions
 	submatch := goVersionRegex.FindStringSubmatch(string(buffer))
 	if len(submatch) != 3 {
-		return 0, 0, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
+		return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
 	}
-	major, err = strconv.Atoi(submatch[1])
-	if err != nil {
-		return 0, 0, fmt.Errorf("the marjor version is a number, version: %s", string(buffer))
-	}
-	minor, err = strconv.Atoi(submatch[2])
-	if err != nil {
-		return 0, 0, fmt.Errorf("the minor version is a number, version: %s", string(buffer))
-	}
-
-	return major, minor, nil
+	return version.Read(submatch[1], submatch[2], "")
 }
 
-func generateGOTLSSymbolOffsets(modules []*profiling.Module, _ int, elfFile *elf.File, minorVersion int) (*GoTLSSymbolAddresses, *elf.File, error) {
+func generateGOTLSSymbolOffsets(modules []*profiling.Module, _ int, elfFile *elf.File, v *version.Version) (*GoTLSSymbolAddresses, *elf.File, error) {
 	reader, err := elfFile.NewDwarfReader(
 		goTLSReadSymbol, goTLSWriteSymbol, goTLSGIDStatusSymbol,
 		goTLSPollFDSymbol, goTLSConnSymbol, goTLSRuntimeG)
@@ -290,7 +438,7 @@ func generateGOTLSSymbolOffsets(modules []*profiling.Module, _ int, elfFile *elf
 	}
 
 	var retValArg0, retValArg1 = "~r1", "~r2"
-	if minorVersion >= 18 {
+	if v.Minor >= 18 {
 		retValArg0, retValArg1 = "~r0", "~r1"
 	}
 
@@ -423,15 +571,36 @@ func buildSSLSymAddrConfig(libcryptoPath string) (*OpenSSLFdSymAddrConfigInBPF, 
 
 type stringVerify func(a, b string) bool
 
+func searchSymbolNames(modules []*profiling.Module, verify stringVerify, values ...string) []string {
+	list := searchSymbolList(modules, verify, values...)
+	if len(list) > 0 {
+		result := make([]string, 0)
+		for _, i := range list {
+			result = append(result, i.Name)
+		}
+		return result
+	}
+	return nil
+}
+
 func searchSymbol(modules []*profiling.Module, verify stringVerify, values ...string) *profiling.Symbol {
+	list := searchSymbolList(modules, verify, values...)
+	if len(list) > 0 {
+		return list[0]
+	}
+	return nil
+}
+
+func searchSymbolList(modules []*profiling.Module, verify stringVerify, values ...string) []*profiling.Symbol {
+	var result []*profiling.Symbol
 	for _, mod := range modules {
 		for _, s := range mod.Symbols {
 			for _, validator := range values {
 				if verify(s.Name, validator) {
-					return s
+					result = append(result, s)
 				}
 			}
 		}
 	}
-	return nil
+	return result
 }

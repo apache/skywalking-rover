@@ -106,6 +106,40 @@ func (r *DwarfReader) processStructure(names []string, data *dwarf.Data, entry *
 	return nil
 }
 
+func (r *DwarfReader) processClass(names []string, data *dwarf.Data, entry *dwarf.Entry) error {
+	if entry.Tag != dwarf.TagClassType {
+		return nil
+	}
+
+	name, ok := entry.Val(dwarf.AttrName).(string)
+	if !ok {
+		return nil
+	}
+	_, ok = entry.Val(dwarf.AttrDeclaration).(bool)
+	if ok {
+		return nil
+	}
+
+	found := false
+	for _, n := range names {
+		if n == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	info, err := r.getClassInfo(data, name, entry)
+	if err != nil {
+		return err
+	}
+	r.classes[name] = info
+
+	return nil
+}
+
 func (r *DwarfReader) entryType(data *dwarf.Data, entry *dwarf.Entry) (dwarf.Type, error) {
 	off, ok := entry.Val(dwarf.AttrType).(dwarf.Offset)
 	if !ok {
@@ -122,9 +156,69 @@ func (r *DwarfReader) IsRetArgs(entry *dwarf.Entry) (bool, error) {
 	return isRet, nil
 }
 
-func (r *DwarfReader) getStructureFields(data *dwarf.Data, entry *dwarf.Entry) ([]*StructureFieldInfo, error) {
+func (r *DwarfReader) getClassInfo(data *dwarf.Data, name string, entry *dwarf.Entry) (*ClassInfo, error) {
 	reader := data.Reader()
 
+	reader.Seek(entry.Offset)
+	_, err := reader.Next()
+	if err != nil {
+		return nil, err
+	}
+
+	c := &ClassInfo{
+		name: name,
+	}
+
+	foundMembers := false
+	for {
+		child, err := reader.Next()
+		if err != nil {
+			return nil, err
+		}
+		if child == nil || child.Tag == 0 {
+			break
+		}
+
+		if child.Tag == dwarf.TagInheritance {
+			offset, ok := child.Val(dwarf.AttrDataMemberLoc).(int64)
+			if !ok {
+				continue
+			}
+			entryType, err1 := r.entryType(data, child)
+			if err1 != nil {
+				continue
+			}
+			structType, ok := entryType.(*dwarf.StructType)
+			if !ok {
+				continue
+			}
+
+			c.inheritances = append(c.inheritances, &ClassInheritance{
+				name:   structType.StructName,
+				cType:  structType,
+				offset: uint64(offset),
+			})
+		}
+
+		entryType, err := r.entryType(data, child)
+		if !foundMembers && err == nil && entryType != nil {
+			prtType, ok := entryType.(*dwarf.PtrType)
+			if !ok {
+				continue
+			}
+			structType, ok := prtType.Type.(*dwarf.StructType)
+			if !ok {
+				continue
+			}
+			c.members = structType.Field
+			foundMembers = true
+		}
+	}
+	return c, nil
+}
+
+func (r *DwarfReader) getStructureFields(data *dwarf.Data, entry *dwarf.Entry) ([]*StructureFieldInfo, error) {
+	reader := data.Reader()
 	reader.Seek(entry.Offset)
 	_, err := reader.Next()
 	if err != nil {

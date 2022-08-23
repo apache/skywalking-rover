@@ -30,7 +30,7 @@ Off CPU Profiling task is attach the `finish_task_switch` in `krobe` to profilin
 ### Network
 
 Network Profiling task is intercept IO-related syscall and `urprobe` in process to identify the network traffic and generate the metrics.
-Also, the following protocol are supported for analyzing using OpenSSL library, BoringSSL library, GoTLS or plaintext:
+Also, the following protocol are supported for analyzing using OpenSSL library, BoringSSL library, GoTLS, NodeTLS or plaintext:
 
 1. HTTP
 2. MySQL
