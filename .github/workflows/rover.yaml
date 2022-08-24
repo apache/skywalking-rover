@@ -161,6 +161,8 @@ jobs:
             env: ISTIO_VERSION=1.13.1
           - name: C++ Profiling
             config: test/e2e/cases/profiling/network/c_plus_plus/e2e.yaml
+          - name: Nodejs Profiling
+            config: test/e2e/cases/profiling/network/nodejs/e2e.yaml
     steps:
       - uses: actions/checkout@v2
         with:

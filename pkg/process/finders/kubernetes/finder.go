@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,8 @@ import (
 )
 
 var log = logger.GetLogger("process", "finder", "kubernetes")
+
+var kubepodsRegex = regexp.MustCompile(`cri-containerd-(?P<Group>\w+)\.scope`)
 
 type ProcessFinder struct {
 	conf *Config
@@ -267,7 +270,13 @@ func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
 		}
 		lastPath := strings.LastIndex(infos[2], "/")
 		if lastPath > 1 && lastPath != len(infos[2])-1 {
-			cache[infos[2][lastPath+1:]] = true
+			path := infos[2][lastPath+1:]
+			// adapt Kubepod
+			// ex: cri-containerd-7dae778c37bd1204677518f1032bbecf01f5c41878ea7bd370021263417cc626.scope
+			if kubepod := kubepodsRegex.FindStringSubmatch(path); len(kubepod) >= 1 {
+				path = kubepod[1]
+			}
+			cache[path] = true
 		}
 	}
 	if len(cache) == 0 {
