@@ -179,11 +179,11 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 			CloseCounter:            NewSocketDataCounter(),
 			RetransmitCounter:       NewSocketDataCounter(),
 			DropCounter:             NewSocketDataCounter(),
-			WriteRTTHistogram:       NewSocketDataHistogram(),
-			WriteExeTimeHistogram:   NewSocketDataHistogram(),
-			ReadExeTimeHistogram:    NewSocketDataHistogram(),
-			ConnectExeTimeHistogram: NewSocketDataHistogram(),
-			CloseExeTimeHistogram:   NewSocketDataHistogram(),
+			WriteRTTHistogram:       NewSocketDataHistogram(HistogramDataUnitUS),
+			WriteExeTimeHistogram:   NewSocketDataHistogram(HistogramDataUnitNS),
+			ReadExeTimeHistogram:    NewSocketDataHistogram(HistogramDataUnitNS),
+			ConnectExeTimeHistogram: NewSocketDataHistogram(HistogramDataUnitNS),
+			CloseExeTimeHistogram:   NewSocketDataHistogram(HistogramDataUnitNS),
 		}
 	}
 	if len(traffic.LocalProcesses) == 0 && len(con.LocalProcesses) > 0 {
@@ -401,8 +401,8 @@ func (t *TrafficAnalyzer) findRemotePidWhenMeshEnvironment(con *ConnectionContex
 			}
 			continue
 		}
-		// if current is mesh application, and remote address is not local and dns, them it's must be sent to the MESH_DP
-		if localProcess.Entity().Layer == layerMeshApp && con.RemotePort != 53 &&
+		// if current is mesh application, them it's must be sent to the MESH_DP
+		if localProcess.Entity().Layer == layerMeshApp &&
 			len(t.localAddresses[con.RemoteIP]) == 0 && !tools.IsLocalHostAddress(con.RemoteIP) {
 			if envoyPid := t.findSameInstanceMeshDP(localProcess.Entity()); envoyPid != 0 {
 				log.Debugf("found in the mesh data plane, remote ip: %s", con.RemoteIP)
