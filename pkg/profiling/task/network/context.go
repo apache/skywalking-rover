@@ -535,9 +535,9 @@ func (c *Context) newConnectionContext(conID, randomID uint64, pid, fd uint32, p
 		WriteCounter:          NewSocketDataCounterWithHistory(),
 		ReadCounter:           NewSocketDataCounterWithHistory(),
 		WriteRTTCounter:       NewSocketDataCounterWithHistory(),
-		WriteRTTHistogram:     NewSocketDataHistogramWithHistory(),
-		WriteExeTimeHistogram: NewSocketDataHistogramWithHistory(),
-		ReadExeTimeHistogram:  NewSocketDataHistogramWithHistory(),
+		WriteRTTHistogram:     NewSocketDataHistogramWithHistory(HistogramDataUnitUS),
+		WriteExeTimeHistogram: NewSocketDataHistogramWithHistory(HistogramDataUnitNS),
+		ReadExeTimeHistogram:  NewSocketDataHistogramWithHistory(HistogramDataUnitNS),
 	}
 }
 

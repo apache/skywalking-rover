@@ -81,17 +81,24 @@ func (c *SocketDataCounterWithHistory) CalculateIncrease() *SocketDataCounter {
 	}
 }
 
-// SocketHistogramBuckets means the histogram bucket: 0ms, 0.01ms, 0.05ms, 0.1ms, 0.5ms, 1ms, 1.2ms, 1.5ms, 1.7ms, 2ms,
+// SocketHistogramBucketsNs means the histogram bucket: 0ms, 0.01ms, 0.05ms, 0.1ms, 0.5ms, 1ms, 1.2ms, 1.5ms, 1.7ms, 2ms,
 // 2.5ms, 3ms, 5ms, 7ms, 10ms, 13ms, 16ms, 20ms, 25ms, 30ms, 35ms, 40ms, 45ms, 50ms, 70ms, 100ms, 150ms,
 // 200ms, 300ms, 500ms, 1s, 2s, 3s, 5s
-// value unit: us
-var SocketHistogramBuckets = []float64{0, 10, 50, 100, 500, 1000, 1200, 1500, 1700, 2000,
+// value unit: ns
+var SocketHistogramBucketsNs = []float64{0, 10000, 50000, 100000, 500000, 1000000, 1200000, 1500000, 1700000, 2000000,
+	2500000, 3000000, 5000000, 7000000, 10000000, 13000000, 16000000, 20000000, 25000000, 30000000, 35000000, 40000000,
+	45000000, 50000000, 70000000, 100000000, 150000000, 200000000, 300000000, 500000000, 1000000000, 2000000000,
+	3000000000, 5000000000}
+
+// SocketHistogramBucketsUs same with SocketHistogramBucketsNs, but the value unit: us
+var SocketHistogramBucketsUs = []float64{0, 10, 50, 100, 500, 1000, 1200, 1500, 1700, 2000,
 	2500, 3000, 5000, 7000, 10000, 13000, 16000, 20000, 25000, 30000, 35000, 40000,
 	45000, 50000, 70000, 100000, 150000, 200000, 300000, 500000, 1000000, 2000000,
 	3000000, 5000000}
-var SocketHistogramBucketsCount = len(SocketHistogramBuckets)
+var SocketHistogramBucketsCount = len(SocketHistogramBucketsNs)
 
 type SocketDataHistogram struct {
+	Unit    HistogramDataUnit
 	Buckets map[uint64]uint32
 }
 
@@ -113,13 +120,13 @@ func (h *SocketDataHistogram) Increase(other *SocketDataHistogram) {
 
 func (h *SocketDataHistogram) IncreaseByValue(val uint64) {
 	floatVal := float64(val)
-	for inx, curVal := range SocketHistogramBuckets {
+	for inx, curVal := range SocketHistogramBucketsNs {
 		if inx > 0 && curVal > floatVal {
 			h.Buckets[uint64(inx-1)]++
 			return
 		}
 	}
-	h.Buckets[uint64(len(SocketHistogramBuckets)-1)]++
+	h.Buckets[uint64(len(SocketHistogramBucketsNs)-1)]++
 }
 
 func (h *SocketDataHistogram) NotEmpty() bool {
@@ -131,25 +138,33 @@ func (h *SocketDataHistogram) NotEmpty() bool {
 	return false
 }
 
-func NewSocketDataHistogram() *SocketDataHistogram {
+func NewSocketDataHistogram(unit HistogramDataUnit) *SocketDataHistogram {
 	buckets := make(map[uint64]uint32, SocketHistogramBucketsCount)
 	for i := 0; i < SocketHistogramBucketsCount; i++ {
 		buckets[uint64(i)] = 0
 	}
 	return &SocketDataHistogram{
+		Unit:    unit,
 		Buckets: buckets,
 	}
 }
+
+type HistogramDataUnit int
+
+const (
+	HistogramDataUnitNS HistogramDataUnit = 1
+	HistogramDataUnitUS HistogramDataUnit = 2
+)
 
 type SocketDataHistogramWithHistory struct {
 	Pre *SocketDataHistogram
 	Cur *SocketDataHistogram
 }
 
-func NewSocketDataHistogramWithHistory() *SocketDataHistogramWithHistory {
+func NewSocketDataHistogramWithHistory(unit HistogramDataUnit) *SocketDataHistogramWithHistory {
 	return &SocketDataHistogramWithHistory{
-		Pre: NewSocketDataHistogram(),
-		Cur: NewSocketDataHistogram(),
+		Pre: NewSocketDataHistogram(unit),
+		Cur: NewSocketDataHistogram(unit),
 	}
 }
 
@@ -163,7 +178,7 @@ func (h *SocketDataHistogramWithHistory) UpdateToCurrent(bucket uint64, val uint
 }
 
 func (h *SocketDataHistogramWithHistory) CalculateIncrease() *SocketDataHistogram {
-	histogram := NewSocketDataHistogram()
+	histogram := NewSocketDataHistogram(h.Cur.Unit)
 	var increaseVal uint32
 	for curK, curV := range h.Cur.Buckets {
 		if increaseVal = curV - h.Pre.Buckets[curK]; increaseVal > 0 {
@@ -298,8 +313,14 @@ func (r *ProcessTraffic) appendHistogramValue(metrics []*v3.MeterData, metricsPr
 		if bucketInx >= SocketHistogramBucketsCount {
 			bucketInx = SocketHistogramBucketsCount - 1
 		}
+		var buckets []float64
+		if histogram.Unit == HistogramDataUnitUS {
+			buckets = SocketHistogramBucketsUs
+		} else {
+			buckets = SocketHistogramBucketsNs
+		}
 		values = append(values, &v3.MeterBucketValue{
-			Bucket: SocketHistogramBuckets[bucketInx],
+			Bucket: buckets[bucketInx],
 			Count:  int64(count),
 		})
 	}
