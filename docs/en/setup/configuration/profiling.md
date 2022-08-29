@@ -58,9 +58,9 @@ Each metric contains the following labels to identify the process relationship:
 
 | Name | Type | Description |
 |------|------|-------------|
-|client/server_process_id| string | The ID of the current process, which is determined by the role of the current process in the connection as server or client. |
-|client/server_local| boolean | The remote process is a local process. |
-|client/server_address| string | The remote process address. ex: `IP:port`. |
+|client_process_id or server_process_id| string | The ID of the current process, which is determined by the role of the current process in the connection as server or client. |
+|client_local or server_local| boolean | The remote process is a local process. |
+|client_address or server_address| string | The remote process address. ex: `IP:port`. |
 |side| enum | The current process is either "client" or "server" in this connection. |
 |protocol| string | Identification the protocol based on the package data content. |
 |is_ssl| bool | Is the current connection using SSL. |
