@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Metrics collector and ebpf-based profiler for C, C++, Golang, and Rust
+  description: Metrics collector and profiler powered by eBPF to diagnose CPU and network performance.
   homepage: https://skywalking.apache.org/
   labels:
     - skywalking
