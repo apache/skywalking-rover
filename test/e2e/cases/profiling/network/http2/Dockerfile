@@ -14,36 +14,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-user nginx;
-worker_processes  auto;
-events {
-	worker_connections  102400;
-}
-http {
-	server {
-		listen       443 ssl;
-		server_name proxy;
+FROM golang:1.17
 
-		ssl_certificate /ssl_data/proxy.crt;
-		ssl_certificate_key /ssl_data/proxy.key;
+COPY http2/ /service
 
-		location /provider {
-		    proxy_pass https://service:10443/provider;
-		    proxy_http_version 1.1;
-		}
-	}
+WORKDIR /
+RUN apt update && apt install -y zip && \
+    mkdir protoc && cd protoc && \
+    curl -sL https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-linux-x86_64.zip -o protoc.zip && \
+    unzip protoc.zip
 
-    server {
-        listen       9000 ssl http2;
-        server_name  proxy;
-        include       mime.types;
-        default_type  application/octet-stream;
+WORKDIR /service
 
-        ssl_certificate /ssl_data/proxy.crt;
-        ssl_certificate_key /ssl_data/proxy.key;
+RUN go get -u google.golang.org/protobuf/cmd/protoc-gen-go@v1.26.0 && \
+    go get -u google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0 && \
+    go get google.golang.org/grpc/internal/transport@v1.44.0 && \
+    /protoc/bin/protoc --go_out=. --go-grpc_out=. service.proto && \
+    go build .
 
-        location / {
-            grpc_pass grpcs://service:9000;
-        }
-    }
-}
+COPY base/ssl /usr/local/share/ca-certificates
+RUN update-ca-certificates
+
+CMD ["/service/test"]
