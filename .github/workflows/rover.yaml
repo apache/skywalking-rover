@@ -163,6 +163,8 @@ jobs:
             config: test/e2e/cases/profiling/network/c_plus_plus/e2e.yaml
           - name: Nodejs Profiling
             config: test/e2e/cases/profiling/network/nodejs/e2e.yaml
+          - name: HTTP2 Profiling
+            config: test/e2e/cases/profiling/network/http2/e2e.yaml
     steps:
       - uses: actions/checkout@v2
         with:

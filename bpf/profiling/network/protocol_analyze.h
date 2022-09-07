@@ -111,6 +111,85 @@ static __inline __u32 infer_http_message(const char* buf, size_t count) {
     return kUnknown;
 }
 
+// frame format: https://www.rfc-editor.org/rfc/rfc7540.html#section-4.1
+static __inline __u32 infer_http2_message(const char* buf_src, size_t count) {
+static const uint8_t kFrameBasicSize = 0x9; // including Length, Type, Flags, Reserved, Stream Identity
+static const uint8_t kFrameTypeHeader = 0x1; // the type of the frame: https://www.rfc-editor.org/rfc/rfc7540.html#section-6.2
+static const uint8_t kFrameLoopCount = 5;
+
+static const uint8_t kStaticTableMaxSize = 61;// https://www.rfc-editor.org/rfc/rfc7541#appendix-A
+static const uint8_t kStaticTableAuth = 1;
+static const uint8_t kStaticTableGet = 2;
+static const uint8_t kStaticTablePost = 3;
+static const uint8_t kStaticTablePath1 = 4;
+static const uint8_t kStaticTablePath2 = 5;
+
+    // the buffer size must bigger than basic frame size
+    if (count < kFrameBasicSize) {
+		return kUnknown;
+    }
+
+    // frame info
+    __u8 frame[21] = { 0 };
+    __u32 frameOffset = 0;
+    // header info
+    __u8 staticInx, headerBlockFragmentOffset;
+
+    // each all frame
+#pragma unroll
+    for (__u8 i = 0; i < kFrameLoopCount; i++) {
+        if (frameOffset >= count) {
+            break;
+        }
+
+        // read frame
+        bpf_probe_read(frame, sizeof(frame), buf_src + frameOffset);
+        frameOffset += (bpf_ntohl(*(__u32 *) frame) >> 8) + kFrameBasicSize;
+
+        // is header frame
+        if (frame[3] != kFrameTypeHeader) {
+            continue;
+        }
+
+        // validate the header(unset): not HTTP2 protocol
+        // this frame must is a send request
+        if ((frame[4] & 0xd2) || frame[5] & 0x01) {
+            return kUnknown;
+        }
+
+        // locate the header block fragment offset
+        headerBlockFragmentOffset = kFrameBasicSize;
+        if (frame[4] & 0x20) {  // PADDED flag is set
+            headerBlockFragmentOffset += 1;
+        }
+        if (frame[4] & 0x20) {  // PRIORITY flag is set
+            headerBlockFragmentOffset += 5;
+        }
+
+#pragma unroll
+        for (__u8 j = 0; j <= kStaticTablePath2; j++) {
+            if (headerBlockFragmentOffset > count) {
+                return kUnknown;
+            }
+            staticInx = frame[headerBlockFragmentOffset] & 0x7f;
+            if (staticInx <= kStaticTableMaxSize && staticInx > 0) {
+                if (staticInx == kStaticTableAuth ||
+                    staticInx == kStaticTableGet ||
+                    staticInx == kStaticTablePost ||
+                    staticInx == kStaticTablePath1 ||
+                    staticInx == kStaticTablePath2) {
+                    return kRequest;
+                } else {
+                    return kResponse;
+                }
+            }
+            headerBlockFragmentOffset++;
+        }
+    }
+
+	return kUnknown;
+}
+
 // Cassandra frame:
 //      0         8        16        24        32         40
 //      +---------+---------+---------+---------+---------+
@@ -678,6 +757,8 @@ static __inline enum message_type_t analyze_protocol(char *buf, __u32 count, str
     // PROTOCOL_LIST: Requires update on new protocols.
     if ((inferred_message.type = infer_http_message(buf, count)) != kUnknown) {
         inferred_message.protocol = kProtocolHTTP;
+    } else if ((inferred_message.type = infer_http2_message(buf, count)) != kUnknown) {
+        inferred_message.protocol = kProtocolHTTP2;
     } else if ((inferred_message.type = infer_cql_message(buf, count)) != kUnknown) {
         inferred_message.protocol = kProtocolCQL;
     } else if ((inferred_message.type = infer_mongo_message(buf, count)) != kUnknown) {
