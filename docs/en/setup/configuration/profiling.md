@@ -32,12 +32,13 @@ Off CPU Profiling task is attach the `finish_task_switch` in `krobe` to profilin
 Network Profiling task is intercept IO-related syscall and `urprobe` in process to identify the network traffic and generate the metrics.
 Also, the following protocol are supported for analyzing using OpenSSL library, BoringSSL library, GoTLS, NodeTLS or plaintext:
 
-1. HTTP
-2. MySQL
-3. CQL(The Cassandra Query Language)
-4. MongoDB
-5. Kafka
-6. DNS
+1. HTTP/1.x
+2. HTTP/2
+3. MySQL
+4. CQL(The Cassandra Query Language)
+5. MongoDB
+6. Kafka
+7. DNS
 
 #### Metrics
 
