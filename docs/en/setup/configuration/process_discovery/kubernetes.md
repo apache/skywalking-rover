@@ -92,4 +92,4 @@ The information of the current container under the pod.
 |------|--------- |-----------|-------------|
 | Name | None | `{{.Container.Name}}`| The name of the current container under the pod. |
 | ID | None | `{{.Container.ID}}`| The id of the current container under the pod. |
-| EnvValue | KeyNames | `{{.Container.EnvValue "a,b"}}`| The environment value of the keys, If provide multiple keys, if any key has value, then don't need to get other values. |
+| EnvValue | KeyNames | `{{.Container.EnvValue "a,b"}}`| The environment value of the keys, If provide multiple keys, any key has value, then other keys would not be used. |
