@@ -82,6 +82,7 @@ The information on the current pod.
 | Node | None | `{{.Pod.Node}}` | The name of the node deployed. |
 | LabelValue | KeyNames | `{{.Pod.LavelValue "a,b"}}` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. |
 | ServiceName | None | `{{.Pod.ServiceName}}` | The service name of the pod. If the pod hasn't matched service, then return an empty string. |
+| FindContainer | ContainerName | `{{.Pod.FindContainer "test"}}` | Find the Container context by container name. |
 
 #### Container
 
@@ -91,3 +92,4 @@ The information of the current container under the pod.
 |------|--------- |-----------|-------------|
 | Name | None | `{{.Container.Name}}`| The name of the current container under the pod. |
 | ID | None | `{{.Container.ID}}`| The id of the current container under the pod. |
+| EnvValue | KeyNames | `{{.Container.EnvValue "a,b"}}`| The environment value of the first non-value key in the provided candidates(Iterate from left to right).  |
