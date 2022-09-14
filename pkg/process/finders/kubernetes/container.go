@@ -123,6 +123,16 @@ func (c *PodContainer) FindOwner(ctx context.Context, kindName string, k8sConfig
 	return nil, nil
 }
 
+func (c *PodContainer) FindContainerFromSamePod(name string) *PodContainer {
+	cs := AnalyzeContainers(c.Pod, c.registry)
+	for _, co := range cs {
+		if co.ContainerSpec.Name == name {
+			return co
+		}
+	}
+	return nil
+}
+
 func (c *PodContainer) parseRestClientFromAPIVersion(conf *rest.Config, apiVersion string) (rest.Interface, error) {
 	groupVersion, err := schema.ParseGroupVersion(apiVersion)
 	if err != nil {

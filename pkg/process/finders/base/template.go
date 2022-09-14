@@ -37,7 +37,7 @@ type TemplateBuilder struct {
 }
 
 func NewTemplateBuilder(name, content string) (*TemplateBuilder, error) {
-	tmpl, err := template.New(name).Parse(content)
+	tmpl, err := template.New(name).Funcs(customFunctions).Parse(content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template for %s, content: %s. reason: %v", name, content, err)
 	}

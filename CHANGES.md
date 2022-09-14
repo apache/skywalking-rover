@@ -2,6 +2,17 @@ Changes by Version
 ==================
 Release Notes.
 
+0.4.0
+------------------
+#### Features
+* Enhancing the render context for the Kubernetes process.
+
+#### Bug Fixes
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/154?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/4?closed=1)
+
 0.3.0
 ------------------
 #### Features
