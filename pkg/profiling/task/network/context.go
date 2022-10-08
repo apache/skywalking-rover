@@ -281,12 +281,8 @@ type ActiveConnectionInBPF struct {
 	WriteRTTExeTime uint64
 
 	// Protocol analyze context
-	Protocol              ConnectionProtocol
-	Fix                   uint32
-	ProtocolPrevCount     uint64
-	ProtocolPrevBuf       [4]byte
-	ProtocolPrependHeader uint32
-	IsSSL                 uint32
+	Protocol ConnectionProtocol
+	IsSSL    uint32
 
 	// the connect event is already sent
 	ConnectEventIsSent uint32

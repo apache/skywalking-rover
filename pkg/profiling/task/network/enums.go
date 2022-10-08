@@ -83,15 +83,6 @@ const (
 	ConnectionProtocolUnknown ConnectionProtocol = 0
 	ConnectionProtocolHTTP    ConnectionProtocol = 1
 	ConnectionProtocolHTTP2   ConnectionProtocol = 2
-	ConnectionProtocolMySQL   ConnectionProtocol = 3
-	ConnectionProtocolCQL     ConnectionProtocol = 4
-	ConnectionProtocolPGSQL   ConnectionProtocol = 5
-	ConnectionProtocolDNS     ConnectionProtocol = 6
-	ConnectionProtocolRedis   ConnectionProtocol = 7
-	ConnectionProtocolNATS    ConnectionProtocol = 8
-	ConnectionProtocolMongo   ConnectionProtocol = 9
-	ConnectionProtocolKafka   ConnectionProtocol = 10
-	ConnectionProtocolMux     ConnectionProtocol = 11
 )
 
 func (c ConnectionProtocol) String() string {
@@ -102,24 +93,6 @@ func (c ConnectionProtocol) String() string {
 		return http
 	case ConnectionProtocolHTTP2:
 		return http
-	case ConnectionProtocolMySQL:
-		return "mysql"
-	case ConnectionProtocolCQL:
-		return "cql"
-	case ConnectionProtocolPGSQL:
-		return "pgsql"
-	case ConnectionProtocolDNS:
-		return "dns"
-	case ConnectionProtocolRedis:
-		return "redis"
-	case ConnectionProtocolNATS:
-		return "nats"
-	case ConnectionProtocolMongo:
-		return "mongo"
-	case ConnectionProtocolKafka:
-		return "kafka"
-	case ConnectionProtocolMux:
-		return "mutex"
 	default:
 		return unknown
 	}

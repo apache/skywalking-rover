@@ -35,7 +35,7 @@
 #include "socket.h"
 #include "sock_stats.h"
 #include "args.h"
-#include "protocol_analyze.h"
+#include "protocol_analyzer.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -64,6 +64,8 @@ static __inline bool tgid_should_trace(__u32 tgid) {
 static __inline bool family_should_trace(const __u32 family) {
     return family != AF_UNKNOWN && family != AF_INET && family != AF_INET6 ? false : true;
 }
+
+#define BPF_PROBE_READ_VAR(value, ptr) bpf_probe_read(&value, sizeof(value), ptr)
 
 static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 func_name, __u32 tgid, __u32 fd, __u64 start_nacs,
                                             struct sockaddr* addr, const struct socket* socket) {
@@ -343,17 +345,17 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
         }
 
         if (buf_reader != NULL) {
-            enum message_type_t msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
+            __u32 msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
             // if send request data to remote address or receive response data from remote address
             // then, recognized current connection is client
-            if ((msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
-                (msg_type == kResponse && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
+            if ((msg_type == CONNECTION_MESSAGE_TYPE_REQUEST && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
+                (msg_type == CONNECTION_MESSAGE_TYPE_RESPONSE && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
                 conn->role = CONNECTION_ROLE_TYPE_CLIENT;
 
             // if send response data to remote address or receive request data from remote address
             // then, recognized current connection is server
-            } else if ((msg_type == kResponse && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
-                       (msg_type == kRequest && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
+            } else if ((msg_type == CONNECTION_MESSAGE_TYPE_RESPONSE && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
+                       (msg_type == CONNECTION_MESSAGE_TYPE_REQUEST && data_direction == SOCK_DATA_DIRECTION_INGRESS)) {
                 conn->role = CONNECTION_ROLE_TYPE_SERVER;
             }
         }
@@ -728,7 +730,7 @@ int sys_sendmmsg_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
         __u32 bytes_count;
-        BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
+        BPF_PROBE_READ_VAR(bytes_count, data_args->msg_len);
         process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_EGRESS, true, SOCKET_OPTS_TYPE_SENDMMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
@@ -1017,7 +1019,7 @@ int sys_recvmmsg_ret(struct pt_regs* ctx) {
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args) {
         __u32 bytes_count;
-        BPF_PROBE_READ_VAR1(bytes_count, data_args->msg_len);
+        BPF_PROBE_READ_VAR(bytes_count, data_args->msg_len);
         process_write_data(ctx, id, data_args, bytes_count, SOCK_DATA_DIRECTION_INGRESS, true, SOCKET_OPTS_TYPE_RECVMMSG, false);
     }
     bpf_map_delete_elem(&socket_data_args, &id);
