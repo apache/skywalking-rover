@@ -6,6 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Enhancing the render context for the Kubernetes process.
+* Simplify the logic of network protocol analysis.
 
 #### Bug Fixes
 

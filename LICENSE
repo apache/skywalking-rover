@@ -214,5 +214,3 @@ Apache 2.0 licenses
 
 The following components are provided under the Apache License. See project link for details.
 The text of each license is the standard Apache 2.0 license.
-
-    bpf/profiling/network/protocol_analyze.h from pixie-io/pixie: https://github.com/pixie-io Apache-2.0

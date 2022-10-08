@@ -47,8 +47,8 @@ int go_casgstatus(struct pt_regs* ctx) {
     __u32 status;
     assign_go_tls_arg(&status, sizeof(status), symaddrs->casg_status_new_val_loc, sp, regs);
 
-    const int runningStatus = 2;
-    if (status == runningStatus) {
+    // check the status is running
+    if (status == 2) {
         set_goid(id, goid);
     }
     return 0;

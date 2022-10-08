@@ -31,7 +31,6 @@ header:
     - 'NOTICE'
     - '.gitignore'
     - 'dist/LICENSE.tpl'
-    - 'bpf/profiling/network/protocol_analyze.h'
 
   comment: on-failure
 

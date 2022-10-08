@@ -56,10 +56,6 @@ struct active_connection_t {
 
     // for protocol analyze
     __u32 protocol;
-    __u32 fix;
-    __u64 prev_count;
-    char prev_buf[4];
-    __u32 prepend_length_header;
     // current connection is ssl
     __u32 ssl;
 
