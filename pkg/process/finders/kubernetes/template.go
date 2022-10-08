@@ -99,6 +99,14 @@ func (p *TemplatePod) Node() string {
 	return p.pc.Pod.Spec.NodeName
 }
 
+func (p *TemplatePod) FindContainer(name string) (*TemplateContainer, error) {
+	container := p.pc.FindContainerFromSamePod(name)
+	if container == nil {
+		return nil, fmt.Errorf("could not found the container")
+	}
+	return &TemplateContainer{pc: container}, nil
+}
+
 func (p *TemplatePod) LabelValue(names string) (string, error) {
 	namesArray := strings.Split(names, ",")
 	for _, name := range namesArray {
@@ -172,4 +180,20 @@ func (c *TemplateContainer) Name() string {
 
 func (c *TemplateContainer) ID() string {
 	return c.pc.ContainerStatus.ContainerID
+}
+
+func (c *TemplateContainer) EnvValue(names string) (string, error) {
+	namesArray := strings.Split(names, ",")
+	for _, e := range c.pc.ContainerSpec.Env {
+		for _, needName := range namesArray {
+			if e.Name == needName {
+				return e.Value, nil
+			}
+		}
+	}
+	actualNames := make([]string, 0)
+	for _, e := range c.pc.ContainerSpec.Env {
+		actualNames = append(actualNames, e.Name)
+	}
+	return "", fmt.Errorf("could not found matches environment, want names: %v, actual names: %v", namesArray, actualNames)
 }
