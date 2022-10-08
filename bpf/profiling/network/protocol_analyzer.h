@@ -27,11 +27,6 @@
 #define CONNECTION_MESSAGE_TYPE_REQUEST 1
 #define CONNECTION_MESSAGE_TYPE_RESPONSE 2
 
-struct connection_message_t {
-    __u32 protocol;
-    __u32 type;
-};
-
 // HTTP 1.x
 // request frame format: https://www.rfc-editor.org/rfc/rfc2068.html#section-5
 // response frame format: https://www.rfc-editor.org/rfc/rfc2068.html#section-6
