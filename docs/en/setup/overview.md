@@ -7,7 +7,7 @@ The first and most important thing is, that SkyWalking Rover startup behaviors a
 Before you start, you should know that the main purpose of quickstart is to help you obtain a basic configuration for previews/demos.
 Usually, the process to be monitored is first declared.
 
-Then, you can use `bin/startup.sh` to start up the rover with their config[../../../configs/rover_configs.yaml].
+Then, you can use `bin/startup.sh` to start up the rover with their [config](../../../configs/rover_configs.yaml).
 
 ### SkyWalking OAP
 
