@@ -15,12 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package network
+package base
 
 import (
+	"fmt"
+
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/tools"
 )
+
+var log = logger.GetLogger("profiling", "task", "network", "analyze")
 
 const (
 	layerMeshDP  = "MESH_DP"
@@ -28,8 +33,32 @@ const (
 	processEnvoy = "envoy"
 )
 
+type ProcessTraffic struct {
+	Analyzer *TrafficAnalyzer
+
+	// local process information
+	LocalIP        string
+	LocalPort      uint16
+	LocalPid       uint32
+	LocalProcesses []api.ProcessInterface
+
+	// remote process/address information
+	RemoteIP        string
+	RemotePort      uint16
+	RemotePid       uint32
+	RemoteProcesses []api.ProcessInterface
+
+	// connection basic information
+	Role     ConnectionRole
+	Protocol ConnectionProtocol
+	IsSSL    bool
+
+	// metrics
+	Metrics *ConnectionMetrics
+}
+
 type TrafficAnalyzer struct {
-	existingProcesses map[int32][]api.ProcessInterface
+	analyzeContext *AnalyzerContext
 	// used to find local same with remote address
 	// the connect request(local:a -> remote:b) same with accept address(remote:a -> local:b)
 	// key: localIP:port+RemoteIP+port
@@ -59,9 +88,9 @@ type TrafficAnalyzer struct {
 	localAddresses map[string]map[string]api.ProcessInterface
 }
 
-func NewTrafficAnalyzer(processes map[int32][]api.ProcessInterface) *TrafficAnalyzer {
+func (c *AnalyzerContext) NewTrafficAnalyzer() *TrafficAnalyzer {
 	return &TrafficAnalyzer{
-		existingProcesses:             processes,
+		analyzeContext:                c,
 		localWithPeerCache:            make(map[LocalWithPeerAddress]*PidWithRole),
 		peerAddressCache:              make(map[PeerAddress][]uint32),
 		envoyAcceptClientAddressCache: make(map[PeerAddress]*AddressWithPid),
@@ -125,17 +154,31 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 	// combine all result
 	result := make([]*ProcessTraffic, 0)
 	for _, v := range pidMatchedTraffic {
-		if v.ContainsAnyTraffic() {
-			result = append(result, v)
-		}
+		result = append(result, v)
 	}
 	for _, v := range pidToRemoteTraffic {
-		if v.ContainsAnyTraffic() {
-			result = append(result, v)
-		}
+		result = append(result, v)
 	}
 
 	return result
+}
+
+func (t *ProcessTraffic) GenerateConnectionInfo() string {
+	localInfo := fmt.Sprintf("%s:%d(%d)", t.LocalIP, t.LocalPort, t.LocalPid)
+	if len(t.LocalProcesses) > 0 {
+		localInfo = t.generateProcessInfo(t.LocalProcesses[0])
+	}
+
+	remoteInfo := fmt.Sprintf("%s:%d(%d)", t.RemoteIP, t.RemotePort, t.RemotePid)
+	if len(t.RemoteProcesses) > 0 {
+		remoteInfo = t.generateProcessInfo(t.RemoteProcesses[0])
+	}
+	return fmt.Sprintf("%s -> %s", localInfo, remoteInfo)
+}
+
+func (t *ProcessTraffic) generateProcessInfo(p api.ProcessInterface) string {
+	return fmt.Sprintf("(%s)%s:%s:%s(%s:%d)(%d)", p.Entity().Layer, p.Entity().ServiceName,
+		p.Entity().InstanceName, p.Entity().ProcessName, t.LocalIP, t.LocalPort, t.LocalPid)
 }
 
 func (t *TrafficAnalyzer) tryingToGenerateTheRoleWhenRemotePidCannotFound(con *ConnectionContext) {
@@ -163,34 +206,21 @@ func (t *TrafficAnalyzer) tryingToGenerateTheRoleWhenRemotePidCannotFound(con *C
 func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con *ConnectionContext, remotePid uint32) *ProcessTraffic {
 	if traffic == nil {
 		traffic = &ProcessTraffic{
-			analyzer: t,
+			Analyzer: t,
 
 			LocalPid:       con.LocalPid,
 			LocalProcesses: con.LocalProcesses,
 			LocalIP:        con.LocalIP,
 			LocalPort:      con.LocalPort,
 
-			ConnectionRole: con.Role,
-
-			WriteCounter:            NewSocketDataCounter(),
-			ReadCounter:             NewSocketDataCounter(),
-			WriteRTTCounter:         NewSocketDataCounter(),
-			ConnectCounter:          NewSocketDataCounter(),
-			CloseCounter:            NewSocketDataCounter(),
-			RetransmitCounter:       NewSocketDataCounter(),
-			DropCounter:             NewSocketDataCounter(),
-			WriteRTTHistogram:       NewSocketDataHistogram(HistogramDataUnitUS),
-			WriteExeTimeHistogram:   NewSocketDataHistogram(HistogramDataUnitNS),
-			ReadExeTimeHistogram:    NewSocketDataHistogram(HistogramDataUnitNS),
-			ConnectExeTimeHistogram: NewSocketDataHistogram(HistogramDataUnitNS),
-			CloseExeTimeHistogram:   NewSocketDataHistogram(HistogramDataUnitNS),
+			Metrics: t.analyzeContext.NewConnectionMetrics(),
 		}
 	}
 	if len(traffic.LocalProcesses) == 0 && len(con.LocalProcesses) > 0 {
 		traffic.LocalProcesses = con.LocalProcesses
 	}
-	if traffic.ConnectionRole == ConnectionRoleUnknown && con.Role != ConnectionRoleUnknown {
-		traffic.ConnectionRole = con.Role
+	if traffic.Role == ConnectionRoleUnknown && con.Role != ConnectionRoleUnknown {
+		traffic.Role = con.Role
 	}
 	if traffic.Protocol == ConnectionProtocolUnknown && con.Protocol != ConnectionProtocolUnknown {
 		traffic.Protocol = con.Protocol
@@ -206,23 +236,9 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 	traffic.RemoteIP = con.RemoteIP
 	traffic.RemotePort = con.RemotePort
 
-	traffic.WriteCounter.Increase(con.WriteCounter.CalculateIncrease())
-	traffic.ReadCounter.Increase(con.ReadCounter.CalculateIncrease())
-	traffic.WriteRTTCounter.Increase(con.WriteRTTCounter.CalculateIncrease())
-	traffic.RetransmitCounter.Increase(con.RetransmitCounter)
-	traffic.DropCounter.Increase(con.DropCounter)
-	traffic.WriteRTTHistogram.Increase(con.WriteRTTHistogram.CalculateIncrease())
-	traffic.WriteExeTimeHistogram.Increase(con.WriteExeTimeHistogram.CalculateIncrease())
-	traffic.ReadExeTimeHistogram.Increase(con.ReadExeTimeHistogram.CalculateIncrease())
+	// flush connection metrics
+	traffic.Metrics.FlushMetrics(con)
 
-	if con.FlushDataCount == 0 && con.ConnectExecuteTime > 0 {
-		traffic.ConnectCounter.IncreaseByValue(0, 1, con.ConnectExecuteTime)
-		traffic.ConnectExeTimeHistogram.IncreaseByValue(con.ConnectExecuteTime)
-	}
-	if con.FlushDataCount == 0 && con.CloseExecuteTime > 0 {
-		traffic.CloseCounter.IncreaseByValue(0, 1, con.CloseExecuteTime)
-		traffic.CloseExeTimeHistogram.IncreaseByValue(con.CloseExecuteTime)
-	}
 	con.FlushDataCount++
 	return traffic
 }
@@ -414,7 +430,7 @@ func (t *TrafficAnalyzer) findRemotePidWhenMeshEnvironment(con *ConnectionContex
 }
 
 func (t *TrafficAnalyzer) findSameInstanceMeshDP(entity *api.ProcessEntity) uint32 {
-	for _, psList := range t.existingProcesses {
+	for _, psList := range t.analyzeContext.processes {
 		for _, p := range psList {
 			if p.Entity().Layer == layerMeshDP && p.Entity().ServiceName == entity.ServiceName && p.Entity().InstanceName == entity.InstanceName {
 				name, err := p.ExeName()
