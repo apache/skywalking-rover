@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package network
+package bpf
 
 import (
 	"bytes"
@@ -28,6 +28,7 @@ import (
 
 	"golang.org/x/arch/x86/x86asm"
 
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 
@@ -37,6 +38,8 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 )
+
+var log = logger.GetLogger("profiling", "task", "network", "bpf")
 
 const defaultSymbolPrefix = "sys_"
 
