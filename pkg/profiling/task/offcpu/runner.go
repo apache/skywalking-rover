@@ -118,7 +118,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 
 	kprobe, err := link.Kprobe("finish_task_switch", objs.DoFinishTaskSwitch)
 	if err != nil {
-		log.Fatalf("link to finish task swtich failure: %v", err)
+		return fmt.Errorf("link to finish task swtich failure: %v", err)
 	}
 	r.kprobe = kprobe
 

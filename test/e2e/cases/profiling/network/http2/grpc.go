@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"test/service"
+	"time"
 
 	"google.golang.org/grpc/credentials"
 
@@ -70,6 +71,7 @@ func singleCall(w http.ResponseWriter, req *http.Request) {
 }
 
 func (p *Provider) SingleCall(context.Context, *service.CallRequest) (*service.CallReply, error) {
+	time.Sleep(time.Second * 2)
 	return &service.CallReply{Message: "response success"}, nil
 }
 

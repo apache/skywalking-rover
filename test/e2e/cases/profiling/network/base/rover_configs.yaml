@@ -137,3 +137,11 @@ profiling:
       report_interval: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL:2s}
       # The prefix of network profiling metrics name
       meter_prefix: ${ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX:rover_net_p}
+      # The protocol analyzer config for 7-Layer
+      protocol_analyze:
+        # The size of socket data buffer on each CPU
+        per_cpu_buffer: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PER_CPU_BUFFER:400KB}
+        # The count of parallel analyzer count
+        parallels: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PARALLELS:2}
+        # The size of per paralleled analyzer queue
+        queue_size: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}

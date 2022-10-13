@@ -15,40 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package analyze
 
 import (
-	"io/ioutil"
-	"log"
-	"net/http"
-	"time"
+	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer4"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7"
 )
 
-func provider(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	time.Sleep(time.Second * 2)
-	_, _ = w.Write([]byte("service provider\n"))
-}
+// NewContext Wrap the analyzer builder
+func NewContext(monitorProcesses map[int32][]api.ProcessInterface) *base.AnalyzerContext {
+	context := base.NewAnalyzerContext(monitorProcesses)
+	// register all listeners
+	context.AddListener(layer4.NewListener())
+	context.AddListener(layer7.NewListener(context))
 
-func consumer(w http.ResponseWriter, req *http.Request) {
-	addr := "https://proxy/provider"
-	get, err := http.Get(addr)
-	if err != nil {
-		log.Printf("send request error: %v", err)
-	}
-	all, err := ioutil.ReadAll(get.Body)
-	_ = get.Body.Close()
-	if err != nil {
-		log.Printf("get response body error: %v", err)
-	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write(all)
-}
-
-func main() {
-	http.HandleFunc("/provider", provider)
-	http.HandleFunc("/consumer", consumer)
-	err := http.ListenAndServeTLS(":10443", "/ssl_data/service.crt", "/ssl_data/service.key", nil)
-	log.Fatal(err)
+	return context
 }

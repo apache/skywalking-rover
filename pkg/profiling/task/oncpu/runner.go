@@ -124,7 +124,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 		return fmt.Errorf("replace the monitor pid failure")
 	}
 	if err1 := spec.LoadAndAssign(&objs, nil); err1 != nil {
-		log.Fatalf("loading objects: %s", err1)
+		log.Errorf("loading objects: %s", err1)
 	}
 	defer objs.Close()
 	r.bpf = &objs

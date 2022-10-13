@@ -17,6 +17,7 @@
 
 #include <httplib.h>
 #include <iostream>
+#include <unistd.h>
 
 #define SERVER_CERT_FILE "/ssl_data/service.crt"
 #define SERVER_PRIVATE_KEY_FILE "/ssl_data/service.key"
@@ -49,6 +50,7 @@ int main(void) {
     });
 
     svr.Get("/provider", [](const Request &, Response &res) {
+        sleep(2);
         res.set_content("service provider", "text/plain");
     });
 

@@ -131,6 +131,7 @@ int go_tls_write_ret(struct pt_regs* ctx) {
         struct sock_data_args_t data_args = {};
         data_args.fd = fd;
         data_args.buf = args->buffer_ptr;
+        data_args.data_id = ssl_get_data_id(6, id, fd);
 
         process_write_data(ctx, id, &data_args, retval0, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_GOTLS_WRITE, true);
     }
@@ -215,6 +216,7 @@ int go_tls_read_ret(struct pt_regs* ctx) {
         struct sock_data_args_t data_args = {};
         data_args.fd = fd;
         data_args.buf = args->buffer_ptr;
+        data_args.data_id = ssl_get_data_id(8, id, fd);
 
         process_write_data(ctx, id, &data_args, retval0, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_GOTLS_WRITE, true);
     }

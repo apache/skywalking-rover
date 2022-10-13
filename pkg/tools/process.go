@@ -137,7 +137,7 @@ func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, 
 			return nil, fmt.Errorf("could not init the module: %s, error: %v", moduleName, err)
 		}
 		modules[moduleName] = module
-		log.Debugf("found module %s in the pid %d, ranges: %d->%d", module.Name, pid, moduleRange.StartAddr, moduleRange.EndAddr)
+		//log.Debugf("found module %s in the pid %d, ranges: %d->%d", module.Name, pid, moduleRange.StartAddr, moduleRange.EndAddr)
 	}
 	return profiling.NewInfo(modules), nil
 }

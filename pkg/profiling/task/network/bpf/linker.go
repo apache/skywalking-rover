@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package network
+package bpf
 
 import (
 	"bytes"
@@ -28,6 +28,7 @@ import (
 
 	"golang.org/x/arch/x86/x86asm"
 
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 
@@ -37,6 +38,8 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 )
+
+var log = logger.GetLogger("profiling", "task", "network", "bpf")
 
 const defaultSymbolPrefix = "sys_"
 
@@ -140,7 +143,11 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 }
 
 func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSupplier func() interface{}) {
-	rd, err := perf.NewReader(emap, os.Getpagesize())
+	m.ReadEventAsyncWithBufferSize(emap, reader, os.Getpagesize(), dataSupplier)
+}
+
+func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
+	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
 		return

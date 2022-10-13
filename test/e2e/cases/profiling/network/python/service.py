@@ -16,6 +16,7 @@
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import ssl
+import time
 import requests
 from contextlib import contextmanager
 from socketserver import ThreadingMixIn
@@ -44,6 +45,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'error')
             return
 
+        time.sleep(2)
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'service provider')

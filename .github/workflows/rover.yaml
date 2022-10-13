@@ -186,6 +186,8 @@ jobs:
         run: |
           bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh service
           bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh proxy
+      - name: Setup Debug Session
+        uses: csexton/debugger-action@master
       - name: ${{ matrix.test.name }}
         uses: apache/skywalking-infra-e2e@main
         with:

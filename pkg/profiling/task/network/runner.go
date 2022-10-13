@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/cilium/ebpf"
 
 	"github.com/hashicorp/go-multierror"
 
@@ -35,16 +35,14 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze"
+	analyzeBase "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
-// $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-// nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/network/netmonitor.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
-
-var log = logger.GetLogger("profiling", "task", "network", "topology")
+var log = logger.GetLogger("profiling", "task", "network")
 
 type Runner struct {
 	initOnce       sync.Once
@@ -54,18 +52,19 @@ type Runner struct {
 	reportInterval time.Duration
 	meterPrefix    string
 
-	bpf        *bpfObjects
-	linker     *Linker
-	bpfContext *Context
+	bpf            *bpf.Loader
+	processes      map[int32][]api.ProcessInterface
+	analyzeContext *analyzeBase.AnalyzerContext
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 func NewGlobalRunnerContext() *Runner {
+	processes := make(map[int32][]api.ProcessInterface)
 	return &Runner{
-		bpfContext: NewContext(),
-		linker:     NewLinker(),
+		processes:      processes,
+		analyzeContext: analyze.NewContext(processes),
 	}
 }
 
@@ -78,7 +77,38 @@ func (r *Runner) init(config *base.TaskConfig, moduleMgr *module.Manager) error 
 }
 
 func (r *Runner) DeleteProcesses(processes []api.ProcessInterface) (bool, error) {
-	return r.bpfContext.DeleteProcesses(processes)
+	var err error
+	for _, p := range processes {
+		pid := p.Pid()
+		existsProcesses := make([]api.ProcessInterface, 0)
+		existsProcesses = append(existsProcesses, r.processes[pid]...)
+
+		// update process entities
+		newProcesses := make([]api.ProcessInterface, 0)
+
+		for _, existProcess := range existsProcesses {
+			if p.ID() != existProcess.ID() {
+				newProcesses = append(newProcesses, existProcess)
+			}
+		}
+
+		// no process need delete, then just ignore
+		if len(newProcesses) == len(existsProcesses) {
+			continue
+		}
+
+		// the process no need to monitor, then just ignore
+		if len(newProcesses) == 0 {
+			if err1 := r.bpf.ProcessMonitorControl.Delete(uint32(pid)); err1 != nil {
+				err = multierror.Append(err, err1)
+			}
+			log.Debugf("delete monitor process: %d", pid)
+			delete(r.processes, pid)
+			continue
+		}
+		r.processes[pid] = newProcesses
+	}
+	return len(r.processes) == 0, err
 }
 
 func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) error {
@@ -86,59 +116,58 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 	defer r.startLock.Unlock()
 	// if already start, then just adding the processes
 	if r.bpf != nil {
-		return r.bpfContext.AddProcesses(processes)
+		return r.addProcesses(processes)
 	}
 
 	r.ctx, r.cancel = context.WithCancel(ctx)
 	// load bpf program
-	objs := bpfObjects{}
-	if err := loadBpfObjects(&objs, btf.GetEBPFCollectionOptionsIfNeed()); err != nil {
+	bpfLoader, err := bpf.NewLoader()
+	if err != nil {
 		return err
 	}
-	r.bpf = &objs
-	r.bpfContext.Init(&objs, r.linker)
+	r.bpf = bpfLoader
 
-	if err := r.bpfContext.AddProcesses(processes); err != nil {
+	if err := r.addProcesses(processes); err != nil {
 		return err
 	}
 
 	// register all handlers
-	r.bpfContext.RegisterAllHandlers()
-	r.bpfContext.StartSocketAddressParser(r.ctx)
+	r.analyzeContext.RegisterAllHandlers(r.ctx, bpfLoader)
+	r.analyzeContext.StartSocketAddressParser(r.ctx)
 
 	// sock opts
-	r.linker.AddSysCall("close", objs.SysClose, objs.SysCloseRet)
-	r.linker.AddSysCall("connect", objs.SysConnect, objs.SysConnectRet)
-	r.linker.AddSysCall("accept", objs.SysAccept, objs.SysAcceptRet)
-	r.linker.AddSysCall("accept4", objs.SysAccept, objs.SysAcceptRet)
-	r.linker.AddLink(link.Kretprobe, objs.SockAllocRet, "sock_alloc")
-	r.linker.AddLink(link.Kprobe, objs.TcpConnect, "tcp_connect")
+	bpfLoader.AddSysCall("close", bpfLoader.SysClose, bpfLoader.SysCloseRet)
+	bpfLoader.AddSysCall("connect", bpfLoader.SysConnect, bpfLoader.SysConnectRet)
+	bpfLoader.AddSysCall("accept", bpfLoader.SysAccept, bpfLoader.SysAcceptRet)
+	bpfLoader.AddSysCall("accept4", bpfLoader.SysAccept, bpfLoader.SysAcceptRet)
+	bpfLoader.AddLink(link.Kretprobe, bpfLoader.SockAllocRet, "sock_alloc")
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpConnect, "tcp_connect")
 
 	// write/receive data
-	r.linker.AddSysCall("send", objs.SysSend, objs.SysSendRet)
-	r.linker.AddSysCall("sendto", objs.SysSendto, objs.SysSendtoRet)
-	r.linker.AddSysCall("sendmsg", objs.SysSendmsg, objs.SysSendmsgRet)
-	r.linker.AddSysCall("sendmmsg", objs.SysSendmmsg, objs.SysSendmmsgRet)
-	r.linker.AddSysCall("sendfile", objs.SysSendfile, objs.SysSendfileRet)
-	r.linker.AddSysCall("sendfile64", objs.SysSendfile, objs.SysSendfileRet)
-	r.linker.AddSysCall("write", objs.SysWrite, objs.SysWriteRet)
-	r.linker.AddSysCall("writev", objs.SysWritev, objs.SysWritevRet)
-	r.linker.AddSysCall("read", objs.SysRead, objs.SysReadRet)
-	r.linker.AddSysCall("readv", objs.SysReadv, objs.SysReadvRet)
-	r.linker.AddSysCall("recv", objs.SysRecv, objs.SysRecvRet)
-	r.linker.AddSysCall("recvfrom", objs.SysRecvfrom, objs.SysRecvfromRet)
-	r.linker.AddSysCall("recvmsg", objs.SysRecvmsg, objs.SysRecvmsgRet)
-	r.linker.AddSysCall("recvmmsg", objs.SysRecvmmsg, objs.SysRecvmmsgRet)
-	r.linker.AddLink(link.Kprobe, objs.TcpRcvEstablished, "tcp_rcv_established")
-	r.linker.AddLink(link.Kprobe, objs.SecuritySocketSendmsg, "security_socket_sendmsg")
-	r.linker.AddLink(link.Kprobe, objs.SecuritySocketRecvmsg, "security_socket_recvmsg")
+	bpfLoader.AddSysCall("send", bpfLoader.SysSend, bpfLoader.SysSendRet)
+	bpfLoader.AddSysCall("sendto", bpfLoader.SysSendto, bpfLoader.SysSendtoRet)
+	bpfLoader.AddSysCall("sendmsg", bpfLoader.SysSendmsg, bpfLoader.SysSendmsgRet)
+	bpfLoader.AddSysCall("sendmmsg", bpfLoader.SysSendmmsg, bpfLoader.SysSendmmsgRet)
+	bpfLoader.AddSysCall("sendfile", bpfLoader.SysSendfile, bpfLoader.SysSendfileRet)
+	bpfLoader.AddSysCall("sendfile64", bpfLoader.SysSendfile, bpfLoader.SysSendfileRet)
+	bpfLoader.AddSysCall("write", bpfLoader.SysWrite, bpfLoader.SysWriteRet)
+	bpfLoader.AddSysCall("writev", bpfLoader.SysWritev, bpfLoader.SysWritevRet)
+	bpfLoader.AddSysCall("read", bpfLoader.SysRead, bpfLoader.SysReadRet)
+	bpfLoader.AddSysCall("readv", bpfLoader.SysReadv, bpfLoader.SysReadvRet)
+	bpfLoader.AddSysCall("recv", bpfLoader.SysRecv, bpfLoader.SysRecvRet)
+	bpfLoader.AddSysCall("recvfrom", bpfLoader.SysRecvfrom, bpfLoader.SysRecvfromRet)
+	bpfLoader.AddSysCall("recvmsg", bpfLoader.SysRecvmsg, bpfLoader.SysRecvmsgRet)
+	bpfLoader.AddSysCall("recvmmsg", bpfLoader.SysRecvmmsg, bpfLoader.SysRecvmmsgRet)
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpRcvEstablished, "tcp_rcv_established")
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.SecuritySocketSendmsg, "security_socket_sendmsg")
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.SecuritySocketRecvmsg, "security_socket_recvmsg")
 
 	// retransmit/drop
-	r.linker.AddLink(link.Kprobe, objs.TcpRetransmit, "tcp_retransmit_skb")
-	r.linker.AddLink(link.Kprobe, objs.TcpDrop, "tcp_drop")
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpRetransmit, "tcp_retransmit_skb")
+	//bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpDrop, "tcp_drop")
 
-	if err := r.linker.HasError(); err != nil {
-		_ = r.linker.Close()
+	if err := bpfLoader.HasError(); err != nil {
+		_ = bpfLoader.Close()
 		return err
 	}
 
@@ -165,31 +194,12 @@ func (r *Runner) registerMetricsReport() {
 }
 
 func (r *Runner) flushMetrics() error {
-	// flush all connection from bpf
-	connections, err := r.bpfContext.FlushAllConnection()
+	// flush all metrics
+	metricsBuilder, err := r.analyzeContext.FlushAllMetrics(r.bpf, r.meterPrefix)
 	if err != nil {
 		return err
 	}
-	if len(connections) == 0 {
-		return nil
-	}
-
-	if log.Enable(logrus.DebugLevel) {
-		for _, con := range connections {
-			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, protocol: %s, is_ssl: %t, read: %d bytes/%d, write: %d bytes/%d",
-				con.ConnectionID, con.Role.String(),
-				con.LocalIP, con.LocalPort, con.LocalPid, con.RemoteIP, con.RemotePort,
-				con.Protocol.String(), con.IsSSL, con.WriteCounter.Cur.Bytes, con.WriteCounter.Cur.Count,
-				con.ReadCounter.Cur.Bytes, con.ReadCounter.Cur.Count)
-		}
-	}
-	// combine all connection
-	analyzer := NewTrafficAnalyzer(r.bpfContext.processes)
-	traffics := analyzer.CombineConnectionToTraffics(connections)
-	if len(traffics) == 0 {
-		return nil
-	}
-	r.logTheMetricsConnections(traffics)
+	metrics := metricsBuilder.Build()
 
 	// send metrics
 	batch, err := r.meterClient.CollectBatch(r.ctx)
@@ -202,45 +212,16 @@ func (r *Runner) flushMetrics() error {
 		}
 	}()
 	count := 0
-	for _, traffic := range traffics {
-		collections := traffic.GenerateMetrics(r.meterPrefix)
-		for _, col := range collections {
-			count += len(col.MeterData)
-			if err := batch.Send(col); err != nil {
-				return err
-			}
+	for _, m := range metrics {
+		count += len(m.MeterData)
+		if err := batch.Send(m); err != nil {
+			return err
 		}
 	}
 	if count > 0 {
 		log.Infof("total send network topology meter data: %d", count)
 	}
 	return nil
-}
-
-func (r *Runner) logTheMetricsConnections(traffices []*ProcessTraffic) {
-	if !log.Enable(logrus.DebugLevel) {
-		return
-	}
-	for _, traffic := range traffices {
-		localInfo := fmt.Sprintf("%s:%d(%d)", traffic.LocalIP, traffic.LocalPort, traffic.LocalPid)
-		if len(traffic.LocalProcesses) > 0 {
-			p := traffic.LocalProcesses[0]
-			localInfo = fmt.Sprintf("(%s)%s:%s:%s(%s:%d)(%d)", p.Entity().Layer, p.Entity().ServiceName,
-				p.Entity().InstanceName, p.Entity().ProcessName, traffic.LocalIP, traffic.LocalPort, traffic.LocalPid)
-		}
-
-		remoteInfo := fmt.Sprintf("%s:%d(%d)", traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid)
-		if len(traffic.RemoteProcesses) > 0 {
-			p := traffic.RemoteProcesses[0]
-			remoteInfo = fmt.Sprintf("(%s)%s:%s:%s(%s:%d)(%d)",
-				p.Entity().Layer, p.Entity().ServiceName, p.Entity().InstanceName, p.Entity().ProcessName,
-				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid)
-		}
-		side := traffic.ConnectionRole.String()
-		log.Debugf("connection analyze result: %s : %s -> %s, protocol: %s, is SSL: %t, write: %d bytes/%d, read: %d bytes/%d",
-			side, localInfo, remoteInfo, traffic.Protocol.String(), traffic.IsSSL, traffic.WriteCounter.Bytes, traffic.WriteCounter.Count,
-			traffic.ReadCounter.Bytes, traffic.ReadCounter.Count)
-	}
 }
 
 func (r *Runner) Stop() error {
@@ -252,7 +233,6 @@ func (r *Runner) Stop() error {
 	}
 	var result error
 	r.stopOnce.Do(func() {
-		result = r.closeWhenExists(result, r.linker)
 		result = r.closeWhenExists(result, r.bpf)
 	})
 	return result
@@ -282,5 +262,45 @@ func (r *Runner) init0(config *base.TaskConfig, moduleMgr *module.Manager) error
 		return fmt.Errorf("please provide the meter prefix")
 	}
 	r.meterPrefix = config.Network.MeterPrefix + "_"
+
+	err = r.analyzeContext.Init(config, moduleMgr)
+	if err != nil {
+		return fmt.Errorf("init analyzer failure: %v", err)
+	}
 	return nil
+}
+
+func (r *Runner) addProcesses(processes []api.ProcessInterface) error {
+	var err error
+	for _, p := range processes {
+		pid := p.Pid()
+		alreadyExists := false
+		if len(r.processes[pid]) > 0 {
+			for _, existsProcess := range r.processes[pid] {
+				if p.ID() == existsProcess.ID() {
+					alreadyExists = true
+					break
+				}
+			}
+		}
+
+		if alreadyExists {
+			continue
+		}
+
+		r.processes[pid] = append(r.processes[pid], p)
+
+		// add to the process let it could be monitored
+		if err1 := r.bpf.ProcessMonitorControl.Update(uint32(pid), uint32(1), ebpf.UpdateAny); err1 != nil {
+			err = multierror.Append(err, err1)
+		}
+
+		// add process ssl config
+		if err1 := addSSLProcess(int(pid), r.bpf); err1 != nil {
+			err = multierror.Append(err, err1)
+		}
+
+		log.Debugf("add monitor process, pid: %d", pid)
+	}
+	return err
 }

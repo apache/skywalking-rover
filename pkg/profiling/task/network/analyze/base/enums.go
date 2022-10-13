@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package network
+package base
 
 const (
 	unknown = "unknown"
@@ -55,15 +55,26 @@ func (r ConnectionRole) Revert() ConnectionRole {
 }
 
 // SocketDataDirection indicates whether data is being written or receive
-type SocketDataDirection uint32
+type SocketDataDirection uint8
 
 const (
 	SocketDataDirectionIngress SocketDataDirection = 1
 	SocketDataDirectionEgress  SocketDataDirection = 2
 )
 
+func (d SocketDataDirection) String() string {
+	switch d {
+	case SocketDataDirectionIngress:
+		return "ingress"
+	case SocketDataDirectionEgress:
+		return "egress"
+	default:
+		return unknown
+	}
+}
+
 // SocketDataStaticsType represents the stat type when read or write
-type SocketDataStaticsType uint32
+type SocketDataStaticsType uint8
 
 const (
 	SocketDataStaticsTypeRTT     = 1
@@ -77,7 +88,7 @@ const (
 	SocketExceptionOperationDrop       SocketExceptionOperationType = 2
 )
 
-type ConnectionProtocol uint32
+type ConnectionProtocol uint8
 
 const (
 	ConnectionProtocolUnknown ConnectionProtocol = 0
@@ -104,3 +115,22 @@ const (
 	GoTLSArgsLocationTypeStack    GoTLSArgsLocationType = 1
 	GoTLSArgsLocationTypeRegister GoTLSArgsLocationType = 2
 )
+
+type SocketMessageType uint8
+
+const (
+	SocketMessageTypeUnknown  SocketMessageType = 0
+	SocketMessageTypeRequest  SocketMessageType = 1
+	SocketMessageTypeResponse SocketMessageType = 2
+)
+
+func (m SocketMessageType) String() string {
+	switch m {
+	case SocketMessageTypeRequest:
+		return "request"
+	case SocketMessageTypeResponse:
+		return "response"
+	default:
+		return unknown
+	}
+}

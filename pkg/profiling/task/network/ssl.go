@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -52,36 +54,36 @@ type OpenSSLFdSymAddrConfigInBPF struct {
 	FDOffset       uint32
 }
 
-func addSSLProcess(pid int, bpf *bpfObjects, linker *Linker) error {
+func addSSLProcess(pid int, loader *bpf.Loader) error {
 	modules, err := tools.ProcessModules(int32(pid))
 	if err != nil {
 		return fmt.Errorf("read process modules error: %d, error: %v", pid, err)
 	}
 
 	// openssl process
-	if err1 := processOpenSSLProcess(pid, bpf, linker, modules); err1 != nil {
+	if err1 := processOpenSSLProcess(pid, loader, modules); err1 != nil {
 		return err1
 	}
 
 	// envoy with boring ssl
-	if err1 := processEnvoyProcess(pid, bpf, linker, modules); err1 != nil {
+	if err1 := processEnvoyProcess(pid, loader, modules); err1 != nil {
 		return err1
 	}
 
 	// GoTLS
-	if err1 := processGoProcess(pid, bpf, linker, modules); err1 != nil {
+	if err1 := processGoProcess(pid, loader, modules); err1 != nil {
 		return err1
 	}
 
 	// Nodejs
-	if err1 := processNodeProcess(pid, bpf, linker, modules); err1 != nil {
+	if err1 := processNodeProcess(pid, loader, modules); err1 != nil {
 		return err1
 	}
 
 	return nil
 }
 
-func processOpenSSLProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+func processOpenSSLProcess(pid int, loader *bpf.Loader, modules []*profiling.Module) error {
 	var libcryptoName, libsslName = "libcrypto.so", "libssl.so"
 	var libcryptoPath, libsslPath string
 	processModules, err := findProcessModules(modules, libcryptoName, libsslName)
@@ -107,22 +109,22 @@ func processOpenSSLProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*
 	if err != nil {
 		return err
 	}
-	if err := bpf.OpensslFdSymaddrFinder.Put(uint32(pid), conf); err != nil {
+	if err := loader.OpensslFdSymaddrFinder.Put(uint32(pid), conf); err != nil {
 		return err
 	}
 
 	// attach the linker
-	return processOpenSSLModule(bpf, processModules[libsslName], linker)
+	return processOpenSSLModule(loader, processModules[libsslName])
 }
 
-func processOpenSSLModule(bpf *bpfObjects, libSSLModule *profiling.Module, linker *Linker) error {
-	libSSLLinker := linker.OpenUProbeExeFile(libSSLModule.Path)
-	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet)
-	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet)
-	return linker.HasError()
+func processOpenSSLModule(loader *bpf.Loader, libSSLModule *profiling.Module) error {
+	libSSLLinker := loader.OpenUProbeExeFile(libSSLModule.Path)
+	libSSLLinker.AddLink("SSL_write", loader.OpensslWrite, loader.OpensslWriteRet)
+	libSSLLinker.AddLink("SSL_read", loader.OpensslRead, loader.OpensslReadRet)
+	return loader.HasError()
 }
 
-func processEnvoyProcess(_ int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+func processEnvoyProcess(_ int, loader *bpf.Loader, modules []*profiling.Module) error {
 	moduleName := "/envoy"
 	processModules, err := findProcessModules(modules, moduleName)
 	if err != nil {
@@ -149,14 +151,14 @@ func processEnvoyProcess(_ int, bpf *bpfObjects, linker *Linker, modules []*prof
 	log.Debugf("found current module is envoy, so attach to the SSL read and write")
 
 	// attach the linker
-	libSSLLinker := linker.OpenUProbeExeFile(envoyModule.Path)
-	libSSLLinker.AddLink("SSL_write", bpf.OpensslWrite, bpf.OpensslWriteRet)
-	libSSLLinker.AddLink("SSL_read", bpf.OpensslRead, bpf.OpensslReadRet)
-	return linker.HasError()
+	libSSLLinker := loader.OpenUProbeExeFile(envoyModule.Path)
+	libSSLLinker.AddLink("SSL_write", loader.OpensslWrite, loader.OpensslWriteRet)
+	libSSLLinker.AddLink("SSL_read", loader.OpensslRead, loader.OpensslReadRet)
+	return loader.HasError()
 }
 
 type SymbolLocation struct {
-	Type   GoTLSArgsLocationType
+	Type   base.GoTLSArgsLocationType
 	Offset uint32
 }
 
@@ -189,7 +191,7 @@ type GoStringInC struct {
 	Size uint64
 }
 
-func processGoProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+func processGoProcess(pid int, loader *bpf.Loader, modules []*profiling.Module) error {
 	// check current process is go program
 	buildVersionSymbol := searchSymbol(modules, func(a, b string) bool {
 		return a == b
@@ -220,20 +222,20 @@ func processGoProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profi
 	}
 
 	// setting the locations
-	if err := bpf.GoTlsArgsSymaddrMap.Put(uint32(pid), symbolConfig); err != nil {
+	if err := loader.GoTlsArgsSymaddrMap.Put(uint32(pid), symbolConfig); err != nil {
 		return fmt.Errorf("setting the Go TLS argument location failure, pid: %d, error: %v", pid, err)
 	}
 
 	// uprobes
-	exeFile := linker.OpenUProbeExeFile(pidExeFile)
-	exeFile.AddLinkWithType("runtime.casgstatus", true, bpf.GoCasgstatus)
-	exeFile.AddGoLink(goTLSWriteSymbol, bpf.GoTlsWrite, bpf.GoTlsWriteRet, elfFile)
-	exeFile.AddGoLink(goTLSReadSymbol, bpf.GoTlsRead, bpf.GoTlsReadRet, elfFile)
+	exeFile := loader.OpenUProbeExeFile(pidExeFile)
+	exeFile.AddLinkWithType("runtime.casgstatus", true, loader.GoCasgstatus)
+	exeFile.AddGoLink(goTLSWriteSymbol, loader.GoTlsWrite, loader.GoTlsWriteRet, elfFile)
+	exeFile.AddGoLink(goTLSReadSymbol, loader.GoTlsRead, loader.GoTlsReadRet, elfFile)
 
-	return linker.HasError()
+	return loader.HasError()
 }
 
-func processNodeProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*profiling.Module) error {
+func processNodeProcess(pid int, loader *bpf.Loader, modules []*profiling.Module) error {
 	moduleName1, moduleName2, libsslName := "/nodejs", "/node", "libssl.so"
 	processModules, err := findProcessModules(modules, moduleName1, moduleName2, libsslName)
 	if err != nil {
@@ -271,16 +273,16 @@ func processNodeProcess(pid int, bpf *bpfObjects, linker *Linker, modules []*pro
 		return err
 	}
 	// setting the locations
-	if err := bpf.NodeTlsSymaddrMap.Put(uint32(pid), config); err != nil {
+	if err := loader.NodeTlsSymaddrMap.Put(uint32(pid), config); err != nil {
 		return fmt.Errorf("setting the node TLS location failure, pid: %d, error: %v", pid, err)
 	}
 	// register node tls
-	if err := registerNodeTLSProbes(v, bpf, linker, nodeModule, libsslModule); err != nil {
+	if err := registerNodeTLSProbes(v, loader, nodeModule, libsslModule); err != nil {
 		return fmt.Errorf("register node TLS probes failure, pid: %d, error: %v", pid, err)
 	}
 	// attach the OpenSSL Probe if needs
 	if needsReAttachSSL {
-		return processOpenSSLModule(bpf, libsslModule, linker)
+		return processOpenSSLModule(loader, libsslModule)
 	}
 	return nil
 }
@@ -301,9 +303,9 @@ var nodeTLSAddrWithVersions = []struct {
 
 var nodeTLSProbeWithVersions = []struct {
 	v *version.Version
-	f func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module)
+	f func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
 }{
-	{version.Build(10, 19, 0), func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module) {
+	{version.Build(10, 19, 0), func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrapC2E"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap7ClearInE"),
@@ -311,7 +313,7 @@ var nodeTLSProbeWithVersions = []struct {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap8ClearOutE"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 	}},
-	{version.Build(15, 0, 0), func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module) {
+	{version.Build(15, 0, 0), func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrapC2E"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrap7ClearInE"),
@@ -344,8 +346,8 @@ func findNodeTLSAddrConfig(v *version.Version) (*NodeTLSAddrInBPF, error) {
 	return nil, fmt.Errorf("could not support version: %s", v)
 }
 
-func registerNodeTLSProbes(v *version.Version, bpf *bpfObjects, linker *Linker, nodeModule, libSSLModule *profiling.Module) error {
-	var probeFunc func(uprobe *UProbeExeFile, bpf *bpfObjects, nodeModule *profiling.Module)
+func registerNodeTLSProbes(v *version.Version, loader *bpf.Loader, nodeModule, libSSLModule *profiling.Module) error {
+	var probeFunc func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
 	for _, c := range nodeTLSProbeWithVersions {
 		if v.GreaterOrEquals(c.v) {
 			probeFunc = c.f
@@ -354,13 +356,13 @@ func registerNodeTLSProbes(v *version.Version, bpf *bpfObjects, linker *Linker, 
 	if probeFunc == nil {
 		return fmt.Errorf("the version is not support: %v", v)
 	}
-	file := linker.OpenUProbeExeFile(nodeModule.Path)
-	probeFunc(file, bpf, nodeModule)
+	file := loader.OpenUProbeExeFile(nodeModule.Path)
+	probeFunc(file, loader, nodeModule)
 
 	// find the SSL_new, and register
-	file = linker.OpenUProbeExeFile(libSSLModule.Path)
-	file.AddLinkWithType("SSL_new", false, bpf.NodeTlsRetSsl)
-	return linker.HasError()
+	file = loader.OpenUProbeExeFile(libSSLModule.Path)
+	file.AddLinkWithType("SSL_new", false, loader.NodeTlsRetSsl)
+	return loader.HasError()
 }
 
 func getNodeVersion(p string) (*version.Version, error) {
@@ -493,10 +495,10 @@ func assignGoTLSArgsLocation(err error, function *elf.FunctionInfo, argName stri
 		return fmt.Errorf("the args is not found, function: %s, args name: %s", function.Name(), argName)
 	}
 	if args.Location.Type == elf.ArgLocationTypeStack {
-		dest.Type = GoTLSArgsLocationTypeStack
+		dest.Type = base.GoTLSArgsLocationTypeStack
 		dest.Offset = uint32(args.Location.Offset) + kSPOffset
 	} else if args.Location.Type == elf.ArgLocationTypeRegister {
-		dest.Type = GoTLSArgsLocationTypeRegister
+		dest.Type = base.GoTLSArgsLocationTypeRegister
 		dest.Offset = uint32(args.Location.Offset)
 	} else {
 		return fmt.Errorf("the location type is not support, function: %s, args name: %s, type: %d",
