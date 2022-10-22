@@ -164,7 +164,7 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 
 	// retransmit/drop
 	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpRetransmit, "tcp_retransmit_skb")
-	//bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpDrop, "tcp_drop")
+	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpDrop, "tcp_drop")
 
 	if err := bpfLoader.HasError(); err != nil {
 		_ = bpfLoader.Close()

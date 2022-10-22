@@ -136,13 +136,14 @@ struct socket_close_event_t {
     __u32 pid;
     // socket fd under process
     __u32 sockfd;
-    // the type of role in current connection
-    __u32 role;
     // the protocol type of the connection
     __u8 protocol;
     // the connection is ssl
     __u8 ssl;
     __u16 fix;
+    // the type of role in current connection
+    __u32 role;
+
 
     // socket type
     __u32 socket_family;

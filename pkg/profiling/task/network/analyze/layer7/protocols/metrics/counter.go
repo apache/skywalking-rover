@@ -20,38 +20,38 @@ package metrics
 import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
 type Counter struct {
-	value int
+	Value int
 }
 
 func NewCounter() *Counter {
 	return &Counter{
-		value: 0,
+		Value: 0,
 	}
 }
 
 func (c *Counter) Increase() {
-	c.value++
+	c.Value++
 }
 
 func (c *Counter) Get() int {
-	return c.value
+	return c.Value
 }
 
 func (c *Counter) MergeAndClean(other *Counter) {
-	c.value += other.value
+	c.Value += other.Value
 
 	// clean
-	other.value = 0
+	other.Value = 0
 }
 
 func (c *Counter) CusHalfOfMetrics() Metrics {
 	result := NewCounter()
-	result.value = c.value / 2
+	result.Value = c.Value / 2
 	return result
 }
 
 func (c *Counter) AppendMeter(list []*v3.MeterData, name string, labels []*v3.Label) []*v3.MeterData {
-	if c.value == 0 {
+	if c.Value == 0 {
 		return list
 	}
 
@@ -60,7 +60,7 @@ func (c *Counter) AppendMeter(list []*v3.MeterData, name string, labels []*v3.La
 			SingleValue: &v3.MeterSingleValue{
 				Name:   name,
 				Labels: labels,
-				Value:  float64(c.value),
+				Value:  float64(c.Value),
 			},
 		},
 	})

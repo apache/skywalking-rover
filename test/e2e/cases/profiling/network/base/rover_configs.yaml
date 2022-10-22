@@ -141,7 +141,7 @@ profiling:
       protocol_analyze:
         # The size of socket data buffer on each CPU
         per_cpu_buffer: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PER_CPU_BUFFER:400KB}
-        # The count of parallel analyzer count
+        # The count of parallel protocol analyzer
         parallels: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PARALLELS:2}
         # The size of per paralleled analyzer queue
         queue_size: ${ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}

@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"container/list"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,32 +69,32 @@ type HTTP1ConnectionMetrics struct {
 }
 
 type HTTP1URIMetrics struct {
-	requestCounter *metrics.Counter
-	statusCounter  map[int]*metrics.Counter
+	RequestCounter *metrics.Counter
+	StatusCounter  map[int]*metrics.Counter
 
-	avgRequestPackageSize    *metrics.AvgCounter
-	avgResponsePackageSize   *metrics.AvgCounter
-	reqPackageSizeHistogram  *metrics.Histogram
-	respPackageSizeHistogram *metrics.Histogram
+	AvgRequestPackageSize    *metrics.AvgCounter
+	AvgResponsePackageSize   *metrics.AvgCounter
+	ReqPackageSizeHistogram  *metrics.Histogram
+	RespPackageSizeHistogram *metrics.Histogram
 
-	clientAvgDuration       *metrics.AvgCounter
-	serverAvgDuration       *metrics.AvgCounter
-	clientDurationHistogram *metrics.Histogram
-	serverDurationHistogram *metrics.Histogram
+	ClientAvgDuration       *metrics.AvgCounter
+	ServerAvgDuration       *metrics.AvgCounter
+	ClientDurationHistogram *metrics.Histogram
+	ServerDurationHistogram *metrics.Histogram
 }
 
 func NewHTTP1URIMetrics() *HTTP1URIMetrics {
 	return &HTTP1URIMetrics{
-		requestCounter:           metrics.NewCounter(),
-		statusCounter:            make(map[int]*metrics.Counter),
-		avgRequestPackageSize:    metrics.NewAvgCounter(),
-		avgResponsePackageSize:   metrics.NewAvgCounter(),
-		reqPackageSizeHistogram:  metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
-		respPackageSizeHistogram: metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
-		clientAvgDuration:        metrics.NewAvgCounter(),
-		serverAvgDuration:        metrics.NewAvgCounter(),
-		clientDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
-		serverDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
+		RequestCounter:           metrics.NewCounter(),
+		StatusCounter:            make(map[int]*metrics.Counter),
+		AvgRequestPackageSize:    metrics.NewAvgCounter(),
+		AvgResponsePackageSize:   metrics.NewAvgCounter(),
+		ReqPackageSizeHistogram:  metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
+		RespPackageSizeHistogram: metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
+		ClientAvgDuration:        metrics.NewAvgCounter(),
+		ServerAvgDuration:        metrics.NewAvgCounter(),
+		ClientDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
+		ServerDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
 	}
 }
 
@@ -137,8 +138,8 @@ func (h *HTTP1Analyzer) ReceiveData(context Context, event *SocketDataUploadEven
 		connectionMetrics = QueryProtocolMetrics(connection.Metrics, HTTP1ProtocolName).(*HTTP1ConnectionMetrics)
 	}
 
-	log.Debugf("receive connection: %s, dataid: %d, sequence: %d, finished: %d, message type: %s, direction: %s",
-		connectionID, event.DataID, event.Sequence, event.Finished, event.MsgType.String(), event.Direction().String())
+	log.Debugf("receive connection: %s, dataid: %d, sequence: %d, finished: %d, message type: %s, direction: %s, size: %d, total size: %d",
+		connectionID, event.DataID, event.Sequence, event.Finished, event.MsgType.String(), event.Direction().String(), event.DataLen, event.TotalSize0)
 	// if the cache is existing in the analyzer context, then delete it
 	if !fromAnalyzerCache {
 		if tmp := h.cache[connectionID]; tmp != nil {
@@ -149,7 +150,7 @@ func (h *HTTP1Analyzer) ReceiveData(context Context, event *SocketDataUploadEven
 
 	req, resp := h.buildHTTP1(connectionMetrics.halfData, event)
 	if req != nil && resp != nil {
-		if err := h.analyze(context, connectionMetrics, req, resp); err != nil {
+		if err := h.analyze(context, connectionID, connectionMetrics, req, resp); err != nil {
 			log.Errorf("HTTP1 analyze failure: %v", err)
 			return false
 		}
@@ -252,23 +253,31 @@ func (h *HTTP1Analyzer) insertToList(halfConnections *list.List, event *SocketDa
 	}
 }
 
-func (h *HTTP1Analyzer) analyze(_ Context, connectionMetrics *HTTP1ConnectionMetrics, requestBuffer, responseBuffer SocketDataBuffer) error {
+func (h *HTTP1Analyzer) analyze(_ Context, connectionID string, connectionMetrics *HTTP1ConnectionMetrics,
+	requestBuffer, responseBuffer SocketDataBuffer) error {
 	request, err := http.ReadRequest(bufio.NewReader(bytes.NewBuffer(requestBuffer.BufferData())))
 	if err != nil {
-		return fmt.Errorf("parse request failure: %v", err)
+		return fmt.Errorf("parse request failure: data length: %d, total data length: %d, %v",
+			len(requestBuffer.BufferData()), requestBuffer.TotalSize(), err)
 	}
 
 	response, err := http.ReadResponse(bufio.NewReader(bytes.NewBuffer(responseBuffer.BufferData())), request)
+	if response != nil {
+		defer response.Body.Close()
+	}
 	if err != nil {
 		if err == io.ErrUnexpectedEOF || err == io.EOF {
-			log.Warnf("parsing err is unexcepted EOF")
 			response, err = h.tryingToReadResponseWithoutHeaders(bufio.NewReader(bytes.NewBuffer(responseBuffer.BufferData())), request)
 			if err != nil {
-				log.Warnf("parsing simple data error: %v", err)
+				return fmt.Errorf("parsing simple data error: %v", err)
+			}
+			if response != nil && response.Body != nil {
+				defer response.Body.Close()
 			}
 		}
 		if err != nil {
-			return fmt.Errorf("parse response failure: %v, original data: %s", err, string(responseBuffer.BufferData()))
+			return fmt.Errorf("parse response failure, data length: %d, total data length: %d, %v",
+				len(requestBuffer.BufferData()), requestBuffer.TotalSize(), err)
 		}
 	}
 
@@ -277,8 +286,13 @@ func (h *HTTP1Analyzer) analyze(_ Context, connectionMetrics *HTTP1ConnectionMet
 	defer connectionMetrics.metricsLocker.RUnlock()
 
 	// append metrics
-	h.appendToMetrics(connectionMetrics.combinedMetrics, request, requestBuffer, response, responseBuffer)
+	combinedMetrics := connectionMetrics.combinedMetrics
+	h.appendToMetrics(combinedMetrics, request, requestBuffer, response, responseBuffer)
 
+	if log.Enable(logrus.DebugLevel) {
+		metricsJSON, _ := json.Marshal(combinedMetrics)
+		log.Debugf("generated metrics, connection id: %s, metrisc: %s", connectionID, string(metricsJSON))
+	}
 	return nil
 }
 
@@ -295,12 +309,12 @@ func (h *HTTP1Analyzer) tryingToReadResponseWithoutHeaders(reader *bufio.Reader,
 	if err != nil {
 		return nil, fmt.Errorf("read response first line failure: %v", err)
 	}
-	if i := strings.IndexByte(line, ' '); i == -1 {
+	indexByte := strings.IndexByte(line, ' ')
+	if indexByte == -1 {
 		return nil, fmt.Errorf("parsing response error: %s", line)
-	} else {
-		resp.Proto = line[:i]
-		resp.Status = strings.TrimLeft(line[i+1:], " ")
 	}
+	resp.Proto = line[:indexByte]
+	resp.Status = strings.TrimLeft(line[indexByte+1:], " ")
 	statusCode := resp.Status
 	if i := strings.IndexByte(resp.Status, ' '); i != -1 {
 		statusCode = resp.Status[:i]
@@ -322,26 +336,26 @@ func (h *HTTP1Analyzer) tryingToReadResponseWithoutHeaders(reader *bufio.Reader,
 
 func (h *HTTP1Analyzer) appendToMetrics(data *HTTP1URIMetrics, _ *http.Request, reqBuffer SocketDataBuffer,
 	resp *http.Response, respBuffer SocketDataBuffer) {
-	data.requestCounter.Increase()
-	statusCounter := data.statusCounter[resp.StatusCode]
+	data.RequestCounter.Increase()
+	statusCounter := data.StatusCounter[resp.StatusCode]
 	if statusCounter == nil {
 		statusCounter = metrics.NewCounter()
-		data.statusCounter[resp.StatusCode] = statusCounter
+		data.StatusCounter[resp.StatusCode] = statusCounter
 	}
 	statusCounter.Increase()
 
-	data.avgRequestPackageSize.Increase(float64(reqBuffer.TotalSize()))
-	data.avgResponsePackageSize.Increase(float64(respBuffer.TotalSize()))
-	data.reqPackageSizeHistogram.Increase(float64(reqBuffer.TotalSize()))
-	data.respPackageSizeHistogram.Increase(float64(respBuffer.TotalSize()))
+	data.AvgRequestPackageSize.Increase(float64(reqBuffer.TotalSize()))
+	data.AvgResponsePackageSize.Increase(float64(respBuffer.TotalSize()))
+	data.ReqPackageSizeHistogram.Increase(float64(reqBuffer.TotalSize()))
+	data.RespPackageSizeHistogram.Increase(float64(respBuffer.TotalSize()))
 
 	// duration data need client and server side
-	avgDuration := data.clientAvgDuration
-	durationHistogram := data.clientDurationHistogram
+	avgDuration := data.ClientAvgDuration
+	durationHistogram := data.ClientDurationHistogram
 	if reqBuffer.Direction() == base.SocketDataDirectionIngress {
 		// if the request is ingress, that's mean current is server side
-		avgDuration = data.serverAvgDuration
-		durationHistogram = data.serverDurationHistogram
+		avgDuration = data.ServerAvgDuration
+		durationHistogram = data.ServerDurationHistogram
 	}
 	duration := time.Duration(respBuffer.Time() - reqBuffer.Time())
 	durationInMS := float64(duration.Milliseconds())
@@ -355,6 +369,10 @@ func (h *HTTP1ConnectionMetrics) MergeMetricsFromConnection(connection *base.Con
 	defer other.metricsLocker.Unlock()
 
 	h.combinedMetrics.MergeAndClean(other.combinedMetrics)
+	if log.Enable(logrus.DebugLevel) {
+		marshal, _ := json.Marshal(h.combinedMetrics)
+		log.Debugf("combine metrics: conid: %d_%d, metrics: %s", connection.ConnectionID, connection.RandomID, marshal)
+	}
 }
 
 func (h *HTTP1ConnectionMetrics) FlushMetrics(traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
@@ -373,9 +391,9 @@ func (h *HTTP1ConnectionMetrics) FlushMetrics(traffic *base.ProcessTraffic, metr
 				"client request count: %d, avg request size: %f, "+
 				"avg response size: %f, client avg duration: %f, server avg duration: %f",
 				traffic.Role.String(), traffic.GenerateConnectionInfo(), traffic.RemoteProcessIsProfiling(),
-				combinedMetrics.requestCounter.Get(), combinedMetrics.avgRequestPackageSize.Calculate(),
-				combinedMetrics.avgResponsePackageSize.Calculate(),
-				combinedMetrics.clientAvgDuration.Calculate(), combinedMetrics.serverAvgDuration.Calculate())
+				combinedMetrics.RequestCounter.Get(), combinedMetrics.AvgRequestPackageSize.Calculate(),
+				combinedMetrics.AvgResponsePackageSize.Calculate(),
+				combinedMetrics.ClientAvgDuration.Calculate(), combinedMetrics.ServerAvgDuration.Calculate())
 		}
 
 		metricsBuilder.AppendMetrics(p.Entity().ServiceName, p.Entity().InstanceName, collection)
@@ -388,25 +406,25 @@ func (h *HTTP1ConnectionMetrics) appendMetrics(collections []*v3.MeterData, traf
 	prefix := metricsBuilder.MetricPrefix()
 
 	collections = h.buildMetrics(collections, prefix, "request_counter", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.requestCounter))
-	for status, counter := range http1Metrics.statusCounter {
+		h.cutHalfMetricsIfNeed(traffic, http1Metrics.RequestCounter))
+	for status, counter := range http1Metrics.StatusCounter {
 		statusLabels := append(labels, &v3.Label{Name: "code", Value: fmt.Sprintf("%d", status)})
 		collections = h.buildMetrics(collections, prefix, "response_status_counter", statusLabels, url, traffic,
 			h.cutHalfMetricsIfNeed(traffic, counter))
 	}
 
-	collections = h.buildMetrics(collections, prefix, "request_package_size_avg", labels, url, traffic, http1Metrics.avgRequestPackageSize)
-	collections = h.buildMetrics(collections, prefix, "response_package_size_avg", labels, url, traffic, http1Metrics.avgResponsePackageSize)
+	collections = h.buildMetrics(collections, prefix, "request_package_size_avg", labels, url, traffic, http1Metrics.AvgRequestPackageSize)
+	collections = h.buildMetrics(collections, prefix, "response_package_size_avg", labels, url, traffic, http1Metrics.AvgResponsePackageSize)
 	collections = h.buildMetrics(collections, prefix, "request_package_size_histogram", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.reqPackageSizeHistogram))
+		h.cutHalfMetricsIfNeed(traffic, http1Metrics.ReqPackageSizeHistogram))
 	collections = h.buildMetrics(collections, prefix, "response_package_size_histogram", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.respPackageSizeHistogram))
+		h.cutHalfMetricsIfNeed(traffic, http1Metrics.RespPackageSizeHistogram))
 
-	avgDuration := http1Metrics.clientAvgDuration
-	durationHistogram := http1Metrics.clientDurationHistogram
+	avgDuration := http1Metrics.ClientAvgDuration
+	durationHistogram := http1Metrics.ClientDurationHistogram
 	if role == base.ConnectionRoleServer {
-		avgDuration = http1Metrics.serverAvgDuration
-		durationHistogram = http1Metrics.serverDurationHistogram
+		avgDuration = http1Metrics.ServerAvgDuration
+		durationHistogram = http1Metrics.ServerDurationHistogram
 	}
 	collections = h.buildMetrics(collections, prefix, fmt.Sprintf("%s_duration_avg", role.String()), labels, url,
 		traffic, avgDuration)
@@ -448,21 +466,21 @@ func (h *HTTP1ConnectionMetrics) MergeFrom(analyzer *HTTP1Analyzer, other *HTTP1
 }
 
 func (u *HTTP1URIMetrics) MergeAndClean(other *HTTP1URIMetrics) {
-	u.requestCounter.MergeAndClean(other.requestCounter)
-	for k, v := range other.statusCounter {
-		if existing := u.statusCounter[k]; existing != nil {
+	u.RequestCounter.MergeAndClean(other.RequestCounter)
+	for k, v := range other.StatusCounter {
+		if existing := u.StatusCounter[k]; existing != nil {
 			existing.MergeAndClean(v)
 		} else {
-			u.statusCounter[k] = v
+			u.StatusCounter[k] = v
 		}
 	}
 
-	u.avgRequestPackageSize.MergeAndClean(other.avgRequestPackageSize)
-	u.avgResponsePackageSize.MergeAndClean(other.avgResponsePackageSize)
-	u.reqPackageSizeHistogram.MergeAndClean(other.reqPackageSizeHistogram)
-	u.respPackageSizeHistogram.MergeAndClean(other.respPackageSizeHistogram)
-	u.clientAvgDuration.MergeAndClean(other.clientAvgDuration)
-	u.serverAvgDuration.MergeAndClean(other.serverAvgDuration)
-	u.clientDurationHistogram.MergeAndClean(other.clientDurationHistogram)
-	u.serverDurationHistogram.MergeAndClean(other.serverDurationHistogram)
+	u.AvgRequestPackageSize.MergeAndClean(other.AvgRequestPackageSize)
+	u.AvgResponsePackageSize.MergeAndClean(other.AvgResponsePackageSize)
+	u.ReqPackageSizeHistogram.MergeAndClean(other.ReqPackageSizeHistogram)
+	u.RespPackageSizeHistogram.MergeAndClean(other.RespPackageSizeHistogram)
+	u.ClientAvgDuration.MergeAndClean(other.ClientAvgDuration)
+	u.ServerAvgDuration.MergeAndClean(other.ServerAvgDuration)
+	u.ClientDurationHistogram.MergeAndClean(other.ClientDurationHistogram)
+	u.ServerDurationHistogram.MergeAndClean(other.ServerDurationHistogram)
 }

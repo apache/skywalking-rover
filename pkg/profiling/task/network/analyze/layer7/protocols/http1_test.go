@@ -298,8 +298,11 @@ func TestParseSimpleHTTP1Response(t *testing.T) {
 	s := `HTTP/1.0 200 OK\r\n`
 	h := &http.Request{}
 	analyzer := NewHTTP1Analyzer().(*HTTP1Analyzer)
-	_, err := analyzer.tryingToReadResponseWithoutHeaders(bufio.NewReader(strings.NewReader(s)), h)
+	resp, err := analyzer.tryingToReadResponseWithoutHeaders(bufio.NewReader(strings.NewReader(s)), h)
 	if err != nil {
 		t.Fatalf("reading simple response error: %v", err)
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
 	}
 }

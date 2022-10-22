@@ -119,9 +119,9 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 			pidMatchedTraffic[key] = t.generateOrCombineTraffic(traffic, con, remotePid)
 
 			traffic = pidMatchedTraffic[key]
-			log.Debugf("save pid match traffic[%d_%d_%d], %s:%d(%d)->%s:%d(%d)",
+			log.Debugf("save pid match traffic[%d_%d_%d], %s:%d(%d)->%s:%d(%d), combine connection id: %d_%d",
 				con.LocalPid, remotePid, con.Role, traffic.LocalIP, traffic.LocalPort, traffic.LocalPid,
-				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid)
+				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid, con.ConnectionID, con.RandomID)
 			continue
 		}
 

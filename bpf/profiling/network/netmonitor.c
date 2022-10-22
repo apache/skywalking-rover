@@ -181,6 +181,7 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.random_id = con->random_id;
     close_event.exe_time = exe_time;
     close_event.pid = con->pid;
+    close_event.sockfd = con->sockfd;
     close_event.role = con->role;
     close_event.protocol = con->protocol;
     close_event.ssl = con->ssl;
@@ -285,12 +286,13 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     bpf_probe_read(&event->buffer, size, buf);
 
     bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+
 }
 
 static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct socket_data_upload_event *event, __u8 force_unfinished) {
     ssize_t already_send = 0;
 #pragma unroll
-    for (__u8 i = 0; i < SOCKET_UPLOAD_CHUNK_LIMIT; i++) {
+    for (__u8 index = 0; index < SOCKET_UPLOAD_CHUNK_LIMIT; index++) {
         // calculate bytes need to send
         ssize_t remaining = size - already_send;
         size_t need_send_in_chunk = 0;
@@ -300,19 +302,19 @@ static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t
             need_send_in_chunk = remaining;
         }
 
-        __u32 is_finished = (need_send_in_chunk + already_send) >= size || i == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;
-        __u16 sequence = i;
+        __u32 is_finished = (need_send_in_chunk + already_send) >= size || index == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;
+        __u8 sequence = index;
         if (force_unfinished == 1 && need_send_in_chunk > 0) {
             is_finished = 0;
             sequence = generate_socket_sequence(event->conid, event->data_id);
         }
         __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, event);
         already_send += need_send_in_chunk;
+
     }
 }
 
 #define UPLOAD_PER_SOCKET_DATA_IOV() \
-loop_count++;                                               \
 if (iov_index < iovlen) {                                   \
     struct iovec cur_iov;                                   \
     BPF_PROBE_READ_VAR(cur_iov, &iov[iov_index]);           \
@@ -332,6 +334,7 @@ if (iov_index < iovlen) {                                   \
     __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false; \
     __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, event);    \
     already_send += need_send_in_chunk;                                                                                              \
+    loop_count++;                                                                                                                    \
 }
 
 static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct socket_data_upload_event *event) {

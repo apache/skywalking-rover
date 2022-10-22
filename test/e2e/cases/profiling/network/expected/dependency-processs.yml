@@ -44,7 +44,9 @@ calls:
 {{- contains .calls }}
 - source: {{template "genProcessId" "service"}}
   sourcecomponents:
-    - https
+  {{- contains .sourcecomponents }}
+  - https
+  {{- end }}
   target: {{template "genProcessId" "UNKNOWN_REMOTE"}}
   targetcomponents: []
   id: {{template "genProcessId" "service"}}-{{template "genProcessId" "UNKNOWN_REMOTE"}}
@@ -54,7 +56,9 @@ calls:
   sourcecomponents: []
   target: {{template "genProcessId" "service"}}
   targetcomponents:
+    {{- contains .targetcomponents }}
     - https
+    {{- end }}
   id: {{template "genProcessId" "UNKNOWN_REMOTE"}}-{{template "genProcessId" "service"}}
   detectpoints:
     - SERVER

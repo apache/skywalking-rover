@@ -23,6 +23,10 @@ static __inline void process_openssl_data(struct pt_regs* ctx, __u64 id, __u32 d
     int bytes_count = PT_REGS_RC(ctx);
     if (data_direction == SOCK_DATA_DIRECTION_INGRESS) {
         // not reading finish, needs to keep reading
+        // NOTE: if the connection is server side role, and receive a unfinished message,
+        // the message type and protocol may could not be recognized.
+        // because some SSL framework only read one byte on each SSL_read method call,
+        // unless we save the buffer data, then process the SSL data.
         size_t excepted_size = args->excepted_size;
         if (bytes_count > 0 && bytes_count >= excepted_size) {
             args->ssl_buffer_force_unfinished = 1;

@@ -221,8 +221,9 @@ func (h *HTTP1BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEv
 		h.cleanUnknownContext()
 		return nil, nil
 	}
-	_, err = http.ReadResponse(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())), &http.Request{})
+	tmpResponse, err := http.ReadResponse(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())), &http.Request{})
 	if err == nil {
+		defer tmpResponse.Body.Close()
 		curEvent.Finished = 1
 		h.transformUnknown(h.unknownElement, base.SocketMessageTypeResponse)
 		// if request already finished, then remove the request

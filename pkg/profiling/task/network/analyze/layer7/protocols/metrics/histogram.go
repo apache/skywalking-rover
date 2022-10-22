@@ -20,43 +20,43 @@ package metrics
 import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
 type Histogram struct {
-	buckets []float64
-	values  []int
+	Buckets []float64
+	Values  []int
 }
 
 func NewHistogram(buckets []float64) *Histogram {
 	values := make([]int, len(buckets))
 	return &Histogram{
-		buckets: buckets,
-		values:  values,
+		Buckets: buckets,
+		Values:  values,
 	}
 }
 
 func (h *Histogram) Increase(val float64) {
-	for inx, curVal := range h.buckets {
+	for inx, curVal := range h.Buckets {
 		if inx > 0 && curVal > val {
-			h.values[uint64(inx-1)]++
+			h.Values[uint64(inx-1)]++
 			return
 		}
 	}
-	h.values[len(h.buckets)-1]++
+	h.Values[len(h.Buckets)-1]++
 }
 
 func (h *Histogram) MergeAndClean(other *Histogram) {
-	for inx, val := range other.values {
-		h.values[inx] += val
+	for inx, val := range other.Values {
+		h.Values[inx] += val
 	}
 
 	// clean
-	for inx := range other.values {
-		other.values[inx] = 0
+	for inx := range other.Values {
+		other.Values[inx] = 0
 	}
 }
 
 func (h *Histogram) CusHalfOfMetrics() Metrics {
-	result := NewHistogram(h.buckets)
-	for inx, val := range h.values {
-		result.values[inx] = val / 2
+	result := NewHistogram(h.Buckets)
+	for inx, val := range h.Values {
+		result.Values[inx] = val / 2
 	}
 	return result
 }
@@ -64,8 +64,8 @@ func (h *Histogram) CusHalfOfMetrics() Metrics {
 func (h *Histogram) AppendMeter(list []*v3.MeterData, name string, labels []*v3.Label) []*v3.MeterData {
 	values := make([]*v3.MeterBucketValue, 0)
 	var haveValue = false
-	for inx, bucket := range h.buckets {
-		val := h.values[inx]
+	for inx, bucket := range h.Buckets {
+		val := h.Values[inx]
 		if val > 0 {
 			haveValue = true
 		}

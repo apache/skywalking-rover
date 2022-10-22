@@ -45,6 +45,7 @@ setup:
         rm -rf skywalking-kubernetes && git clone https://github.com/apache/skywalking-kubernetes.git
         cd skywalking-kubernetes
         cd chart
+        mkdir -p skywalking/files/conf.d/oap/meter-analyzer-config/ && cp ../../test/e2e/cases/profiling/network/envoy/network-profiling.yaml skywalking/files/conf.d/oap/meter-analyzer-config/network-profiling.yaml
         helm dep up skywalking
         helm -n istio-system install skywalking skywalking \
                        --set fullnameOverride=skywalking \
@@ -177,3 +178,41 @@ verify:
         --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
         --name=process_relation_server_write_exe_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
       expected: expected/metrics-has-value-label.yml
+
+    # HTTP1 analyzer
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_request_cpm|yq e 'to_entries' -
+      expected: expected/metrics-has-value.yml
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_request_package_size|yq e 'to_entries' -
+      expected: expected/metrics-has-value.yml
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_response_package_size|yq e 'to_entries' -
+      expected: expected/metrics-has-value.yml
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_request_package_size_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      expected: expected/metrics-has-value-label.yml
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_server_duration|yq e 'to_entries' -
+      expected: expected/metrics-has-value.yml
+    - query: |
+        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
+        --service-name default::productpage --instance-name productpage --process-name envoy \
+        --dest-service-name default::productpage --dest-instance-name productpage --dest-process-name /usr/local/bin/python \
+        --name process_relation_http1_client_duration|yq e 'to_entries' -
+      expected: expected/metrics-has-value.yml
