@@ -26,7 +26,9 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	"github.com/cilium/ebpf"
@@ -66,6 +68,15 @@ func NewAnalyzerContext(processes map[int32][]api.ProcessInterface) *AnalyzerCon
 	}
 }
 
+func (c *AnalyzerContext) Init(config *base.TaskConfig, moduleManager *module.Manager) error {
+	for _, l := range c.listeners {
+		if err := l.Init(config, moduleManager); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *AnalyzerContext) AddListener(l AnalyzeListener) {
 	c.listeners = append(c.listeners, l)
 }
@@ -79,7 +90,7 @@ func (c *AnalyzerContext) GetAllConnectionWithContext() []*ConnectionContext {
 	return result
 }
 
-func (c *AnalyzerContext) RegisterAllHandlers(bpfLoader *bpf.Loader) {
+func (c *AnalyzerContext) RegisterAllHandlers(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket connect
 	bpfLoader.ReadEventAsync(bpfLoader.SocketConnectionEventQueue, c.handleSocketConnectEvent, func() interface{} {
 		return &SocketConnectEvent{}
@@ -89,13 +100,7 @@ func (c *AnalyzerContext) RegisterAllHandlers(bpfLoader *bpf.Loader) {
 		return &SocketCloseEvent{}
 	})
 	for _, l := range c.listeners {
-		l.RegisterBPFEvents(bpfLoader)
-	}
-}
-
-func (c *AnalyzerContext) RegisterBPFEvents(bpfLoader *bpf.Loader) {
-	for _, l := range c.listeners {
-		l.RegisterBPFEvents(bpfLoader)
+		l.RegisterBPFEvents(ctx, bpfLoader)
 	}
 }
 
@@ -103,6 +108,14 @@ func (c *AnalyzerContext) StartSocketAddressParser(ctx context.Context) {
 	for i := 0; i < 2; i++ {
 		go c.handleSocketParseQueue(ctx)
 	}
+}
+
+func (c *AnalyzerContext) GetActiveConnection(conID, randomID uint64) *ConnectionContext {
+	data, ok := c.activeConnections.Get(c.generateConnectionKey(conID, randomID))
+	if !ok {
+		return nil
+	}
+	return data.(*ConnectionContext)
 }
 
 func (c *AnalyzerContext) handleSocketParseQueue(ctx context.Context) {

@@ -54,7 +54,7 @@ type ProcessTraffic struct {
 	IsSSL    bool
 
 	// metrics
-	Metrics *ConnectionMetrics
+	Metrics *ConnectionMetricsContext
 }
 
 type TrafficAnalyzer struct {
@@ -119,9 +119,9 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 			pidMatchedTraffic[key] = t.generateOrCombineTraffic(traffic, con, remotePid)
 
 			traffic = pidMatchedTraffic[key]
-			log.Debugf("save pid match traffic[%d_%d_%d], %s:%d(%d)->%s:%d(%d)",
+			log.Debugf("save pid match traffic[%d_%d_%d], %s:%d(%d)->%s:%d(%d), combine connection id: %d_%d",
 				con.LocalPid, remotePid, con.Role, traffic.LocalIP, traffic.LocalPort, traffic.LocalPid,
-				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid)
+				traffic.RemoteIP, traffic.RemotePort, traffic.RemotePid, con.ConnectionID, con.RandomID)
 			continue
 		}
 
@@ -181,6 +181,10 @@ func (t *ProcessTraffic) generateProcessInfo(p api.ProcessInterface) string {
 		p.Entity().InstanceName, p.Entity().ProcessName, t.LocalIP, t.LocalPort, t.LocalPid)
 }
 
+func (t *ProcessTraffic) RemoteProcessIsProfiling() bool {
+	return len(t.RemoteProcesses) > 0
+}
+
 func (t *TrafficAnalyzer) tryingToGenerateTheRoleWhenRemotePidCannotFound(con *ConnectionContext) {
 	if con.Role != ConnectionRoleUnknown {
 		return
@@ -237,7 +241,7 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 	traffic.RemotePort = con.RemotePort
 
 	// flush connection metrics
-	traffic.Metrics.FlushMetrics(con)
+	traffic.Metrics.MergeMetricsFromConnection(con)
 
 	con.FlushDataCount++
 	return traffic

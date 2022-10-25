@@ -15,11 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "args.h"
 #include "openssl.h"
 #include "node_tls.h"
 
 static __inline void process_openssl_data(struct pt_regs* ctx, __u64 id, __u32 data_direction, struct sock_data_args_t* args, __u32 func_name) {
     int bytes_count = PT_REGS_RC(ctx);
+    if (data_direction == SOCK_DATA_DIRECTION_INGRESS) {
+        // not reading finish, needs to keep reading
+        // NOTE: if the connection is server side role, and receive a unfinished message,
+        // the message type and protocol may could not be recognized.
+        // because some SSL framework only read one byte on each SSL_read method call,
+        // unless we save the buffer data, then process the SSL data.
+        size_t excepted_size = args->excepted_size;
+        if (bytes_count > 0 && bytes_count >= excepted_size) {
+            args->ssl_buffer_force_unfinished = 1;
+        }
+    }
     process_write_data(ctx, id, args, bytes_count, data_direction, false, func_name, true);
 }
 
@@ -78,6 +90,7 @@ int openssl_write_ret(struct pt_regs* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *args = bpf_map_lookup_elem(&openssl_sock_data_args, &id);
     if (args && args->fd > 0) {
+        args->data_id = ssl_get_data_id(2, id, args->fd);
         process_openssl_data(ctx, id, SOCK_DATA_DIRECTION_EGRESS, args, SOCKET_OPTS_TYPE_SSL_WRITE);
     }
     bpf_map_delete_elem(&openssl_sock_data_args, &id);
@@ -93,9 +106,11 @@ int openssl_read(struct pt_regs* ctx) {
     __u32 fd = get_fd(tgid, true, ssl);
 
     char* buf = (char*)PT_REGS_PARM2(ctx);
+    size_t excepted_size = PT_REGS_PARM3(ctx);
     struct sock_data_args_t data_args = {};
     data_args.fd = fd;
     data_args.buf = buf;
+    data_args.excepted_size = excepted_size;
     bpf_map_update_elem(&openssl_sock_data_args, &id, &data_args, 0);
 
     set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_SSL_WRITE);
@@ -107,6 +122,7 @@ int openssl_read_ret(struct pt_regs* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *args = bpf_map_lookup_elem(&openssl_sock_data_args, &id);
     if (args && args->fd > 0) {
+        args->data_id = ssl_get_data_id(4, id, args->fd);
         process_openssl_data(ctx, id, SOCK_DATA_DIRECTION_INGRESS, args, SOCKET_OPTS_TYPE_SSL_READ);
     }
     bpf_map_delete_elem(&openssl_sock_data_args, &id);

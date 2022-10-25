@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include "args.h"
+
 #define CONNECTION_ROLE_TYPE_UNKNOWN 0
 #define CONNECTION_ROLE_TYPE_CLIENT 1
 #define CONNECTION_ROLE_TYPE_SERVER 2
@@ -55,12 +59,11 @@ struct active_connection_t {
     __u64 write_rtt_time;
 
     // for protocol analyze
-    __u32 protocol;
-    // current connection is ssl
-    __u32 ssl;
-
+    __u8 protocol;
     // connect event already send
-    __u32 connect_event_send;
+    __u8 connect_event_send;
+    // current connection is ssl
+    __u8 ssl;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -133,13 +136,14 @@ struct socket_close_event_t {
     __u32 pid;
     // socket fd under process
     __u32 sockfd;
+    // the protocol type of the connection
+    __u8 protocol;
+    // the connection is ssl
+    __u8 ssl;
+    __u16 fix;
     // the type of role in current connection
     __u32 role;
-    // the protocol type of the connection
-    __u32 protocol;
-    // the connection is ssl
-    __u32 ssl;
-    __u32 fix;
+
 
     // socket type
     __u32 socket_family;
@@ -176,12 +180,12 @@ struct socket_connection_histogram_key_t {
     // conid + random_id = unique id
     __u64 conid;
     __u64 random_id;
-    // ingress, egress
-    __u32 data_direction;
-    // RTT, Execute time, etc.
-    __u32 data_type;
     // histogram bucket
     __u64 bucket;
+    // ingress, egress
+    __u8 data_direction;
+    // RTT, Execute time, etc.
+    __u8 data_type;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -251,3 +255,27 @@ struct {
 	__type(key, __u64);
 	__type(value, struct sock_data_args_t);
 } openssl_sock_data_args SEC(".maps");
+
+struct socket_data_upload_event {
+    __u8 protocol;
+    __u8 msg_type;
+    __u8 direction;
+    __u8 finished;
+    __u16 sequence;
+    __u16 data_len;
+    __u64 timestamp;
+    __u64 conid;
+    __u64 randomid;
+    __u64 data_id;
+    __u64 total_size;
+    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct socket_data_upload_event);
+    __uint(max_entries, 1);
+} socket_data_upload_event_per_cpu_map SEC(".maps");
+struct {
+	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+} socket_data_upload_event_queue SEC(".maps");

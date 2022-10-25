@@ -46,20 +46,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 		val;                                                           \
 	})
 
-struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
-	__type(key, __u32);
-	__type(value, __u32);
-} process_monitor_control SEC(".maps");
-static __inline bool tgid_should_trace(__u32 tgid) {
-    __u32 *val = bpf_map_lookup_elem(&process_monitor_control, &tgid);
-    if (!val) {
-        return false;
-    }
-    return (*val) == 1 ? true : false;
-//    return true;
-}
+#define SOCKET_UPLOAD_CHUNK_LIMIT 8
 
 static __inline bool family_should_trace(const __u32 family) {
     return family != AF_UNKNOWN && family != AF_INET && family != AF_INET6 ? false : true;
@@ -194,6 +181,7 @@ static __inline void notify_close_connection(struct pt_regs* ctx, __u64 conid, s
     close_event.random_id = con->random_id;
     close_event.exe_time = exe_time;
     close_event.pid = con->pid;
+    close_event.sockfd = con->sockfd;
     close_event.role = con->role;
     close_event.protocol = con->protocol;
     close_event.ssl = con->ssl;
@@ -284,6 +272,132 @@ static __always_inline void resent_connect_event(struct pt_regs *ctx, __u32 tgid
     }
 }
 
+static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, struct socket_data_upload_event *event) {
+    event->sequence = index;
+    event->data_len = size;
+    event->finished = is_finished;
+    if (size == 0) {
+        return;
+    }
+    if (size > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
+        size = MAX_TRANSMIT_SOCKET_READ_LENGTH;
+    }
+    asm volatile("%[size] &= 0x7fffffff;\n" ::[size] "+r"(size) :);
+    bpf_probe_read(&event->buffer, size, buf);
+
+    bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+
+}
+
+static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct socket_data_upload_event *event, __u8 force_unfinished) {
+    ssize_t already_send = 0;
+#pragma unroll
+    for (__u8 index = 0; index < SOCKET_UPLOAD_CHUNK_LIMIT; index++) {
+        // calculate bytes need to send
+        ssize_t remaining = size - already_send;
+        size_t need_send_in_chunk = 0;
+        if (remaining > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
+            need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;
+        } else {
+            need_send_in_chunk = remaining;
+        }
+
+        __u32 is_finished = (need_send_in_chunk + already_send) >= size || index == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;
+        __u8 sequence = index;
+        if (force_unfinished == 1 && need_send_in_chunk > 0) {
+            is_finished = 0;
+            sequence = generate_socket_sequence(event->conid, event->data_id);
+        }
+        __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, event);
+        already_send += need_send_in_chunk;
+
+    }
+}
+
+#define UPLOAD_PER_SOCKET_DATA_IOV() \
+if (iov_index < iovlen) {                                   \
+    struct iovec cur_iov;                                   \
+    BPF_PROBE_READ_VAR(cur_iov, &iov[iov_index]);           \
+    ssize_t remaining = size - already_send;                \
+    size_t need_send_in_chunk = remaining - cur_iov_sended; \
+    if (cur_iov_sended + need_send_in_chunk > cur_iov.iov_len) {            \
+        need_send_in_chunk = cur_iov.iov_len - cur_iov_sended;              \
+        if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {         \
+            need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;           \
+        } else {                                                            \
+            iov_index++;                                                    \
+            cur_iov_sended = 0;                                             \
+        }                                                                   \
+    } else if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {      \
+        need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;               \
+    }                                                                       \
+    __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false; \
+    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, event);    \
+    already_send += need_send_in_chunk;                                                                                              \
+    loop_count++;                                                                                                                    \
+}
+
+static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct socket_data_upload_event *event) {
+    ssize_t already_send = 0;
+    ssize_t cur_iov_sended = 0;
+    __u8 iov_index = 0;
+    __u8 loop_count = 0;
+
+    // each count is same with SOCKET_UPLOAD_CHUNK_LIMIT
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
+}
+
+static __inline void upload_socket_data(void *ctx, __u64 timestamp, __u64 conid, struct active_connection_t *connection, struct sock_data_args_t *args, ssize_t bytes_count, __u32 existing_msg_type, __u32 data_direction, bool ssl) {
+    // generate event
+    __u32 kZero = 0;
+    struct socket_data_upload_event *event = bpf_map_lookup_elem(&socket_data_upload_event_per_cpu_map, &kZero);
+    if (event == NULL) {
+        return;
+    }
+    // unknown protocol then ignore
+    if (connection->protocol == CONNECTION_PROTOCOL_UNKNOWN) {
+        return;
+    }
+    // ssl must same, means only process the plain data
+    if (connection->ssl != ssl) {
+        return;
+    }
+    // if the msg type is unknown, then try to re-analysis
+    if (existing_msg_type == CONNECTION_MESSAGE_TYPE_UNKNOWN) {
+        struct socket_buffer_reader_t *buf_reader = read_socket_data(args, bytes_count);
+        if (buf_reader == NULL) {
+            return;
+        }
+        existing_msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, connection);
+        if (existing_msg_type == CONNECTION_MESSAGE_TYPE_UNKNOWN && args->ssl_buffer_force_unfinished == 0) {
+            return;
+        }
+    }
+
+    // basic data
+    event->timestamp = timestamp;
+    event->protocol = connection->protocol;
+    event->msg_type = existing_msg_type;
+    event->direction = data_direction;
+    event->conid = conid;
+    event->randomid = connection->random_id;
+    event->total_size = bytes_count;
+    event->data_id = args->data_id;
+
+    if (args->buf != NULL) {
+        upload_socket_data_buf(ctx, args->buf, bytes_count, event, args->ssl_buffer_force_unfinished);
+    } else if (args->iovec != NULL) {
+        upload_socket_data_iov(ctx, args->iovec, args->iovlen, bytes_count, event);
+    }
+}
+
 static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
                                         __u32 data_direction, const bool vecs, __u32 func_name, bool ssl) {
     __u64 curr_nacs = bpf_ktime_get_ns();
@@ -328,24 +442,11 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
 
     // if the protocol or role is unknown in the connection and the current data content is plaintext
     // then try to use protocol analyzer to analyze request or response and protocol type
+    __u32 msg_type = 0;
     if ((conn->role == CONNECTION_ROLE_TYPE_UNKNOWN || conn->protocol == 0) && conn->ssl == ssl) {
-        struct socket_buffer_reader_t *buf_reader = NULL;
-        if (args->buf != NULL) {
-            buf_reader = read_socket_data(args->buf, bytes_count);
-        } else if (args->iovec != NULL) {
-            struct iovec iov;
-            int err = bpf_probe_read(&iov, sizeof(iov), args->iovec);
-            if (err >= 0) {
-                __u64 size = iov.iov_len;
-                if (size > bytes_count) {
-                    size = bytes_count;
-                }
-                buf_reader = read_socket_data((char *)iov.iov_base, size);
-            }
-        }
-
+        struct socket_buffer_reader_t *buf_reader = read_socket_data(args, bytes_count);
         if (buf_reader != NULL) {
-            __u32 msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
+            msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
             // if send request data to remote address or receive response data from remote address
             // then, recognized current connection is client
             if ((msg_type == CONNECTION_MESSAGE_TYPE_REQUEST && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
@@ -360,6 +461,9 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
             }
         }
     }
+
+    // upload the socket data if need
+    upload_socket_data(ctx, curr_nacs, conid, conn, args, bytes_count, msg_type, data_direction, ssl);
 
     // add statics when is not ssl(native buffer)
     if (ssl == false) {
@@ -508,6 +612,7 @@ int sys_sendto(struct pt_regs *ctx) {
     data_args.fd = fd;
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, fd, SOCKET_OPTS_TYPE_SENDTO);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -561,6 +666,7 @@ int sys_write(struct pt_regs *ctx) {
     data_args.fd = _(PT_REGS_PARM1(ctx));
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITE);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -582,10 +688,14 @@ SEC("kprobe/send")
 int sys_send(struct pt_regs* ctx) {
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
+    char* buf;
+    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SEND);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -615,6 +725,7 @@ int sys_writev(struct pt_regs* ctx) {
     data_args.iovlen = _(PT_REGS_PARM3(ctx));
     data_args.iovec = iovec;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITEV);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -657,6 +768,7 @@ int sys_sendmsg(struct pt_regs* ctx) {
     data_args.iovlen = _(msghdr->msg_iovlen);
     data_args.iovec = _(msghdr->msg_iov);
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -711,6 +823,7 @@ int sys_sendmmsg(struct pt_regs* ctx) {
     data_args.iovlen = msg_iovlen;
     data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDMMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -779,6 +892,7 @@ int sys_sendfile(struct pt_regs *ctx) {
     args.in_fd = _(PT_REGS_PARM2(ctx));
     args.count = _(PT_REGS_PARM4(ctx));
     args.start_nacs = bpf_ktime_get_ns();
+    args.data_id = generate_socket_data_id(id, args.out_fd, SOCKET_OPTS_TYPE_SENDFILE);
     bpf_map_update_elem(&sendfile_args, &id, &args, 0);
     return 0;
 }
@@ -806,6 +920,7 @@ int sys_read(struct pt_regs* ctx) {
     data_args.fd = _(PT_REGS_PARM1(ctx));
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READ);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -834,6 +949,7 @@ int sys_readv(struct pt_regs* ctx) {
     data_args.iovlen = _(PT_REGS_PARM3(ctx));
     data_args.iovec = iovec;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READV);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -859,6 +975,7 @@ int sys_recv(struct pt_regs* ctx) {
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECV);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -897,6 +1014,7 @@ int sys_recvfrom(struct pt_regs* ctx) {
     data_args.fd = fd;
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVFROM);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -946,6 +1064,7 @@ int sys_recvmsg(struct pt_regs* ctx) {
     data_args.iovlen = _(msghdr->msg_iovlen);
     data_args.iovec = _(msghdr->msg_iov);
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }
@@ -1000,6 +1119,7 @@ int sys_recvmmsg(struct pt_regs* ctx) {
     data_args.iovlen = msg_iovlen;
     data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVMMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
     return 0;
 }

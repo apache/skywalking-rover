@@ -18,6 +18,7 @@
 package layer4
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -25,10 +26,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
-	"github.com/apache/skywalking-rover/pkg/tools"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
@@ -53,11 +55,15 @@ func (l *Listener) Name() string {
 	return Name
 }
 
-func (l *Listener) GenerateMetrics() base.ListenerMetrics {
+func (l *Listener) Init(config *profiling.TaskConfig, moduleManager *module.Manager) error {
+	return nil
+}
+
+func (l *Listener) GenerateMetrics() base.ConnectionMetrics {
 	return NewLayer4Metrics()
 }
 
-func (l *Listener) RegisterBPFEvents(bpfLoader *bpf.Loader) {
+func (l *Listener) RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader) {
 	bpfLoader.ReadEventAsync(bpfLoader.SocketExceptionOperationEventQueue, l.handleSocketExceptionOperationEvent, func() interface{} {
 		return &SocketExceptionOperationEvent{}
 	})
@@ -176,19 +182,19 @@ func (l *Listener) FlushMetrics(traffics []*base.ProcessTraffic, builder *base.M
 		metrics := traffic.Metrics.GetMetrics(Name).(*Metrics)
 		for _, p := range traffic.LocalProcesses {
 			collection := make([]*v3.MeterData, 0)
-			collection = l.appendCounterValues(collection, metricsPrefix, "write", traffic, p, metrics.WriteCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "read", traffic, p, metrics.ReadCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "write_rtt", traffic, p, metrics.WriteRTTCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "connect", traffic, p, metrics.ConnectCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "close", traffic, p, metrics.CloseCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "retransmit", traffic, p, metrics.RetransmitCounter)
-			collection = l.appendCounterValues(collection, metricsPrefix, "drop", traffic, p, metrics.DropCounter)
+			collection = l.appendCounterValues(collection, metricsPrefix, "write", traffic, p, metrics.WriteCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "read", traffic, p, metrics.ReadCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "write_rtt", traffic, p, metrics.WriteRTTCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "connect", traffic, p, metrics.ConnectCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "close", traffic, p, metrics.CloseCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "retransmit", traffic, p, metrics.RetransmitCounter, builder)
+			collection = l.appendCounterValues(collection, metricsPrefix, "drop", traffic, p, metrics.DropCounter, builder)
 
-			collection = l.appendHistogramValue(collection, metricsPrefix, "write_rtt", traffic, p, metrics.WriteRTTHistogram)
-			collection = l.appendHistogramValue(collection, metricsPrefix, "write_exe_time", traffic, p, metrics.WriteExeTimeHistogram)
-			collection = l.appendHistogramValue(collection, metricsPrefix, "read_exe_time", traffic, p, metrics.ReadExeTimeHistogram)
-			collection = l.appendHistogramValue(collection, metricsPrefix, "connect_exe_time", traffic, p, metrics.ConnectExeTimeHistogram)
-			collection = l.appendHistogramValue(collection, metricsPrefix, "close_exe_time", traffic, p, metrics.CloseExeTimeHistogram)
+			collection = l.appendHistogramValue(collection, metricsPrefix, "write_rtt", traffic, p, metrics.WriteRTTHistogram, builder)
+			collection = l.appendHistogramValue(collection, metricsPrefix, "write_exe_time", traffic, p, metrics.WriteExeTimeHistogram, builder)
+			collection = l.appendHistogramValue(collection, metricsPrefix, "read_exe_time", traffic, p, metrics.ReadExeTimeHistogram, builder)
+			collection = l.appendHistogramValue(collection, metricsPrefix, "connect_exe_time", traffic, p, metrics.ConnectExeTimeHistogram, builder)
+			collection = l.appendHistogramValue(collection, metricsPrefix, "close_exe_time", traffic, p, metrics.CloseExeTimeHistogram, builder)
 
 			if len(collection) == 0 {
 				continue
@@ -268,31 +274,31 @@ func (l *Listener) mergeExceptionToAppointConnection(expCtx *SocketExceptionValu
 }
 
 func (l *Listener) appendCounterValues(metrics []*v3.MeterData, metricsPrefix, name string, traffic *base.ProcessTraffic,
-	local api.ProcessInterface, counter *SocketDataCounterWithHistory) []*v3.MeterData {
+	local api.ProcessInterface, counter *SocketDataCounterWithHistory, builder *base.MetricsBuilder) []*v3.MeterData {
 	metric := counter.Cur
 	if !metric.NotEmpty() {
 		return metrics
 	}
 
 	count := float64(metric.Count)
-	metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_counts_counter", traffic, local, count))
+	metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_counts_counter", traffic, local, count, builder))
 	if metric.Bytes > 0 {
-		metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_bytes_counter", traffic, local, float64(metric.Bytes)))
+		metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_bytes_counter", traffic, local, float64(metric.Bytes), builder))
 	}
 	if metric.ExeTime > 0 {
-		metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_exe_time_counter", traffic, local, float64(metric.ExeTime)/count))
+		metrics = append(metrics, l.buildSingleValue(metricsPrefix, name+"_exe_time_counter", traffic, local, float64(metric.ExeTime)/count, builder))
 	}
 	return metrics
 }
 
 func (l *Listener) appendHistogramValue(metrics []*v3.MeterData, metricsPrefix, name string, traffic *base.ProcessTraffic,
-	local api.ProcessInterface, histogram *SocketDataHistogramWithHistory) []*v3.MeterData {
+	local api.ProcessInterface, histogram *SocketDataHistogramWithHistory, metricsBuilder *base.MetricsBuilder) []*v3.MeterData {
 	data := histogram.Cur
 	if !data.NotEmpty() {
 		return metrics
 	}
 
-	role, labels := l.buildBasicMeterLabels(traffic, local)
+	role, labels := metricsBuilder.BuildBasicMeterLabels(traffic, local)
 	values := make([]*v3.MeterBucketValue, 0)
 	for bucket, count := range data.Buckets {
 		var bucketInx = int(bucket)
@@ -322,8 +328,9 @@ func (l *Listener) appendHistogramValue(metrics []*v3.MeterData, metricsPrefix, 
 	})
 }
 
-func (l *Listener) buildSingleValue(prefix, name string, traffic *base.ProcessTraffic, local api.ProcessInterface, val float64) *v3.MeterData {
-	role, labels := l.buildBasicMeterLabels(traffic, local)
+func (l *Listener) buildSingleValue(prefix, name string, traffic *base.ProcessTraffic, local api.ProcessInterface, val float64,
+	metricBuilder *base.MetricsBuilder) *v3.MeterData {
+	role, labels := metricBuilder.BuildBasicMeterLabels(traffic, local)
 
 	return &v3.MeterData{
 		Metric: &v3.MeterData_SingleValue{
@@ -336,61 +343,17 @@ func (l *Listener) buildSingleValue(prefix, name string, traffic *base.ProcessTr
 	}
 }
 
-func (l *Listener) buildBasicMeterLabels(traffic *base.ProcessTraffic, local api.ProcessInterface) (base.ConnectionRole, []*v3.Label) {
-	curRole := traffic.Role
-	// add the default role
-	if curRole == base.ConnectionRoleUnknown {
-		curRole = base.ConnectionRoleClient
-	}
-	labels := make([]*v3.Label, 0)
-
-	// two pair process/address info
-	labels = l.appendMeterValue(labels, fmt.Sprintf("%s_process_id", curRole.String()), local.ID())
-	labels = l.appendRemoteAddressInfo(labels, traffic, curRole.Revert().String(), local)
-
-	labels = l.appendMeterValue(labels, "side", curRole.String())
-
-	// protocol and ssl
-	labels = l.appendMeterValue(labels, "protocol", traffic.Protocol.String())
-	labels = l.appendMeterValue(labels, "is_ssl", fmt.Sprintf("%t", traffic.IsSSL))
-	return curRole, labels
-}
-
-func (l *Listener) appendRemoteAddressInfo(labels []*v3.Label, traffic *base.ProcessTraffic, prefix string, local api.ProcessInterface) []*v3.Label {
-	if len(traffic.RemoteProcesses) != 0 {
-		for _, p := range traffic.RemoteProcesses {
-			// only match with same service instance
-			if local.Entity().ServiceName == p.Entity().ServiceName &&
-				local.Entity().InstanceName == p.Entity().InstanceName {
-				return l.appendMeterValue(labels, prefix+"_process_id", p.ID())
-			}
-		}
-	}
-
-	if tools.IsLocalHostAddress(traffic.RemoteIP) || traffic.Analyzer.IsLocalAddressInCache(traffic.RemoteIP) {
-		return l.appendMeterValue(labels, prefix+"_local", "true")
-	}
-
-	return l.appendMeterValue(labels, prefix+"_address", fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort))
-}
-
-func (l *Listener) appendMeterValue(labels []*v3.Label, name, value string) []*v3.Label {
-	return append(labels, &v3.Label{
-		Name:  name,
-		Value: value,
-	})
-}
-
-func (l *Listener) getMetrics(connectionMetrics *base.ConnectionMetrics) *Metrics {
+func (l *Listener) getMetrics(connectionMetrics *base.ConnectionMetricsContext) *Metrics {
 	return connectionMetrics.GetMetrics(Name).(*Metrics)
 }
 
 type HistogramDataKey struct {
 	ConnectionID  uint64
 	RandomID      uint64
+	Bucket        uint64
 	DataDirection base.SocketDataDirection
 	DataType      base.SocketDataStaticsType
-	Bucket        uint64
+	Fix           [6]byte
 }
 
 func parseAddressV4(val uint32) string {

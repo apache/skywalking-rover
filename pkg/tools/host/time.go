@@ -15,40 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package host
 
 import (
-	"io/ioutil"
-	"log"
-	"net/http"
+	"fmt"
 	"time"
+
+	"github.com/shirou/gopsutil/host"
 )
 
-func provider(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	time.Sleep(time.Second * 2)
-	_, _ = w.Write([]byte("service provider\n"))
-}
+// BootTime the System boot time
+var BootTime time.Time
 
-func consumer(w http.ResponseWriter, req *http.Request) {
-	addr := "https://proxy/provider"
-	get, err := http.Get(addr)
+func init() {
+	boot, err := host.BootTime()
 	if err != nil {
-		log.Printf("send request error: %v", err)
+		panic(fmt.Errorf("init boot time error: %v", err))
 	}
-	all, err := ioutil.ReadAll(get.Body)
-	_ = get.Body.Close()
-	if err != nil {
-		log.Printf("get response body error: %v", err)
-	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write(all)
-}
-
-func main() {
-	http.HandleFunc("/provider", provider)
-	http.HandleFunc("/consumer", consumer)
-	err := http.ListenAndServeTLS(":10443", "/ssl_data/service.crt", "/ssl_data/service.key", nil)
-	log.Fatal(err)
+	BootTime = time.Unix(int64(boot), 0)
 }

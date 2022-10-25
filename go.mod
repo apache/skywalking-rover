@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/cilium/ebpf v0.8.1
+	github.com/docker/go-units v0.5.0
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/golang-lru v0.5.4
@@ -13,6 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.3.0
 	github.com/spf13/viper v1.10.1
+	github.com/zekroTJA/timedmap v1.4.0
 	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7
 	golang.org/x/sys v0.0.0-20211210111614-af8b64212486
 	google.golang.org/grpc v1.44.0

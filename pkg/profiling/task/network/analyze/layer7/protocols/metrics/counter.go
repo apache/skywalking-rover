@@ -15,40 +15,53 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package main
+package metrics
 
-import (
-	"io/ioutil"
-	"log"
-	"net/http"
-	"time"
-)
+import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
-func provider(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	time.Sleep(time.Second * 2)
-	_, _ = w.Write([]byte("service provider\n"))
+type Counter struct {
+	Value int
 }
 
-func consumer(w http.ResponseWriter, req *http.Request) {
-	addr := "https://proxy/provider"
-	get, err := http.Get(addr)
-	if err != nil {
-		log.Printf("send request error: %v", err)
+func NewCounter() *Counter {
+	return &Counter{
+		Value: 0,
 	}
-	all, err := ioutil.ReadAll(get.Body)
-	_ = get.Body.Close()
-	if err != nil {
-		log.Printf("get response body error: %v", err)
-	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write(all)
 }
 
-func main() {
-	http.HandleFunc("/provider", provider)
-	http.HandleFunc("/consumer", consumer)
-	err := http.ListenAndServeTLS(":10443", "/ssl_data/service.crt", "/ssl_data/service.key", nil)
-	log.Fatal(err)
+func (c *Counter) Increase() {
+	c.Value++
+}
+
+func (c *Counter) Get() int {
+	return c.Value
+}
+
+func (c *Counter) MergeAndClean(other *Counter) {
+	c.Value += other.Value
+
+	// clean
+	other.Value = 0
+}
+
+func (c *Counter) CusHalfOfMetrics() Metrics {
+	result := NewCounter()
+	result.Value = c.Value / 2
+	return result
+}
+
+func (c *Counter) AppendMeter(list []*v3.MeterData, name string, labels []*v3.Label) []*v3.MeterData {
+	if c.Value == 0 {
+		return list
+	}
+
+	return append(list, &v3.MeterData{
+		Metric: &v3.MeterData_SingleValue{
+			SingleValue: &v3.MeterSingleValue{
+				Name:   name,
+				Labels: labels,
+				Value:  float64(c.Value),
+			},
+		},
+	})
 }

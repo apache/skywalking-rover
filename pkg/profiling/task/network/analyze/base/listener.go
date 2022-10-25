@@ -18,18 +18,24 @@
 package base
 
 import (
+	"context"
+
+	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 )
 
 type AnalyzeListener interface {
 	// Name of the listener
 	Name() string
+	// Init listener
+	Init(config *base.TaskConfig, moduleManager *module.Manager) error
 	// GenerateMetrics generate a metrics context
 	// It would bind to a ConnectionContext or ProcessTraffic automatically
-	GenerateMetrics() ListenerMetrics
+	GenerateMetrics() ConnectionMetrics
 
 	// RegisterBPFEvents register the BPF events
-	RegisterBPFEvents(bpfLoader *bpf.Loader)
+	RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader)
 
 	// ReceiveNewConnection call this method when receive a new connection event
 	// when return a metrics then It would bind to with the connection

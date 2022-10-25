@@ -17,6 +17,8 @@
 
 #include <httplib.h>
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 #define SERVER_CERT_FILE "/ssl_data/service.crt"
 #define SERVER_PRIVATE_KEY_FILE "/ssl_data/service.key"
@@ -32,6 +34,7 @@ int main(void) {
 
     svr.Get("/consumer", [](const Request &, Response &res) {
         httplib::SSLClient cli("proxy", 443);
+        cli.enable_server_certificate_verification(false);
 
         if (auto httpRes = cli.Get("/provider")) {
             if (httpRes->status == 200) {
@@ -49,6 +52,7 @@ int main(void) {
     });
 
     svr.Get("/provider", [](const Request &, Response &res) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1200));
         res.set_content("service provider", "text/plain");
     });
 

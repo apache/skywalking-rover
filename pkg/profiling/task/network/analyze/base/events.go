@@ -44,10 +44,10 @@ type SocketCloseEvent struct {
 	ExeTime  uint64
 	Pid      uint32
 	SocketFD uint32
-	Role     ConnectionRole
 	Protocol ConnectionProtocol
-	IsSSL    uint32
-	Fix      uint32
+	IsSSL    uint8
+	Fix      uint16
+	Role     ConnectionRole
 
 	SocketFamily   uint32
 	RemoteAddrV4   uint32

@@ -15,21 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package analyze
+package metrics
 
-import (
-	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer4"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7"
-)
+import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
-// NewContext Wrap the analyzer builder
-func NewContext(monitorProcesses map[int32][]api.ProcessInterface) *base.AnalyzerContext {
-	context := base.NewAnalyzerContext(monitorProcesses)
-	// register all listeners
-	context.AddListener(layer4.NewListener())
-	context.AddListener(layer7.NewListener(context))
-
-	return context
+type Metrics interface {
+	// CusHalfOfMetrics used for calculate the half of data
+	// Used on only calculate half of metrics when client or server both profiling
+	// Such as calculate the total request count on the connection
+	CusHalfOfMetrics() Metrics
+	AppendMeter(list []*v3.MeterData, name string, labels []*v3.Label) []*v3.MeterData
 }

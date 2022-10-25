@@ -143,7 +143,11 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 }
 
 func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSupplier func() interface{}) {
-	rd, err := perf.NewReader(emap, os.Getpagesize())
+	m.ReadEventAsyncWithBufferSize(emap, reader, os.Getpagesize(), dataSupplier)
+}
+
+func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
+	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
 		return

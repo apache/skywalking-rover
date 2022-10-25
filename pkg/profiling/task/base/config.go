@@ -18,15 +18,22 @@
 package base
 
 type TaskConfig struct {
-	OnCPU   *OnCPUConfig           `mapstructure:"on_cpu"`  // ON_CPU type of profiling task config
-	Network *NetworkTopologyConfig `mapstructure:"network"` // NETWORK type of profiling task config
+	OnCPU   *OnCPUConfig   `mapstructure:"on_cpu"`  // ON_CPU type of profiling task config
+	Network *NetworkConfig `mapstructure:"network"` // NETWORK type of profiling task config
 }
 
 type OnCPUConfig struct {
 	Period string `mapstructure:"dump_period"` // The duration of dump stack
 }
 
-type NetworkTopologyConfig struct {
-	ReportInterval string `mapstructure:"report_interval"` // The duration of data report interval
-	MeterPrefix    string `mapstructure:"meter_prefix"`    // The prefix of meter name
+type NetworkConfig struct {
+	ReportInterval  string                `mapstructure:"report_interval"`  // The duration of data report interval
+	MeterPrefix     string                `mapstructure:"meter_prefix"`     // The prefix of meter name
+	ProtocolAnalyze ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"` // The 7-Layer protocol analyze
+}
+
+type ProtocolAnalyzeConfig struct {
+	PerCPUBufferSize string `mapstructure:"per_cpu_buffer"`
+	Parallels        int    `mapstructure:"parallels"`
+	QueueSize        int    `mapstructure:"queue_size"`
 }

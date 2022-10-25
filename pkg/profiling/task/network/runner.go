@@ -132,7 +132,7 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 	}
 
 	// register all handlers
-	r.analyzeContext.RegisterAllHandlers(bpfLoader)
+	r.analyzeContext.RegisterAllHandlers(r.ctx, bpfLoader)
 	r.analyzeContext.StartSocketAddressParser(r.ctx)
 
 	// sock opts
@@ -262,6 +262,11 @@ func (r *Runner) init0(config *base.TaskConfig, moduleMgr *module.Manager) error
 		return fmt.Errorf("please provide the meter prefix")
 	}
 	r.meterPrefix = config.Network.MeterPrefix + "_"
+
+	err = r.analyzeContext.Init(config, moduleMgr)
+	if err != nil {
+		return fmt.Errorf("init analyzer failure: %v", err)
+	}
 	return nil
 }
 

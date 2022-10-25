@@ -17,6 +17,7 @@
 
 const https = require('https');
 const fs = require('fs');
+const {execSync} = require('child_process');
 
 const options = {
     key: fs.readFileSync('/ssl_data/service.key'),
@@ -25,6 +26,7 @@ const options = {
 
 https.createServer(options, function (req, res) {
     if (req.url == '/provider') {
+        execSync('sleep 2');
         res.writeHead(200, {"Content-Type": "text/html"});
         res.end('provider');
         return;

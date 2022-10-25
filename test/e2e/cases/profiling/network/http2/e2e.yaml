@@ -42,4 +42,4 @@ verify:
     interval: 10s
   cases:
     - includes:
-        - ../network-cases.yaml
+        - ../base-cases.yaml

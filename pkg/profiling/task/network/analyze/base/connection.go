@@ -38,7 +38,7 @@ type ConnectionContext struct {
 	RemotePort uint16
 
 	// metrics
-	Metrics *ConnectionMetrics
+	Metrics *ConnectionMetricsContext
 
 	// Flush the data content to the oap count
 	FlushDataCount int
@@ -84,10 +84,9 @@ type ActiveConnectionInBPF struct {
 	WriteRTTCount   uint64
 	WriteRTTExeTime uint64
 
-	// Protocol analyze context
+	// protocol of connection
 	Protocol ConnectionProtocol
-	IsSSL    uint32
-
 	// the connect event is already sent
-	ConnectEventIsSent uint32
+	ConnectEventIsSent uint8
+	IsSSL              uint8
 }

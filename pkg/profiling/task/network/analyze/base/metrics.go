@@ -18,36 +18,40 @@
 package base
 
 import (
+	"fmt"
 	"time"
+
+	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/tools"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
-// ListenerMetrics The Metrics in each listener
-type ListenerMetrics interface {
-	// FlushMetrics Flush the metrics of connection, and merge into self
-	FlushMetrics(connection *ConnectionContext)
+// ConnectionMetrics The Metrics in each listener
+type ConnectionMetrics interface {
+	// MergeMetricsFromConnection merge the metrics from connection, and added into self
+	MergeMetricsFromConnection(connection *ConnectionContext)
 }
 
-type ConnectionMetrics struct {
-	data map[string]ListenerMetrics
+type ConnectionMetricsContext struct {
+	data map[string]ConnectionMetrics
 }
 
-func (c *AnalyzerContext) NewConnectionMetrics() *ConnectionMetrics {
-	data := make(map[string]ListenerMetrics)
+func (c *AnalyzerContext) NewConnectionMetrics() *ConnectionMetricsContext {
+	data := make(map[string]ConnectionMetrics)
 	for _, l := range c.listeners {
 		data[l.Name()] = l.GenerateMetrics()
 	}
-	return &ConnectionMetrics{data: data}
+	return &ConnectionMetricsContext{data: data}
 }
 
-func (c *ConnectionMetrics) GetMetrics(listenerName string) ListenerMetrics {
+func (c *ConnectionMetricsContext) GetMetrics(listenerName string) ConnectionMetrics {
 	return c.data[listenerName]
 }
 
-func (c *ConnectionMetrics) FlushMetrics(connection *ConnectionContext) {
+func (c *ConnectionMetricsContext) MergeMetricsFromConnection(connection *ConnectionContext) {
 	for _, metric := range c.data {
-		metric.FlushMetrics(connection)
+		metric.MergeMetricsFromConnection(connection)
 	}
 }
 
@@ -77,6 +81,26 @@ func (m *MetricsBuilder) MetricPrefix() string {
 	return m.prefix
 }
 
+func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (ConnectionRole, []*v3.Label) {
+	curRole := traffic.Role
+	// add the default role
+	if curRole == ConnectionRoleUnknown {
+		curRole = ConnectionRoleClient
+	}
+	labels := make([]*v3.Label, 0)
+
+	// two pair process/address info
+	labels = m.appendMeterValue(labels, fmt.Sprintf("%s_process_id", curRole.String()), local.ID())
+	labels = m.appendRemoteAddressInfo(labels, traffic, curRole.Revert().String(), local)
+
+	labels = m.appendMeterValue(labels, "side", curRole.String())
+
+	// protocol and ssl
+	labels = m.appendMeterValue(labels, "protocol", traffic.Protocol.String())
+	labels = m.appendMeterValue(labels, "is_ssl", fmt.Sprintf("%t", traffic.IsSSL))
+	return curRole, labels
+}
+
 func (m *MetricsBuilder) Build() []*v3.MeterDataCollection {
 	collections := make([]*v3.MeterDataCollection, 0)
 	now := time.Now().UnixMilli()
@@ -95,4 +119,29 @@ func (m *MetricsBuilder) Build() []*v3.MeterDataCollection {
 type metadata struct {
 	ServiceName  string
 	InstanceName string
+}
+
+func (m *MetricsBuilder) appendRemoteAddressInfo(labels []*v3.Label, traffic *ProcessTraffic, prefix string, local api.ProcessInterface) []*v3.Label {
+	if len(traffic.RemoteProcesses) != 0 {
+		for _, p := range traffic.RemoteProcesses {
+			// only match with same service instance
+			if local.Entity().ServiceName == p.Entity().ServiceName &&
+				local.Entity().InstanceName == p.Entity().InstanceName {
+				return m.appendMeterValue(labels, prefix+"_process_id", p.ID())
+			}
+		}
+	}
+
+	if tools.IsLocalHostAddress(traffic.RemoteIP) || traffic.Analyzer.IsLocalAddressInCache(traffic.RemoteIP) {
+		return m.appendMeterValue(labels, prefix+"_local", "true")
+	}
+
+	return m.appendMeterValue(labels, prefix+"_address", fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort))
+}
+
+func (m *MetricsBuilder) appendMeterValue(labels []*v3.Label, name, value string) []*v3.Label {
+	return append(labels, &v3.Label{
+		Name:  name,
+		Value: value,
+	})
 }

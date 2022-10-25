@@ -20,14 +20,11 @@ expPrefix: |-
     if (tags[prefix + '_process_id'] != null) {
       return
     }
-    // only care about the nginx
-    if (tags[prefix + '_local'] == 'true'
-      || tags[prefix + '_address'].split(':')[0].endsWith('.1') // local data
-      || tags[prefix + '_address'].split(':')[1] == '53') {     // dns
+    if (tags[prefix + '_local'] == 'true') {
       tags[prefix + '_process_id'] = ProcessRegistry.generateVirtualLocalProcess(tags.service, tags.instance)
       return
     }
-    tags[prefix + '_process_id'] = ProcessRegistry.generateVirtualProcess(tags.service, tags.instance, 'UNKNOWN_REMOTE')
+    tags[prefix + '_process_id'] = ProcessRegistry.generateVirtualRemoteProcess(tags.service, tags.instance, tags[prefix + '_address'])
   })
   .forEach(['component'], { key, tags ->
     String result = ""
@@ -47,7 +44,7 @@ expPrefix: |-
   })
 metricPrefix: process_relation
 metricsRules:
-  # TCP Metrics: client side
+  # client side
   - name: client_write_cpm
     exp:  rover_net_p_client_write_counts_counter.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component']).downsampling(SUM_PER_MIN)
   - name: client_write_total_bytes
@@ -75,13 +72,13 @@ metricsRules:
   - name: client_drop_cpm
     exp: rover_net_p_client_drop_counts_counter.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component']).downsampling(SUM_PER_MIN)
   - name: client_write_rtt_time_percentile
-    exp: rover_net_p_client_write_rtt_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_client_write_rtt_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
   - name: client_write_exe_time_percentile
-    exp: rover_net_p_client_write_exe_time_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_client_write_exe_time_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
   - name: client_read_exe_time_percentile
-    exp: rover_net_p_client_read_exe_time_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_client_read_exe_time_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
 
-  # TCP Metrics: server side
+  # server side
   - name: server_write_cpm
     exp:  rover_net_p_server_write_counts_counter.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component']).downsampling(SUM_PER_MIN)
   - name: server_write_total_bytes
@@ -109,11 +106,11 @@ metricsRules:
   - name: server_drop_cpm
     exp: rover_net_p_server_drop_counts_counter.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component']).downsampling(SUM_PER_MIN)
   - name: server_write_rtt_time_percentile
-    exp: rover_net_p_server_write_rtt_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_server_write_rtt_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
   - name: server_write_exe_time_percentile
-    exp: rover_net_p_server_write_exe_time_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_server_write_exe_time_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
   - name: server_read_exe_time_percentile
-    exp: rover_net_p_server_read_exe_time_histogram.histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
+    exp: rover_net_p_server_read_exe_time_histogram.sum(['service', 'instance', 'side', 'client_process_id', 'server_process_id', 'component', 'le']).histogram().histogram_percentile([50,70,90,99]).downsampling(SUM)
 
   # HTTP/1.x Metrics
   - name: http1_request_cpm
