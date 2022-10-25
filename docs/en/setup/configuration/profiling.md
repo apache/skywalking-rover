@@ -66,7 +66,7 @@ Each metric contains the following labels to identify the process relationship:
 |protocol| string | Identification the protocol based on the package data content. |
 |is_ssl| bool | Is the current connection using SSL. |
 
-##### Data
+##### Layer-4 Data
 
 Based on the above two data types, the following metrics are provided. 
 
@@ -85,8 +85,24 @@ Based on the above two data types, the following metrics are provided.
 |connect execute time|Histogram|nanosecond|The socket connect/accept with other server/client execute time histogram|
 |close execute time|Histogram|nanosecond|The socket close execute time histogram|
 
+##### HTTP/1.x Data
+
+| Name                        | Type      | Unit        | Description                                                               |
+|-----------------------------|-----------|-------------|---------------------------------------------------------------------------|
+| http1_request_cpm           | Counter   | count       | The HTTP request counter                                                  |
+| http1_response_status_cpm   | Counter   | count       | The count of per HTTP response code                                       |
+| http1_request_package_size  | Histogram | Byte size   | The request package size                                                  |
+| http1_response_package_size | Histogram | Byte size   | The response package size                                                 |
+| http1_client_duration       | Histogram | millisecond | The duration of single HTTP response on the client side                   |
+| http1_server_duration       | Histogram | millisecond | The duration of single HTTP response on the server side                   |
+
 ## Configuration
 
-| Name | Default | Environment Key | Description |
-|------|---------|-----------------|-------------|
-| profiling.task.on_cpu.dump_period | 9ms | ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD | The profiling stack dump period. |
+| Name                                     | Default     | Environment Key | Description |
+|------------------------------------------|-------------|-----------------|-------------|
+| profiling.task.on_cpu.dump_period        | 9ms         | ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD | The profiling stack dump period. |
+| profiling.task.network.report_interval   | 2s          | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL |  The interval of send metrics to the backend. |
+| profiling.task.network.meter_prefix      | rover_net_p | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX | The prefix of network profiling metrics name. |
+| profiling.task.network.protocol_analyze.per_cpu_buffer | 400KB       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PER_CPU_BUFFER | The size of socket data buffer on each CPU. |
+| profiling.task.network.protocol_analyze.parallels | 2           | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PARALLELS | The count of parallel protocol analyzer. |
+| profiling.task.network.protocol_analyze.queue_size | 5000        | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_QUEUE_SIZE | The size of per paralleled analyzer queue. |
