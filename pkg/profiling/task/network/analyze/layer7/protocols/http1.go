@@ -31,13 +31,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
+	commonv3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	logv3 "skywalking.apache.org/repo/goapi/collect/logging/v3"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
+	"github.com/apache/skywalking-rover/pkg/tools"
 )
 
 var HTTP1ProtocolName = "http1"
@@ -55,6 +58,8 @@ var HTTP1DurationHistogramBuckets = []float64{
 	330, 380, 430, 480, 500, 600, 700, 800, 900, 1000, 1100, 1300, 1500, 1800, 2000, 5000, 10000, 15000, 20000, 30000,
 }
 
+var SlowTraceTopNSize = 10
+
 type HTTP1Analyzer struct {
 	// cache connection metrics if the connect event not receive or process
 	cache map[string]*HTTP1ConnectionMetrics
@@ -64,8 +69,9 @@ type HTTP1ConnectionMetrics struct {
 	// halfData all data event(request/response) not finished
 	halfData *list.List
 
-	combinedMetrics *HTTP1URIMetrics
-	metricsLocker   sync.RWMutex
+	clientMetrics *HTTP1URIMetrics
+	serverMetrics *HTTP1URIMetrics
+	metricsLocker sync.RWMutex
 }
 
 type HTTP1URIMetrics struct {
@@ -77,10 +83,10 @@ type HTTP1URIMetrics struct {
 	ReqPackageSizeHistogram  *metrics.Histogram
 	RespPackageSizeHistogram *metrics.Histogram
 
-	ClientAvgDuration       *metrics.AvgCounter
-	ServerAvgDuration       *metrics.AvgCounter
-	ClientDurationHistogram *metrics.Histogram
-	ServerDurationHistogram *metrics.Histogram
+	avgDuration       *metrics.AvgCounter
+	durationHistogram *metrics.Histogram
+
+	slowTraces *metrics.TopN
 }
 
 func NewHTTP1URIMetrics() *HTTP1URIMetrics {
@@ -91,10 +97,9 @@ func NewHTTP1URIMetrics() *HTTP1URIMetrics {
 		AvgResponsePackageSize:   metrics.NewAvgCounter(),
 		ReqPackageSizeHistogram:  metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
 		RespPackageSizeHistogram: metrics.NewHistogram(HTTP1PackageSizeHistogramBuckets),
-		ClientAvgDuration:        metrics.NewAvgCounter(),
-		ServerAvgDuration:        metrics.NewAvgCounter(),
-		ClientDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
-		ServerDurationHistogram:  metrics.NewHistogram(HTTP1DurationHistogramBuckets),
+		avgDuration:              metrics.NewAvgCounter(),
+		durationHistogram:        metrics.NewHistogram(HTTP1DurationHistogramBuckets),
+		slowTraces:               metrics.NewTopN(SlowTraceTopNSize),
 	}
 }
 
@@ -112,7 +117,8 @@ func (h *HTTP1Analyzer) GenerateMetrics() Metrics {
 	return &HTTP1ConnectionMetrics{
 		halfData: list.New(),
 
-		combinedMetrics: NewHTTP1URIMetrics(),
+		clientMetrics: NewHTTP1URIMetrics(),
+		serverMetrics: NewHTTP1URIMetrics(),
 	}
 }
 
@@ -286,12 +292,18 @@ func (h *HTTP1Analyzer) analyze(_ Context, connectionID string, connectionMetric
 	defer connectionMetrics.metricsLocker.RUnlock()
 
 	// append metrics
-	combinedMetrics := connectionMetrics.combinedMetrics
-	h.appendToMetrics(combinedMetrics, request, requestBuffer, response, responseBuffer)
+	data := connectionMetrics.clientMetrics
+	side := base.ConnectionRoleClient
+	if requestBuffer.Direction() == base.SocketDataDirectionIngress {
+		// if receive the request, that's mean is server side
+		data = connectionMetrics.serverMetrics
+		side = base.ConnectionRoleServer
+	}
+	h.appendToMetrics(data, request, requestBuffer, response, responseBuffer)
 
 	if log.Enable(logrus.DebugLevel) {
-		metricsJSON, _ := json.Marshal(combinedMetrics)
-		log.Debugf("generated metrics, connection id: %s, metrisc: %s", connectionID, string(metricsJSON))
+		metricsJSON, _ := json.Marshal(data)
+		log.Debugf("generated metrics, connection id: %s, side: %s, metrisc: %s", connectionID, side.String(), string(metricsJSON))
 	}
 	return nil
 }
@@ -334,7 +346,7 @@ func (h *HTTP1Analyzer) tryingToReadResponseWithoutHeaders(reader *bufio.Reader,
 	return resp, nil
 }
 
-func (h *HTTP1Analyzer) appendToMetrics(data *HTTP1URIMetrics, _ *http.Request, reqBuffer SocketDataBuffer,
+func (h *HTTP1Analyzer) appendToMetrics(data *HTTP1URIMetrics, req *http.Request, reqBuffer SocketDataBuffer,
 	resp *http.Response, respBuffer SocketDataBuffer) {
 	data.RequestCounter.Increase()
 	statusCounter := data.StatusCounter[resp.StatusCode]
@@ -349,18 +361,34 @@ func (h *HTTP1Analyzer) appendToMetrics(data *HTTP1URIMetrics, _ *http.Request, 
 	data.ReqPackageSizeHistogram.Increase(float64(reqBuffer.TotalSize()))
 	data.RespPackageSizeHistogram.Increase(float64(respBuffer.TotalSize()))
 
-	// duration data need client and server side
-	avgDuration := data.ClientAvgDuration
-	durationHistogram := data.ClientDurationHistogram
-	if reqBuffer.Direction() == base.SocketDataDirectionIngress {
-		// if the request is ingress, that's mean current is server side
-		avgDuration = data.ServerAvgDuration
-		durationHistogram = data.ServerDurationHistogram
-	}
 	duration := time.Duration(respBuffer.Time() - reqBuffer.Time())
 	durationInMS := float64(duration.Milliseconds())
-	avgDuration.Increase(durationInMS)
-	durationHistogram.Increase(durationInMS)
+	data.avgDuration.Increase(durationInMS)
+	data.durationHistogram.Increase(durationInMS)
+
+	h.increaseSlowTraceTopN(data.slowTraces, duration, req, resp, reqBuffer, respBuffer)
+}
+
+func (h *HTTP1Analyzer) increaseSlowTraceTopN(slowTraceTopN *metrics.TopN, duration time.Duration,
+	request *http.Request, _ *http.Response, reqBuffer, respBuffer SocketDataBuffer) {
+	tracingContext, err := AnalyzeTracingContext(func(key string) string {
+		return request.Header.Get(key)
+	})
+	if err != nil {
+		log.Warnf("analyze tracing context error: %v", err)
+		return
+	}
+	if tracingContext == nil {
+		return
+	}
+
+	// remove the query parameters
+	uri := request.RequestURI
+	if i := strings.Index(uri, "?"); i > 0 {
+		uri = uri[0:i]
+	}
+	trace := &HTTP1Trace{Trace: tracingContext, RequestURI: uri, RequestBuffer: reqBuffer, ResponseBuffer: respBuffer}
+	slowTraceTopN.AddRecord(trace, duration.Milliseconds())
 }
 
 func (h *HTTP1ConnectionMetrics) MergeMetricsFromConnection(connection *base.ConnectionContext) {
@@ -368,84 +396,77 @@ func (h *HTTP1ConnectionMetrics) MergeMetricsFromConnection(connection *base.Con
 	other.metricsLocker.Lock()
 	defer other.metricsLocker.Unlock()
 
-	h.combinedMetrics.MergeAndClean(other.combinedMetrics)
+	h.clientMetrics.MergeAndClean(other.clientMetrics)
+	h.serverMetrics.MergeAndClean(other.serverMetrics)
 	if log.Enable(logrus.DebugLevel) {
-		marshal, _ := json.Marshal(h.combinedMetrics)
-		log.Debugf("combine metrics: conid: %d_%d, metrics: %s", connection.ConnectionID, connection.RandomID, marshal)
+		clientMetrics, _ := json.Marshal(h.clientMetrics)
+		serverMetrics, _ := json.Marshal(h.serverMetrics)
+		log.Debugf("combine metrics: conid: %d_%d, client side metrics: %s, server side metrics: %s",
+			connection.ConnectionID, connection.RandomID, clientMetrics, serverMetrics)
 	}
 }
 
 func (h *HTTP1ConnectionMetrics) FlushMetrics(traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
 	connectionMetrics := QueryProtocolMetrics(traffic.Metrics, HTTP1ProtocolName).(*HTTP1ConnectionMetrics)
 	for _, p := range traffic.LocalProcesses {
-		collection := make([]*v3.MeterData, 0)
-		combinedMetrics := connectionMetrics.combinedMetrics
-		collection = h.appendMetrics(collection, traffic, p, "", combinedMetrics, metricsBuilder)
-		if len(collection) == 0 {
+		// if the remote process is profiling, then used the client side
+		localMetrics := connectionMetrics.clientMetrics
+		remoteMetrics := connectionMetrics.serverMetrics
+		if traffic.Role == base.ConnectionRoleServer {
+			localMetrics = connectionMetrics.serverMetrics
+			remoteMetrics = connectionMetrics.clientMetrics
+		}
+
+		metricsCount := h.appendMetrics(traffic, p, "", localMetrics, metricsBuilder, false)
+		if traffic.RemoteProcessIsProfiling() {
+			metricsCount += h.appendMetrics(traffic, p, "", remoteMetrics, metricsBuilder, true)
+		}
+		if metricsCount <= 0 {
 			continue
 		}
 
 		if log.Enable(logrus.DebugLevel) {
 			// if remote process is profiling, then the metrics data need to be cut half
-			log.Debugf("flush HTTP1 metrics(%s): %s, remote process is profiling: %t, "+
-				"client request count: %d, avg request size: %f, "+
-				"avg response size: %f, client avg duration: %f, server avg duration: %f",
+			log.Debugf("flush HTTP1 metrics(%s): %s, remote process is profiling: %t, client(%s), server(%s)"+
 				traffic.Role.String(), traffic.GenerateConnectionInfo(), traffic.RemoteProcessIsProfiling(),
-				combinedMetrics.RequestCounter.Get(), combinedMetrics.AvgRequestPackageSize.Calculate(),
-				combinedMetrics.AvgResponsePackageSize.Calculate(),
-				combinedMetrics.ClientAvgDuration.Calculate(), combinedMetrics.ServerAvgDuration.Calculate())
+				connectionMetrics.clientMetrics.String(), connectionMetrics.serverMetrics.String())
 		}
-
-		metricsBuilder.AppendMetrics(p.Entity().ServiceName, p.Entity().InstanceName, collection)
 	}
 }
 
-func (h *HTTP1ConnectionMetrics) appendMetrics(collections []*v3.MeterData, traffic *base.ProcessTraffic,
-	local api.ProcessInterface, url string, http1Metrics *HTTP1URIMetrics, metricsBuilder *base.MetricsBuilder) []*v3.MeterData {
+func (h *HTTP1ConnectionMetrics) appendMetrics(traffic *base.ProcessTraffic,
+	local api.ProcessInterface, url string, http1Metrics *HTTP1URIMetrics, metricsBuilder *base.MetricsBuilder, durationOnly bool) int {
+	collections := make([]*v3.MeterData, 0)
 	role, labels := metricsBuilder.BuildBasicMeterLabels(traffic, local)
 	prefix := metricsBuilder.MetricPrefix()
 
-	collections = h.buildMetrics(collections, prefix, "request_counter", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.RequestCounter))
+	collections = h.buildMetrics(collections, prefix, fmt.Sprintf("%s_duration_avg", role.String()), labels, url,
+		traffic, http1Metrics.avgDuration)
+	collections = h.buildMetrics(collections, prefix, fmt.Sprintf("%s_duration_histogram", role.String()), labels, url,
+		traffic, http1Metrics.durationHistogram)
+	if durationOnly {
+		return len(collections)
+	}
+
+	collections = h.buildMetrics(collections, prefix, "request_counter", labels, url, traffic, http1Metrics.RequestCounter)
 	for status, counter := range http1Metrics.StatusCounter {
 		statusLabels := append(labels, &v3.Label{Name: "code", Value: fmt.Sprintf("%d", status)})
-		collections = h.buildMetrics(collections, prefix, "response_status_counter", statusLabels, url, traffic,
-			h.cutHalfMetricsIfNeed(traffic, counter))
+		collections = h.buildMetrics(collections, prefix, "response_status_counter", statusLabels, url, traffic, counter)
 	}
 
 	collections = h.buildMetrics(collections, prefix, "request_package_size_avg", labels, url, traffic, http1Metrics.AvgRequestPackageSize)
 	collections = h.buildMetrics(collections, prefix, "response_package_size_avg", labels, url, traffic, http1Metrics.AvgResponsePackageSize)
-	collections = h.buildMetrics(collections, prefix, "request_package_size_histogram", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.ReqPackageSizeHistogram))
-	collections = h.buildMetrics(collections, prefix, "response_package_size_histogram", labels, url, traffic,
-		h.cutHalfMetricsIfNeed(traffic, http1Metrics.RespPackageSizeHistogram))
+	collections = h.buildMetrics(collections, prefix, "request_package_size_histogram", labels, url, traffic, http1Metrics.ReqPackageSizeHistogram)
+	collections = h.buildMetrics(collections, prefix, "response_package_size_histogram", labels, url, traffic, http1Metrics.RespPackageSizeHistogram)
 
-	avgDuration := http1Metrics.ClientAvgDuration
-	durationHistogram := http1Metrics.ClientDurationHistogram
-	if role == base.ConnectionRoleServer {
-		avgDuration = http1Metrics.ServerAvgDuration
-		durationHistogram = http1Metrics.ServerDurationHistogram
-	}
-	collections = h.buildMetrics(collections, prefix, fmt.Sprintf("%s_duration_avg", role.String()), labels, url,
-		traffic, avgDuration)
-	collections = h.buildMetrics(collections, prefix, fmt.Sprintf("%s_duration_histogram", role.String()), labels, url,
-		traffic, durationHistogram)
-	return collections
-}
-
-func (h *HTTP1ConnectionMetrics) cutHalfMetricsIfNeed(traffic *base.ProcessTraffic, data metrics.Metrics) metrics.Metrics {
-	if traffic.RemoteProcessIsProfiling() {
-		return data.CusHalfOfMetrics()
-	}
-	return data
+	metricsBuilder.AppendMetrics(local.Entity().ServiceName, local.Entity().InstanceName, collections)
+	logsCount := http1Metrics.slowTraces.AppendData(local, traffic, metricsBuilder)
+	return len(collections) + logsCount
 }
 
 func (h *HTTP1ConnectionMetrics) buildMetrics(collection []*v3.MeterData, prefix, name string, basicLabels []*v3.Label,
-	url string, traffic *base.ProcessTraffic, data metrics.Metrics) []*v3.MeterData {
+	url string, _ *base.ProcessTraffic, data metrics.Metrics) []*v3.MeterData {
 	// if remote process is also profiling, then needs to be calculated half of metrics
-	if traffic.RemoteProcessIsProfiling() {
-		data = data.CusHalfOfMetrics()
-	}
 	labels := basicLabels
 	var meterName string
 	if url != "" {
@@ -479,8 +500,99 @@ func (u *HTTP1URIMetrics) MergeAndClean(other *HTTP1URIMetrics) {
 	u.AvgResponsePackageSize.MergeAndClean(other.AvgResponsePackageSize)
 	u.ReqPackageSizeHistogram.MergeAndClean(other.ReqPackageSizeHistogram)
 	u.RespPackageSizeHistogram.MergeAndClean(other.RespPackageSizeHistogram)
-	u.ClientAvgDuration.MergeAndClean(other.ClientAvgDuration)
-	u.ServerAvgDuration.MergeAndClean(other.ServerAvgDuration)
-	u.ClientDurationHistogram.MergeAndClean(other.ClientDurationHistogram)
-	u.ServerDurationHistogram.MergeAndClean(other.ServerDurationHistogram)
+	u.avgDuration.MergeAndClean(other.avgDuration)
+	u.durationHistogram.MergeAndClean(other.durationHistogram)
+	u.slowTraces.MergeAndClean(other.slowTraces)
+}
+
+func (u *HTTP1URIMetrics) String() string {
+	return fmt.Sprintf("request count: %d, avg request size: %f, avg response size: %f, avg duration: %f, slow trace count: %d",
+		u.RequestCounter.Get(), u.AvgRequestPackageSize.Calculate(), u.AvgResponsePackageSize.Calculate(),
+		u.avgDuration.Calculate(), u.slowTraces.List.Len())
+}
+
+type HTTP1Trace struct {
+	Trace          TracingContext
+	RequestURI     string
+	RequestBuffer  SocketDataBuffer
+	ResponseBuffer SocketDataBuffer
+}
+
+func (h *HTTP1Trace) Flush(duration int64, process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
+	logData := &logv3.LogData{}
+	logData.Service = process.Entity().ServiceName
+	logData.ServiceInstance = process.Entity().InstanceName
+	logData.Layer = process.Entity().Layer
+
+	logData.Tags = &logv3.LogTags{Data: make([]*commonv3.KeyStringValuePair, 0)}
+	logData.Tags.Data = append(logData.Tags.Data, &commonv3.KeyStringValuePair{Key: "LOG_KIND", Value: "NET_PROFILING_SAMPLED_TRACE"})
+
+	// trace context
+	traceContext := &logv3.TraceContext{}
+	traceContext.TraceId = h.Trace.TraceID()
+	logData.TraceContext = traceContext
+
+	// body
+	logBody := &logv3.LogDataBody{Type: "json"}
+	body := &HTTP1SlowTraceLogBody{
+		Latency:       duration,
+		TraceProvider: h.Trace.Provider(),
+		DetectPoint:   traffic.Role.String(),
+		Component:     traffic.Protocol.String(),
+		SSL:           traffic.IsSSL,
+		URI:           h.RequestURI,
+		Reason:        "slow",
+	}
+	if traffic.Role == base.ConnectionRoleClient {
+		body.ClientProcess = &HTTP1SlowTraceLogProcess{ProcessID: process.ID()}
+		body.ServerProcess = NewHTTP1SlowTRaceLogRemoteProcess(traffic, process)
+	} else {
+		body.ServerProcess = &HTTP1SlowTraceLogProcess{ProcessID: process.ID()}
+		body.ClientProcess = NewHTTP1SlowTRaceLogRemoteProcess(traffic, process)
+	}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		log.Warnf("format the slow trace log body failure: %v", err)
+		return
+	}
+	logBody.Content = &logv3.LogDataBody_Json{Json: &logv3.JSONLog{Json: string(bodyJSON)}}
+	logData.Body = logBody
+
+	metricsBuilder.AppendLogs(process.Entity().ServiceName, logData)
+}
+
+type HTTP1SlowTraceLogBody struct {
+	URI           string                    `json:"uri"`
+	Reason        string                    `json:"reason"`
+	Latency       int64                     `json:"latency"`
+	TraceProvider string                    `json:"trace_provider"`
+	ClientProcess *HTTP1SlowTraceLogProcess `json:"client_process"`
+	ServerProcess *HTTP1SlowTraceLogProcess `json:"server_process"`
+	DetectPoint   string                    `json:"detect_point"`
+	Component     string                    `json:"component"`
+	SSL           bool                      `json:"ssl"`
+}
+
+type HTTP1SlowTraceLogProcess struct {
+	ProcessID string `json:"process_id"`
+	Local     bool   `json:"local"`
+	Address   string `json:"address"`
+}
+
+func NewHTTP1SlowTRaceLogRemoteProcess(traffic *base.ProcessTraffic, local api.ProcessInterface) *HTTP1SlowTraceLogProcess {
+	if len(traffic.RemoteProcesses) != 0 {
+		for _, p := range traffic.RemoteProcesses {
+			// only match with same service instance
+			if local.Entity().ServiceName == p.Entity().ServiceName &&
+				local.Entity().InstanceName == p.Entity().InstanceName {
+				return &HTTP1SlowTraceLogProcess{ProcessID: p.ID()}
+			}
+		}
+	}
+
+	if tools.IsLocalHostAddress(traffic.RemoteIP) || traffic.Analyzer.IsLocalAddressInCache(traffic.RemoteIP) {
+		return &HTTP1SlowTraceLogProcess{Local: true}
+	}
+
+	return &HTTP1SlowTraceLogProcess{Address: fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort)}
 }

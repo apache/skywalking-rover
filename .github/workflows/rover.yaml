@@ -115,7 +115,7 @@ jobs:
             config: test/e2e/cases/process/istio/e2e.yaml
             env: ISTIO_VERSION=1.13.1
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: true
       - uses: actions/download-artifact@v2
@@ -125,14 +125,10 @@ jobs:
           path: docker-images
       - name: Load docker images
         run: find docker-images -name "*.tar" -exec docker load -i {} \;
-      - name: Setup Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: '1.16'
       - name: Set env var
         run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@main
+        uses: apache/skywalking-infra-e2e@c3eb3241f649289465eda12af8214ca60aaaaa5f
         with:
           e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.config }}
       - uses: actions/upload-artifact@v2
@@ -166,7 +162,7 @@ jobs:
           - name: HTTP2 Profiling
             config: test/e2e/cases/profiling/network/http2/e2e.yaml
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: true
       - uses: actions/download-artifact@v2
@@ -176,10 +172,6 @@ jobs:
           path: docker-images
       - name: Load docker images
         run: find docker-images -name "*.tar" -exec docker load -i {} \;
-      - name: Setup Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: '1.16'
       - name: Set env var
         run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
       - name: Setup SSL Certs
@@ -187,7 +179,7 @@ jobs:
           bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh service
           bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh proxy
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@main
+        uses: apache/skywalking-infra-e2e@c3eb3241f649289465eda12af8214ca60aaaaa5f
         with:
           e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.config }}
       - uses: actions/upload-artifact@v2

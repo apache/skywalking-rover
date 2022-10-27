@@ -17,12 +17,15 @@
 
 package metrics
 
-import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+import (
+	agentv3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	logv3 "skywalking.apache.org/repo/goapi/collect/logging/v3"
+)
 
 type Metrics interface {
-	// CusHalfOfMetrics used for calculate the half of data
-	// Used on only calculate half of metrics when client or server both profiling
-	// Such as calculate the total request count on the connection
-	CusHalfOfMetrics() Metrics
-	AppendMeter(list []*v3.MeterData, name string, labels []*v3.Label) []*v3.MeterData
+	AppendMeter(list []*agentv3.MeterData, name string, labels []*agentv3.Label) []*agentv3.MeterData
+}
+
+type Records interface {
+	AppendLog(list []*logv3.LogData) []*logv3.LogData
 }

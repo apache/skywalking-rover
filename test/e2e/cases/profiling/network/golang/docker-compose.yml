@@ -24,6 +24,9 @@ services:
       - e2e
     volumes:
       - ./../base/ssl:/ssl_data
+    environment:
+      OAP_BACKEND_ADDR: oap:11800
+      ZIPKIN_BACKEND_ADDR: http://oap:9411/api/v2/spans
     ports:
       - 10443:10443
     healthcheck:
@@ -48,6 +51,8 @@ services:
       service: oap
     ports:
       - 12800:12800
+      - 9411:9411
+      - 9412:9412
 
   rover:
     extends:
