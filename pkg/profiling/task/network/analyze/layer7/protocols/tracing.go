@@ -58,9 +58,12 @@ func AnalyzeTracingContext(fetcher func(key string) string) (TracingContext, err
 	}
 
 	// zipkin
+	if zipkinSingleContext := fetcher("b3"); zipkinSingleContext != "" {
+		return analyzeZipkinTracingContextWithSingleData(zipkinSingleContext), nil
+	}
 	if zipkinTraceID := fetcher("x-b3-traceid"); zipkinTraceID != "" {
 		if spanID := fetcher("x-b3-spanid"); spanID != "" {
-			return analyzeZipkinTracingContext(zipkinTraceID, spanID), nil
+			return analyzeZipkinTracingContextWithSpecificData(zipkinTraceID, spanID), nil
 		}
 	}
 	return nil, nil
@@ -87,8 +90,16 @@ func analyzeSkyWalking8TracingContext(val string) (*SkyWalkingTracingContext, er
 	return ctx, nil
 }
 
-func analyzeZipkinTracingContext(traceID, spanID string) *ZipkinTracingContext {
+func analyzeZipkinTracingContextWithSpecificData(traceID, spanID string) *ZipkinTracingContext {
 	return &ZipkinTracingContext{TraceID0: traceID, SpanID: spanID}
+}
+
+func analyzeZipkinTracingContextWithSingleData(singleData string) *ZipkinTracingContext {
+	info := strings.Split(singleData, "-")
+	if len(info) < 2 {
+		return nil
+	}
+	return &ZipkinTracingContext{TraceID0: info[0], SpanID: info[1]}
 }
 
 func (w *ZipkinTracingContext) TraceID() string {
