@@ -43,9 +43,9 @@ Also, the following protocol are supported for analyzing using OpenSSL library, 
 6. Kafka
 7. DNS
 
-#### Metrics
+#### Collecting data
 
-Network profiling uses metrics send data to the backend service.
+Network profiling uses metrics, logs send to the backend service.
 
 ##### Data Type
 
@@ -55,46 +55,55 @@ The network profiling has customized the following two types of metrics to repre
    2. **Bytes**: The package size of the execution.
    3. **Exe Time**: The consumed time(nanosecond) of the execution. 
 2. **Histogram**: Records the distribution of the data in the bucket.
+3. **TopN**: Record the highest latency data in a certain period of time.
 
 ##### Labels
 
 Each metric contains the following labels to identify the process relationship:
 
-| Name | Type | Description |
-|------|------|-------------|
-|client_process_id or server_process_id| string | The ID of the current process, which is determined by the role of the current process in the connection as server or client. |
-|client_local or server_local| boolean | The remote process is a local process. |
-|client_address or server_address| string | The remote process address. ex: `IP:port`. |
-|side| enum | The current process is either "client" or "server" in this connection. |
-|protocol| string | Identification the protocol based on the package data content. |
-|is_ssl| bool | Is the current connection using SSL. |
+| Name                                     | Type    | Description                                                                                                                  |
+|------------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------|
+| client_process_id or server_process_id   | string  | The ID of the current process, which is determined by the role of the current process in the connection as server or client. |
+| client_local or server_local             | boolean | The remote process is a local process.                                                                                       |
+| client_address or server_address         | string  | The remote process address. ex: `IP:port`.                                                                                   |
+| side                                     | enum    | The current process is either "client" or "server" in this connection.                                                       |
+| protocol                                 | string  | Identification the protocol based on the package data content.                                                               |
+| is_ssl                                   | bool    | Is the current connection using SSL.                                                                                         |
 
 ##### Layer-4 Data
 
 Based on the above two data types, the following metrics are provided. 
 
-| Name | Type| Unit | Description |
-|------|-----|------|-------------|
-|write|Counter|nanosecond|The socket write counter|
-|read|Counter|nanosecond|The socket read counter|
-|write RTT|Counter|microsecond|The socket write RTT counter|
-|connect|Counter|nanosecond|The socket connect/accept with other server/client counter|
-|close|Counter|nanosecond|The socket close counter|
-|retransmit|Counter|nanosecond|The socket retransmit package counter|
-|drop|Counter|nanosecond|The socket drop package counter|
-|write RTT|Histogram|microsecond|The socket write RTT execute time histogram|
-|write execute time|Histogram|nanosecond|The socket write data execute time histogram|
-|read execute time|Histogram|nanosecond|The socket read data execute time histogram|
-|connect execute time|Histogram|nanosecond|The socket connect/accept with other server/client execute time histogram|
-|close execute time|Histogram|nanosecond|The socket close execute time histogram|
+| Name                  | Type      | Unit         | Description                                                               |
+|-----------------------|-----------|--------------|---------------------------------------------------------------------------|
+| write                 | Counter   | nanosecond   | The socket write counter                                                  |
+| read                  | Counter   | nanosecond   | The socket read counter                                                   |
+| write RTT             | Counter   | microsecond  | The socket write RTT counter                                              |
+| connect               | Counter   | nanosecond   | The socket connect/accept with other server/client counter                |
+| close                 | Counter   | nanosecond   | The socket close counter                                                  |
+| retransmit            | Counter   | nanosecond   | The socket retransmit package counter                                     |
+| drop                  | Counter   | nanosecond   | The socket drop package counter                                           |
+| write RTT             | Histogram | microsecond  | The socket write RTT execute time histogram                               |
+| write execute time    | Histogram | nanosecond   | The socket write data execute time histogram                              |
+| read execute time     | Histogram | nanosecond   | The socket read data execute time histogram                               |
+| connect execute time  | Histogram | nanosecond   | The socket connect/accept with other server/client execute time histogram |
+| close execute time    | Histogram | nanosecond   | The socket close execute time histogram                                   |
 
 ##### HTTP/1.x Data
 
-| Name                        | Type      | Unit        | Description                                                               |
-|-----------------------------|-----------|-------------|---------------------------------------------------------------------------|
-| http1_request_cpm           | Counter   | count       | The HTTP request counter                                                  |
-| http1_response_status_cpm   | Counter   | count       | The count of per HTTP response code                                       |
-| http1_request_package_size  | Histogram | Byte size   | The request package size                                                  |
-| http1_response_package_size | Histogram | Byte size   | The response package size                                                 |
-| http1_client_duration       | Histogram | millisecond | The duration of single HTTP response on the client side                   |
-| http1_server_duration       | Histogram | millisecond | The duration of single HTTP response on the server side                   |
+##### Metrics
+
+| Name                        | Type      | Unit        | Description                                             |
+|-----------------------------|-----------|-------------|---------------------------------------------------------|
+| http1_request_cpm           | Counter   | count       | The HTTP request counter                                |
+| http1_response_status_cpm   | Counter   | count       | The count of per HTTP response code                     |
+| http1_request_package_size  | Histogram | Byte size   | The request package size                                |
+| http1_response_package_size | Histogram | Byte size   | The response package size                               |
+| http1_client_duration       | Histogram | millisecond | The duration of single HTTP response on the client side |
+| http1_server_duration       | Histogram | millisecond | The duration of single HTTP response on the server side |
+
+##### Logs 
+
+| Name         | Type  | Unit        | Description                |
+|--------------|-------|-------------|----------------------------|
+| slow_traces  | TopN  | millisecond | The Top N slow trace(id)s  |

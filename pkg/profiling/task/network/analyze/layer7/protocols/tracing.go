@@ -59,7 +59,9 @@ func AnalyzeTracingContext(fetcher func(key string) string) (TracingContext, err
 
 	// zipkin
 	if zipkinSingleContext := fetcher("b3"); zipkinSingleContext != "" {
-		return analyzeZipkinTracingContextWithSingleData(zipkinSingleContext), nil
+		if ctx := analyzeZipkinTracingContextWithSingleData(zipkinSingleContext); ctx != nil {
+			return ctx, nil
+		}
 	}
 	if zipkinTraceID := fetcher("x-b3-traceid"); zipkinTraceID != "" {
 		if spanID := fetcher("x-b3-spanid"); spanID != "" {
