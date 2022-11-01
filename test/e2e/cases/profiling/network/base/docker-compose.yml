@@ -55,10 +55,16 @@ services:
       service: oap
     environment:
       SW_METER_ANALYZER_ACTIVE_FILES: network-profiling
+      SW_LOG_LAL_FILES: slow-trace-lal
+      SW_RECEIVER_ZIPKIN: default
+      SW_QUERY_ZIPKIN: default
     volumes:
       - ./network-profiling.yaml:/skywalking/config/meter-analyzer-config/network-profiling.yaml
+      - ./slow-trace-lal.yaml:/skywalking/config/lal/slow-trace-lal.yaml
     ports:
       - 12800:12800
+      - 9411:9411
+      - 9412:9412
 
   rover:
     extends:

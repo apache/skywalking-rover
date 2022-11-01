@@ -17,10 +17,12 @@
 FROM golang:1.17
 
 WORKDIR /
-COPY golang/service.go /service.go
-RUN go build -o service service.go
+COPY golang/ /service
+
+WORKDIR /service
+RUN go build -o service .
 
 COPY base/ssl /usr/local/share/ca-certificates/ssl
 RUN update-ca-certificates
 
-CMD ["/service"]
+CMD ["/service/service"]

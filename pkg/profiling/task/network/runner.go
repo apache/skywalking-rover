@@ -40,6 +40,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	logv3 "skywalking.apache.org/repo/goapi/collect/logging/v3"
 )
 
 var log = logger.GetLogger("profiling", "task", "network")
@@ -49,6 +50,7 @@ type Runner struct {
 	startLock      sync.Mutex
 	stopOnce       sync.Once
 	meterClient    v3.MeterReportServiceClient
+	logClient      logv3.LogReportServiceClient
 	reportInterval time.Duration
 	meterPrefix    string
 
@@ -182,7 +184,7 @@ func (r *Runner) registerMetricsReport() {
 		for {
 			select {
 			case <-timeTicker.C:
-				if err := r.flushMetrics(); err != nil {
+				if err := r.flushData(); err != nil {
 					log.Errorf("flush network monitoing metrics failure: %v", err)
 				}
 			case <-r.ctx.Done():
@@ -193,18 +195,37 @@ func (r *Runner) registerMetricsReport() {
 	}()
 }
 
-func (r *Runner) flushMetrics() error {
+func (r *Runner) flushData() error {
 	// flush all metrics
 	metricsBuilder, err := r.analyzeContext.FlushAllMetrics(r.bpf, r.meterPrefix)
 	if err != nil {
 		return err
 	}
-	metrics := metricsBuilder.Build()
+
+	if count, err1 := r.flushMetrics(metricsBuilder); err1 != nil {
+		err = multierror.Append(err, err1)
+	} else if count > 0 {
+		log.Infof("total send network topology meter data: %d", count)
+	}
+
+	if count, err1 := r.flushLogs(metricsBuilder); err1 != nil {
+		err = multierror.Append(err, err1)
+	} else if count > 0 {
+		log.Infof("total send network topology logs data: %d", count)
+	}
+	return err
+}
+
+func (r *Runner) flushMetrics(builder *analyzeBase.MetricsBuilder) (int, error) {
+	metrics := builder.BuildMetrics()
+	if len(metrics) == 0 {
+		return 0, nil
+	}
 
 	// send metrics
 	batch, err := r.meterClient.CollectBatch(r.ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() {
 		if _, e := batch.CloseAndRecv(); e != nil {
@@ -215,13 +236,40 @@ func (r *Runner) flushMetrics() error {
 	for _, m := range metrics {
 		count += len(m.MeterData)
 		if err := batch.Send(m); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	if count > 0 {
-		log.Infof("total send network topology meter data: %d", count)
+	return count, nil
+}
+
+func (r *Runner) flushLogs(builder *analyzeBase.MetricsBuilder) (int, error) {
+	logsCollection := builder.BuildLogs()
+	if len(logsCollection) == 0 {
+		return 0, nil
 	}
-	return nil
+
+	count := 0
+	for _, logs := range logsCollection {
+		collector, err := r.logClient.Collect(r.ctx)
+		if err != nil {
+			return 0, err
+		}
+		count += len(logs)
+		for _, l := range logs {
+			if err := collector.Send(l); err != nil {
+				if _, e := collector.CloseAndRecv(); e != nil {
+					log.Warnf("close the logs stream error: %v", e)
+				}
+				return 0, err
+			}
+		}
+
+		if _, e := collector.CloseAndRecv(); e != nil {
+			log.Warnf("close the logs stream error: %v", e)
+		}
+	}
+
+	return count, nil
 }
 
 func (r *Runner) Stop() error {
@@ -252,6 +300,7 @@ func (r *Runner) init0(config *base.TaskConfig, moduleMgr *module.Manager) error
 	coreOperator := moduleMgr.FindModule(core.ModuleName).(core.Operator)
 	connection := coreOperator.BackendOperator().GetConnection()
 	r.meterClient = v3.NewMeterReportServiceClient(connection)
+	r.logClient = logv3.NewLogReportServiceClient(connection)
 
 	reportInterval, err := time.ParseDuration(config.Network.ReportInterval)
 	if err != nil {

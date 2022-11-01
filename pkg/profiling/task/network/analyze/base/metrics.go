@@ -24,7 +24,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/tools"
 
-	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	agentv3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	logv3 "skywalking.apache.org/repo/goapi/collect/logging/v3"
 )
 
 // ConnectionMetrics The Metrics in each listener
@@ -57,18 +58,20 @@ func (c *ConnectionMetricsContext) MergeMetricsFromConnection(connection *Connec
 
 type MetricsBuilder struct {
 	prefix  string
-	metrics map[metadata][]*v3.MeterData
+	metrics map[metadata][]*agentv3.MeterData
+	logs    map[metadata][]*logv3.LogData
 }
 
 func NewMetricsBuilder(prefix string) *MetricsBuilder {
 	return &MetricsBuilder{
 		prefix:  prefix,
-		metrics: make(map[metadata][]*v3.MeterData),
+		metrics: make(map[metadata][]*agentv3.MeterData),
+		logs:    make(map[metadata][]*logv3.LogData),
 	}
 }
 
-func (m *MetricsBuilder) AppendMetrics(service, instance string, metrics []*v3.MeterData) {
-	meta := metadata{ServiceName: service, InstanceName: instance}
+func (m *MetricsBuilder) AppendMetrics(service, instance string, metrics []*agentv3.MeterData) {
+	meta := metadata{Layer: "", ServiceName: service, InstanceName: instance}
 	existingMetrics := m.metrics[meta]
 	if len(existingMetrics) == 0 {
 		m.metrics[meta] = metrics
@@ -77,17 +80,22 @@ func (m *MetricsBuilder) AppendMetrics(service, instance string, metrics []*v3.M
 	m.metrics[meta] = append(existingMetrics, metrics...)
 }
 
+func (m *MetricsBuilder) AppendLogs(service string, log *logv3.LogData) {
+	meta := metadata{ServiceName: service}
+	m.logs[meta] = append(m.logs[meta], log)
+}
+
 func (m *MetricsBuilder) MetricPrefix() string {
 	return m.prefix
 }
 
-func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (ConnectionRole, []*v3.Label) {
+func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (ConnectionRole, []*agentv3.Label) {
 	curRole := traffic.Role
 	// add the default role
 	if curRole == ConnectionRoleUnknown {
 		curRole = ConnectionRoleClient
 	}
-	labels := make([]*v3.Label, 0)
+	labels := make([]*agentv3.Label, 0)
 
 	// two pair process/address info
 	labels = m.appendMeterValue(labels, fmt.Sprintf("%s_process_id", curRole.String()), local.ID())
@@ -101,8 +109,8 @@ func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local ap
 	return curRole, labels
 }
 
-func (m *MetricsBuilder) Build() []*v3.MeterDataCollection {
-	collections := make([]*v3.MeterDataCollection, 0)
+func (m *MetricsBuilder) BuildMetrics() []*agentv3.MeterDataCollection {
+	collections := make([]*agentv3.MeterDataCollection, 0)
 	now := time.Now().UnixMilli()
 	for meta, meters := range m.metrics {
 		if len(meters) == 0 {
@@ -111,17 +119,36 @@ func (m *MetricsBuilder) Build() []*v3.MeterDataCollection {
 		meters[0].Service = meta.ServiceName
 		meters[0].ServiceInstance = meta.InstanceName
 		meters[0].Timestamp = now
-		collections = append(collections, &v3.MeterDataCollection{MeterData: meters})
+		collections = append(collections, &agentv3.MeterDataCollection{MeterData: meters})
 	}
 	return collections
 }
 
+func (m *MetricsBuilder) BuildLogs() [][]*logv3.LogData {
+	result := make([][]*logv3.LogData, 0)
+	now := time.Now().UnixMilli()
+	for meta, logs := range m.logs {
+		if len(logs) == 0 {
+			continue
+		}
+		logs[0].Service = meta.ServiceName
+		// update the timestamp
+		for _, l := range logs {
+			l.Timestamp = now
+		}
+		result = append(result, logs)
+	}
+	return result
+}
+
 type metadata struct {
+	Layer        string
 	ServiceName  string
 	InstanceName string
 }
 
-func (m *MetricsBuilder) appendRemoteAddressInfo(labels []*v3.Label, traffic *ProcessTraffic, prefix string, local api.ProcessInterface) []*v3.Label {
+func (m *MetricsBuilder) appendRemoteAddressInfo(labels []*agentv3.Label, traffic *ProcessTraffic, prefix string,
+	local api.ProcessInterface) []*agentv3.Label {
 	if len(traffic.RemoteProcesses) != 0 {
 		for _, p := range traffic.RemoteProcesses {
 			// only match with same service instance
@@ -139,8 +166,8 @@ func (m *MetricsBuilder) appendRemoteAddressInfo(labels []*v3.Label, traffic *Pr
 	return m.appendMeterValue(labels, prefix+"_address", fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort))
 }
 
-func (m *MetricsBuilder) appendMeterValue(labels []*v3.Label, name, value string) []*v3.Label {
-	return append(labels, &v3.Label{
+func (m *MetricsBuilder) appendMeterValue(labels []*agentv3.Label, name, value string) []*agentv3.Label {
+	return append(labels, &agentv3.Label{
 		Name:  name,
 		Value: value,
 	})

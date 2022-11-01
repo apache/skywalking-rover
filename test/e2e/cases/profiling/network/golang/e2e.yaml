@@ -43,4 +43,5 @@ verify:
   cases:
     - includes:
         - ../base-cases.yaml
-        - ../http1-cases.yaml
+        - ../http1-metrics-cases.yaml
+        - ../http1-slow-traces-cases.yaml

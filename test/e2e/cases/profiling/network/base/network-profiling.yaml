@@ -23,6 +23,7 @@ expPrefix: |-
     // only care about the nginx
     if (tags[prefix + '_local'] == 'true'
       || tags[prefix + '_address'].split(':')[0].endsWith('.1') // local data
+      || tags[prefix + '_address'].split(':')[1] == '11800'     // oap
       || tags[prefix + '_address'].split(':')[1] == '53') {     // dns
       tags[prefix + '_process_id'] = ProcessRegistry.generateVirtualLocalProcess(tags.service, tags.instance)
       return
