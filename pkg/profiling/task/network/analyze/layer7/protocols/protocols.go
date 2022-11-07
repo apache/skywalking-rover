@@ -20,51 +20,33 @@ package protocols
 import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
 )
 
 var log = logger.GetLogger("profiling", "task", "network", "layer7", "protocols")
 
-var ListenerName = "layer7"
-
-var registerProtocols []func() Protocol
-var defaultInstances []Protocol
+var registerProtocols []func() protocol.Protocol
+var defaultInstances []protocol.Protocol
 
 func init() {
 	// register all protocol analyzers
-	registerProtocols = make([]func() Protocol, 0)
-	registerProtocols = append(registerProtocols, NewHTTP1Analyzer)
+	registerProtocols = make([]func() protocol.Protocol, 0)
+	registerProtocols = append(registerProtocols, http1.NewHTTP1Analyzer)
 
-	defaultInstances = make([]Protocol, 0)
+	defaultInstances = make([]protocol.Protocol, 0)
 	for _, p := range registerProtocols {
 		defaultInstances = append(defaultInstances, p())
 	}
 }
 
-type Protocol interface {
-	Name() string
-	GenerateMetrics() Metrics
-
-	ReceiveData(context Context, event *SocketDataUploadEvent) bool
-}
-
-type Context interface {
-	QueryConnection(connectionID, randomID uint64) *base.ConnectionContext
-}
-
-type Metrics interface {
-	base.ConnectionMetrics
-
-	// FlushMetrics flush all metrics from traffic to the metricsBuilder
-	FlushMetrics(traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder)
-}
-
 type Analyzer struct {
-	ctx       Context
-	protocols []Protocol
+	ctx       protocol.Context
+	protocols []protocol.Protocol
 }
 
-func NewAnalyzer(ctx Context) *Analyzer {
-	protocols := make([]Protocol, 0)
+func NewAnalyzer(ctx protocol.Context) *Analyzer {
+	protocols := make([]protocol.Protocol, 0)
 	for _, r := range registerProtocols {
 		protocols = append(protocols, r())
 	}
@@ -74,7 +56,7 @@ func NewAnalyzer(ctx Context) *Analyzer {
 	}
 }
 
-func (a *Analyzer) ReceiveSocketDataEvent(event *SocketDataUploadEvent) {
+func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent) {
 	for _, p := range a.protocols {
 		if p.ReceiveData(a.ctx, event) {
 			return
@@ -85,24 +67,25 @@ func (a *Analyzer) ReceiveSocketDataEvent(event *SocketDataUploadEvent) {
 }
 
 type ProtocolMetrics struct {
-	data map[string]Metrics
+	data map[string]protocol.Metrics
 }
 
 func NewProtocolMetrics() *ProtocolMetrics {
-	metrics := make(map[string]Metrics)
+	metrics := make(map[string]protocol.Metrics)
 	for _, p := range defaultInstances {
 		metrics[p.Name()] = p.GenerateMetrics()
 	}
 	return &ProtocolMetrics{data: metrics}
 }
 
-func (m *ProtocolMetrics) GetProtocolMetrics(name string) Metrics {
+func (m *ProtocolMetrics) GetProtocolMetrics(name string) protocol.Metrics {
 	return m.data[name]
 }
 
-func (m *ProtocolMetrics) MergeMetricsFromConnection(connection *base.ConnectionContext) {
-	for _, d := range m.data {
-		d.MergeMetricsFromConnection(connection)
+func (m *ProtocolMetrics) MergeMetricsFromConnection(connection *base.ConnectionContext, data base.ConnectionMetrics) {
+	otherMetrics := data.(*ProtocolMetrics)
+	for p, d := range m.data {
+		d.MergeMetricsFromConnection(connection, otherMetrics.GetProtocolMetrics(p))
 	}
 }
 
@@ -110,9 +93,4 @@ func (m *ProtocolMetrics) FlushMetrics(traffic *base.ProcessTraffic, metricsBuil
 	for _, d := range m.data {
 		d.FlushMetrics(traffic, metricsBuilder)
 	}
-}
-
-func QueryProtocolMetrics(metricsContext *base.ConnectionMetricsContext, protocolName string) Metrics {
-	metrics := metricsContext.GetMetrics(ListenerName).(*ProtocolMetrics)
-	return metrics.GetProtocolMetrics(protocolName)
 }

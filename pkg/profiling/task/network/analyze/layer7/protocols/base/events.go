@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package protocols
+package base
 
 import (
 	"fmt"
@@ -30,11 +30,12 @@ type SocketDataBuffer interface {
 	BufferData() []byte
 	// TotalSize of socket data, the data may exceed the size of the BufferData()
 	TotalSize() uint64
-	// Time of socket data send
-	Time() uint64
 	// Direction of the data, send or receive
 	Direction() base.SocketDataDirection
 	FirstEvent() *SocketDataUploadEvent
+
+	StartTime() uint64
+	EndTime() uint64
 
 	MinDataID() int
 	MaxDataID() int
@@ -44,10 +45,11 @@ type SocketDataUploadEvent struct {
 	Protocol     base.ConnectionProtocol
 	MsgType      base.SocketMessageType
 	Direction0   base.SocketDataDirection
-	Finished     uint8
+	FinishStatus uint8
 	Sequence     uint16
 	DataLen      uint16
-	Timestamp    uint64
+	StartTime0   uint64
+	EndTime0     uint64
 	ConnectionID uint64
 	RandomID     uint64
 	DataID       uint64
@@ -63,8 +65,12 @@ func (s *SocketDataUploadEvent) BufferData() []byte {
 	return s.Buffer[:s.DataLen]
 }
 
-func (s *SocketDataUploadEvent) Time() uint64 {
-	return s.Timestamp
+func (s *SocketDataUploadEvent) StartTime() uint64 {
+	return s.StartTime0
+}
+
+func (s *SocketDataUploadEvent) EndTime() uint64 {
+	return s.EndTime0
 }
 
 func (s *SocketDataUploadEvent) Direction() base.SocketDataDirection {
@@ -88,7 +94,7 @@ func (s *SocketDataUploadEvent) IsStart() bool {
 }
 
 func (s *SocketDataUploadEvent) IsFinished() bool {
-	return s.Finished == 1
+	return s.FinishStatus == 1
 }
 
 func (s *SocketDataUploadEvent) Combine(other SocketDataBuffer) SocketDataBuffer {
@@ -124,8 +130,12 @@ func (s *SocketDataUploadCombinedEvent) TotalSize() uint64 {
 	return s.first.TotalSize0
 }
 
-func (s *SocketDataUploadCombinedEvent) Time() uint64 {
-	return s.first.Timestamp
+func (s *SocketDataUploadCombinedEvent) StartTime() uint64 {
+	return s.first.StartTime0
+}
+
+func (s *SocketDataUploadCombinedEvent) EndTime() uint64 {
+	return s.first.EndTime0
 }
 
 func (s *SocketDataUploadCombinedEvent) MinDataID() int {

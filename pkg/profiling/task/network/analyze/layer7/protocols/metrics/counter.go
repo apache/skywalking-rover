@@ -17,7 +17,11 @@
 
 package metrics
 
-import v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+import (
+	"fmt"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+)
 
 type Counter struct {
 	Value int
@@ -27,6 +31,10 @@ func NewCounter() *Counter {
 	return &Counter{
 		Value: 0,
 	}
+}
+
+func (c *Counter) String() string {
+	return fmt.Sprintf("%d", c.Value)
 }
 
 func (c *Counter) Increase() {

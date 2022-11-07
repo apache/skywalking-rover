@@ -21,6 +21,7 @@ import (
 	"context"
 
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 )
 
@@ -33,9 +34,9 @@ func (l *Listener) initSocketDataQueue(parallels, queueSize int) {
 func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 	l.socketDataQueue.Start(ctx, bpfLoader, bpfLoader.SocketDataUploadEventQueue, 1, l.protocolPerCPUBuffer,
 		func() interface{} {
-			return &protocols.SocketDataUploadEvent{}
+			return &base.SocketDataUploadEvent{}
 		}, func(data interface{}) string {
-			return data.(*protocols.SocketDataUploadEvent).GenerateConnectionID()
+			return data.(*base.SocketDataUploadEvent).GenerateConnectionID()
 		})
 }
 
@@ -43,13 +44,13 @@ type SocketDataPartitionContext struct {
 	analyzer *protocols.Analyzer
 }
 
-func NewSocketDataPartitionContext(l protocols.Context) *SocketDataPartitionContext {
+func NewSocketDataPartitionContext(l base.Context) *SocketDataPartitionContext {
 	return &SocketDataPartitionContext{
 		analyzer: protocols.NewAnalyzer(l),
 	}
 }
 
 func (p *SocketDataPartitionContext) Consume(data interface{}) {
-	event := data.(*protocols.SocketDataUploadEvent)
+	event := data.(*base.SocketDataUploadEvent)
 	p.analyzer.ReceiveSocketDataEvent(event)
 }

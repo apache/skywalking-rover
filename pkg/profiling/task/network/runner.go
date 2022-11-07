@@ -51,6 +51,7 @@ type Runner struct {
 	stopOnce       sync.Once
 	meterClient    v3.MeterReportServiceClient
 	logClient      logv3.LogReportServiceClient
+	eventClient    v3.SpanAttachedEventReportServiceClient
 	reportInterval time.Duration
 	meterPrefix    string
 
@@ -211,7 +212,15 @@ func (r *Runner) flushData() error {
 	if count, err1 := r.flushLogs(metricsBuilder); err1 != nil {
 		err = multierror.Append(err, err1)
 	} else if count > 0 {
-		log.Infof("total send network topology logs data: %d", count)
+		log.Infof("total send network logs data: %d", count)
+	}
+
+	eventCount, eventError := r.flushEvents(metricsBuilder)
+	if eventError != nil {
+		err = multierror.Append(err, eventError)
+	}
+	if eventCount > 0 {
+		log.Infof("total send network events data: %d", eventCount)
 	}
 	return err
 }
@@ -272,6 +281,33 @@ func (r *Runner) flushLogs(builder *analyzeBase.MetricsBuilder) (int, error) {
 	return count, nil
 }
 
+func (r *Runner) flushEvents(builder *analyzeBase.MetricsBuilder) (int, error) {
+	events := builder.BuildEvents()
+	if len(events) == 0 {
+		return 0, nil
+	}
+
+	collector, err := r.eventClient.Collect(r.ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if _, e := collector.CloseAndRecv(); e != nil {
+			log.Warnf("close the event stream error: %v", e)
+		}
+	}()
+	count := 0
+	var sendErrors error
+	for _, m := range events {
+		if err := collector.Send(m); err != nil {
+			sendErrors = multierror.Append(fmt.Errorf("send error, traceid: %s, event: %s, reason: %v", m.TraceContext.TraceId, m.Event, err))
+		} else {
+			count++
+		}
+	}
+	return count, sendErrors
+}
+
 func (r *Runner) Stop() error {
 	// if starting, then need to wait start finished
 	r.startLock.Lock()
@@ -301,6 +337,7 @@ func (r *Runner) init0(config *base.TaskConfig, moduleMgr *module.Manager) error
 	connection := coreOperator.BackendOperator().GetConnection()
 	r.meterClient = v3.NewMeterReportServiceClient(connection)
 	r.logClient = logv3.NewLogReportServiceClient(connection)
+	r.eventClient = v3.NewSpanAttachedEventReportServiceClient(connection)
 
 	reportInterval, err := time.ParseDuration(config.Network.ReportInterval)
 	if err != nil {

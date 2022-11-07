@@ -354,7 +354,7 @@ static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov,
     UPLOAD_PER_SOCKET_DATA_IOV();
 }
 
-static __inline void upload_socket_data(void *ctx, __u64 timestamp, __u64 conid, struct active_connection_t *connection, struct sock_data_args_t *args, ssize_t bytes_count, __u32 existing_msg_type, __u32 data_direction, bool ssl) {
+static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_time, __u64 conid, struct active_connection_t *connection, struct sock_data_args_t *args, ssize_t bytes_count, __u32 existing_msg_type, __u32 data_direction, bool ssl) {
     // generate event
     __u32 kZero = 0;
     struct socket_data_upload_event *event = bpf_map_lookup_elem(&socket_data_upload_event_per_cpu_map, &kZero);
@@ -382,7 +382,8 @@ static __inline void upload_socket_data(void *ctx, __u64 timestamp, __u64 conid,
     }
 
     // basic data
-    event->timestamp = timestamp;
+    event->start_time = start_time;
+    event->end_time = end_time;
     event->protocol = connection->protocol;
     event->msg_type = existing_msg_type;
     event->direction = data_direction;
@@ -463,7 +464,7 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
     }
 
     // upload the socket data if need
-    upload_socket_data(ctx, curr_nacs, conid, conn, args, bytes_count, msg_type, data_direction, ssl);
+    upload_socket_data(ctx, args->start_nacs, curr_nacs, conid, conn, args, bytes_count, msg_type, data_direction, ssl);
 
     // add statics when is not ssl(native buffer)
     if (ssl == false) {
@@ -971,9 +972,12 @@ SEC("kprobe/recv")
 int sys_recv(struct pt_regs* ctx) {
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
+    char* buf;
+    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECV);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);

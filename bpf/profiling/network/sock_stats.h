@@ -263,7 +263,8 @@ struct socket_data_upload_event {
     __u8 finished;
     __u16 sequence;
     __u16 data_len;
-    __u64 timestamp;
+    __u64 start_time;
+    __u64 end_time;
     __u64 conid;
     __u64 randomid;
     __u64 data_id;

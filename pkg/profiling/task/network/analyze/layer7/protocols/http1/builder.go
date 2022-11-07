@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package protocols
+package http1
 
 import (
 	"bufio"
@@ -23,18 +23,20 @@ import (
 	"container/list"
 	"net/http"
 
+	base2 "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 )
 
-type HTTP1BufferAnalyzer struct {
-	http1Analyzer *HTTP1Analyzer
+type BufferAnalyzer struct {
+	http1Analyzer *Analyzer
 
-	unknownEventBuffer SocketDataBuffer
+	unknownEventBuffer base2.SocketDataBuffer
 	unknownElement     *list.Element
 	unknownSize        int
-	request            *SocketDataUploadEvent
+	request            *base2.SocketDataUploadEvent
 	requestElement     *list.Element
-	response           *SocketDataUploadEvent
+	response           *base2.SocketDataUploadEvent
 	responseElement    *list.Element
 
 	unknownDataID      uint64
@@ -47,13 +49,13 @@ type HTTP1BufferAnalyzer struct {
 	respFinished       bool
 }
 
-func NewHTTP1BufferAnalyzer(http1 *HTTP1Analyzer) *HTTP1BufferAnalyzer {
-	return &HTTP1BufferAnalyzer{http1Analyzer: http1}
+func NewHTTP1BufferAnalyzer(http1 *Analyzer) *BufferAnalyzer {
+	return &BufferAnalyzer{http1Analyzer: http1}
 }
 
-func (h *HTTP1BufferAnalyzer) Analyze(events *list.List) (request, response SocketDataBuffer) {
+func (h *BufferAnalyzer) Analyze(events *list.List) (request, response base2.SocketDataBuffer) {
 	for element := events.Front(); element != nil; element = element.Next() {
-		curEvent := element.Value.(*SocketDataUploadEvent)
+		curEvent := element.Value.(*base2.SocketDataUploadEvent)
 		// transform the unknown to the request or response
 		if continueReading, req, resp := h.handleUnknown(events, element, curEvent); req != nil && resp != nil {
 			return req, resp
@@ -74,8 +76,8 @@ func (h *HTTP1BufferAnalyzer) Analyze(events *list.List) (request, response Sock
 	return nil, nil
 }
 
-func (h *HTTP1BufferAnalyzer) handleUnknown(event *list.List, element *list.Element,
-	curEvent *SocketDataUploadEvent) (continueReading bool, req, resp SocketDataBuffer) {
+func (h *BufferAnalyzer) handleUnknown(event *list.List, element *list.Element,
+	curEvent *base2.SocketDataUploadEvent) (continueReading bool, req, resp base2.SocketDataBuffer) {
 	if curEvent.MsgType != base.SocketMessageTypeUnknown {
 		return false, nil, nil
 	}
@@ -111,8 +113,8 @@ func (h *HTTP1BufferAnalyzer) handleUnknown(event *list.List, element *list.Elem
 	return false, nil, nil
 }
 
-func (h *HTTP1BufferAnalyzer) handleRequest(events *list.List, element *list.Element,
-	curEvent *SocketDataUploadEvent) (continueReading bool, req, resp SocketDataBuffer) {
+func (h *BufferAnalyzer) handleRequest(events *list.List, element *list.Element,
+	curEvent *base2.SocketDataUploadEvent) (continueReading bool, req, resp base2.SocketDataBuffer) {
 	if h.request == nil {
 		// find the first request package event
 		if curEvent.MsgType == base.SocketMessageTypeRequest && curEvent.IsStart() {
@@ -145,7 +147,8 @@ func (h *HTTP1BufferAnalyzer) handleRequest(events *list.List, element *list.Ele
 	return false, nil, nil
 }
 
-func (h *HTTP1BufferAnalyzer) handleResponse(events *list.List, element *list.Element, curEvent *SocketDataUploadEvent) (req, resp SocketDataBuffer) {
+func (h *BufferAnalyzer) handleResponse(events *list.List, element *list.Element,
+	curEvent *base2.SocketDataUploadEvent) (req, resp base2.SocketDataBuffer) {
 	if h.response == nil {
 		// if current response is not start, then clean to re-find new one
 		if !curEvent.IsStart() {
@@ -166,10 +169,11 @@ func (h *HTTP1BufferAnalyzer) handleResponse(events *list.List, element *list.El
 	}
 
 	// if response sequence is broken, then clean the context
-	if !h.respFinished && (h.respDataID != curEvent.DataID || h.respMaxSequence+1 != curEvent.Sequence) {
+	if h.respDataID != curEvent.DataID || h.respMaxSequence+1 != curEvent.Sequence {
 		h.cleanContext()
 		return nil, nil
 	}
+	h.respDataID = curEvent.DataID
 	h.respMaxSequence = curEvent.Sequence
 
 	if h.reqFinished && curEvent.IsFinished() {
@@ -178,14 +182,14 @@ func (h *HTTP1BufferAnalyzer) handleResponse(events *list.List, element *list.El
 	return nil, nil
 }
 
-func (h *HTTP1BufferAnalyzer) resetStartUnknown(element *list.Element, curEvent *SocketDataUploadEvent) {
+func (h *BufferAnalyzer) resetStartUnknown(element *list.Element, curEvent *base2.SocketDataUploadEvent) {
 	h.unknownEventBuffer = curEvent
 	h.unknownElement = element
 	h.unknownDataID = curEvent.DataID
 	h.unknownMaxSequence = curEvent.Sequence
 }
 
-func (h *HTTP1BufferAnalyzer) resetStartRequest(element *list.Element, curEvent *SocketDataUploadEvent) {
+func (h *BufferAnalyzer) resetStartRequest(element *list.Element, curEvent *base2.SocketDataUploadEvent) {
 	h.request = curEvent
 	h.reqDataID = curEvent.DataID
 	h.reqMaxSequence = curEvent.Sequence
@@ -193,7 +197,7 @@ func (h *HTTP1BufferAnalyzer) resetStartRequest(element *list.Element, curEvent 
 	h.requestElement = element
 }
 
-func (h *HTTP1BufferAnalyzer) resetStartResponse(element *list.Element, curEvent *SocketDataUploadEvent) {
+func (h *BufferAnalyzer) resetStartResponse(element *list.Element, curEvent *base2.SocketDataUploadEvent) {
 	h.response = curEvent
 	h.respDataID = curEvent.DataID
 	h.respMaxSequence = curEvent.Sequence
@@ -201,7 +205,7 @@ func (h *HTTP1BufferAnalyzer) resetStartResponse(element *list.Element, curEvent
 	h.respFinished = curEvent.IsFinished()
 }
 
-func (h *HTTP1BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEvent *SocketDataUploadEvent) (req, resp SocketDataBuffer) {
+func (h *BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEvent *base2.SocketDataUploadEvent) (req, resp base2.SocketDataBuffer) {
 	if h.unknownEventBuffer == nil {
 		return nil, nil
 	}
@@ -212,7 +216,7 @@ func (h *HTTP1BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEv
 	_, err := http.ReadRequest(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())))
 	if err == nil {
 		// update the event as request
-		curEvent.Finished = 1
+		curEvent.FinishStatus = 1
 		h.transformUnknown(h.unknownElement, base.SocketMessageTypeRequest)
 		// update the current data is request
 		h.resetStartRequest(h.unknownElement, h.unknownEventBuffer.FirstEvent())
@@ -224,7 +228,7 @@ func (h *HTTP1BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEv
 	tmpResponse, err := http.ReadResponse(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())), &http.Request{})
 	if err == nil {
 		defer tmpResponse.Body.Close()
-		curEvent.Finished = 1
+		curEvent.FinishStatus = 1
 		h.transformUnknown(h.unknownElement, base.SocketMessageTypeResponse)
 		// if request already finished, then remove the request
 		if h.reqFinished {
@@ -237,14 +241,14 @@ func (h *HTTP1BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEv
 	return nil, nil
 }
 
-func (h *HTTP1BufferAnalyzer) transformUnknown(element *list.Element, msgType base.SocketMessageType) {
+func (h *BufferAnalyzer) transformUnknown(element *list.Element, msgType base.SocketMessageType) {
 	// update message type and total size
-	firstEvent := element.Value.(*SocketDataUploadEvent)
+	firstEvent := element.Value.(*base2.SocketDataUploadEvent)
 	firstEvent.MsgType = msgType
 	dataLen := int(firstEvent.DataLen)
 	for e := element.Next(); e != nil; e = e.Next() {
-		curEvent := e.Value.(*SocketDataUploadEvent)
-		if curEvent.Finished == 1 {
+		curEvent := e.Value.(*base2.SocketDataUploadEvent)
+		if curEvent.FinishStatus == 1 {
 			curEvent.MsgType = msgType
 			dataLen += int(curEvent.DataLen)
 			firstEvent.TotalSize0 = uint64(dataLen)
@@ -255,32 +259,32 @@ func (h *HTTP1BufferAnalyzer) transformUnknown(element *list.Element, msgType ba
 	}
 }
 
-func (h *HTTP1BufferAnalyzer) cleanContext() {
+func (h *BufferAnalyzer) cleanContext() {
 	h.cleanUnknownContext()
 	h.cleanRequestContext()
 	h.cleanResponseContext()
 }
 
-func (h *HTTP1BufferAnalyzer) cleanResponseContext() {
+func (h *BufferAnalyzer) cleanResponseContext() {
 	h.response = nil
 	h.respDataID = 0
 	h.respMaxSequence = 0
 	h.respFinished = false
 }
 
-func (h *HTTP1BufferAnalyzer) cleanRequestContext() {
+func (h *BufferAnalyzer) cleanRequestContext() {
 	h.request = nil
 	h.reqDataID = 0
 	h.reqMaxSequence = 0
 	h.reqFinished = false
 }
 
-func (h *HTTP1BufferAnalyzer) cleanUnknownContext() {
+func (h *BufferAnalyzer) cleanUnknownContext() {
 	h.unknownEventBuffer, h.unknownElement = nil, nil
 	h.unknownSize, h.unknownDataID, h.unknownMaxSequence = 0, 0, 0
 }
 
-func (h *HTTP1BufferAnalyzer) buildHTTP(events *list.List) (req, resp SocketDataBuffer) {
+func (h *BufferAnalyzer) buildHTTP(events *list.List) (req, resp base2.SocketDataBuffer) {
 	return h.http1Analyzer.combineAndRemoveEvent(events, h.requestElement, nil),
 		h.http1Analyzer.combineAndRemoveEvent(events, h.responseElement, nil)
 }
