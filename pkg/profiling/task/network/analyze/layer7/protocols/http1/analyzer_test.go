@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package protocols
+package http1
 
 import (
 	"bufio"
@@ -24,6 +24,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	base2 "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 )
@@ -243,13 +245,13 @@ func TestBuildHTTP1(t *testing.T) {
 
 	for _, testCase := range tests {
 		//t.Run(testCase.name, func(t *testing.T) {
-		analyzer := NewHTTP1Analyzer().(*HTTP1Analyzer)
+		analyzer := NewHTTP1Analyzer().(*Analyzer)
 		l := list.New()
 		var events = make([]struct {
 			start, end int
 		}, 0)
 		for _, event := range testCase.events {
-			req, resp := analyzer.buildHTTP1(l, &SocketDataUploadEvent{
+			req, resp := analyzer.buildHTTP1(l, &base2.SocketDataUploadEvent{
 				DataID:   uint64(event.dataID),
 				MsgType:  base.SocketMessageType(event.dataType),
 				Sequence: uint16(event.sequence),
@@ -272,7 +274,7 @@ func TestBuildHTTP1(t *testing.T) {
 		}
 		actualList := make([]int, 0)
 		for element := l.Front(); element != nil; element = element.Next() {
-			actualList = append(actualList, int(element.Value.(*SocketDataUploadEvent).DataID))
+			actualList = append(actualList, int(element.Value.(*base2.SocketDataUploadEvent).DataID))
 		}
 		if !reflect.DeepEqual(exceptedList, actualList) {
 			t.Fatalf("excepted residue data list: %v, actual: %v", exceptedList, actualList)
@@ -297,7 +299,7 @@ func bufferConvert(data string) [2048]byte {
 func TestParseSimpleHTTP1Response(t *testing.T) {
 	s := `HTTP/1.0 200 OK\r\n`
 	h := &http.Request{}
-	analyzer := NewHTTP1Analyzer().(*HTTP1Analyzer)
+	analyzer := NewHTTP1Analyzer().(*Analyzer)
 	resp, err := analyzer.tryingToReadResponseWithoutHeaders(bufio.NewReader(strings.NewReader(s)), h)
 	if err != nil {
 		t.Fatalf("reading simple response error: %v", err)

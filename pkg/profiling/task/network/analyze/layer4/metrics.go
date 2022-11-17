@@ -64,8 +64,8 @@ func NewLayer4Metrics() *Metrics {
 	}
 }
 
-func (l *Metrics) MergeMetricsFromConnection(connection *base.ConnectionContext) {
-	metrics := connection.Metrics.GetMetrics(Name).(*Metrics)
+func (l *Metrics) MergeMetricsFromConnection(connection *base.ConnectionContext, data base.ConnectionMetrics) {
+	metrics := data.(*Metrics)
 
 	l.WriteCounter.IncreaseToCurrent(metrics.WriteCounter.CalculateIncrease())
 	l.ReadCounter.IncreaseToCurrent(metrics.ReadCounter.CalculateIncrease())

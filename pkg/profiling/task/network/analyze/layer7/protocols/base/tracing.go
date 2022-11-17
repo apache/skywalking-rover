@@ -15,23 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package protocols
+package base
 
 import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
 type TracingContext interface {
 	TraceID() string
-	Provider() string
+	TraceSegmentID() string
+	SpanID() string
+	Provider() *TraceContextProvider
+}
+
+type TraceContextProvider struct {
+	Type v3.SpanAttachedEvent_SpanReferenceType
+	Name string
 }
 
 type SkyWalkingTracingContext struct {
 	TraceID0              string
-	SegmentID             string
-	SpanID                string
+	SegmentID0            string
+	SpanID0               string
 	ParentService         string
 	ParentServiceInstance string
 	ParentEndpoint        string
@@ -40,15 +49,26 @@ type SkyWalkingTracingContext struct {
 
 type ZipkinTracingContext struct {
 	TraceID0 string
-	SpanID   string
+	SpanID0  string
 }
 
 func (w *SkyWalkingTracingContext) TraceID() string {
 	return w.TraceID0
 }
 
-func (w *SkyWalkingTracingContext) Provider() string {
-	return "skywalking"
+func (w *SkyWalkingTracingContext) TraceSegmentID() string {
+	return w.SegmentID0
+}
+
+func (w *SkyWalkingTracingContext) SpanID() string {
+	return w.SpanID0
+}
+
+func (w *SkyWalkingTracingContext) Provider() *TraceContextProvider {
+	return &TraceContextProvider{
+		Type: v3.SpanAttachedEvent_SKYWALKING,
+		Name: "skywalking",
+	}
 }
 
 func AnalyzeTracingContext(fetcher func(key string) string) (TracingContext, error) {
@@ -79,8 +99,8 @@ func analyzeSkyWalking8TracingContext(val string) (*SkyWalkingTracingContext, er
 	var err error
 	ctx := &SkyWalkingTracingContext{}
 	ctx.TraceID0, err = decodeBase64StringValue(err, parts[1])
-	ctx.SegmentID, err = decodeBase64StringValue(err, parts[2])
-	ctx.SpanID = parts[3]
+	ctx.SegmentID0, err = decodeBase64StringValue(err, parts[2])
+	ctx.SpanID0 = parts[3]
 	ctx.ParentService, err = decodeBase64StringValue(err, parts[4])
 	ctx.ParentServiceInstance, err = decodeBase64StringValue(err, parts[5])
 	ctx.ParentEndpoint, err = decodeBase64StringValue(err, parts[6])
@@ -93,7 +113,7 @@ func analyzeSkyWalking8TracingContext(val string) (*SkyWalkingTracingContext, er
 }
 
 func analyzeZipkinTracingContextWithSpecificData(traceID, spanID string) *ZipkinTracingContext {
-	return &ZipkinTracingContext{TraceID0: traceID, SpanID: spanID}
+	return &ZipkinTracingContext{TraceID0: traceID, SpanID0: spanID}
 }
 
 func analyzeZipkinTracingContextWithSingleData(singleData string) *ZipkinTracingContext {
@@ -101,15 +121,26 @@ func analyzeZipkinTracingContextWithSingleData(singleData string) *ZipkinTracing
 	if len(info) < 2 {
 		return nil
 	}
-	return &ZipkinTracingContext{TraceID0: info[0], SpanID: info[1]}
+	return &ZipkinTracingContext{TraceID0: info[0], SpanID0: info[1]}
 }
 
 func (w *ZipkinTracingContext) TraceID() string {
 	return w.TraceID0
 }
 
-func (w *ZipkinTracingContext) Provider() string {
-	return "zipkin"
+func (w *ZipkinTracingContext) TraceSegmentID() string {
+	return ""
+}
+
+func (w *ZipkinTracingContext) SpanID() string {
+	return w.SpanID0
+}
+
+func (w *ZipkinTracingContext) Provider() *TraceContextProvider {
+	return &TraceContextProvider{
+		Type: v3.SpanAttachedEvent_ZIPKIN,
+		Name: "zipkin",
+	}
 }
 
 func decodeBase64StringValue(err error, val string) (string, error) {

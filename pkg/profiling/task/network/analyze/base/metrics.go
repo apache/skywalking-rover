@@ -31,7 +31,7 @@ import (
 // ConnectionMetrics The Metrics in each listener
 type ConnectionMetrics interface {
 	// MergeMetricsFromConnection merge the metrics from connection, and added into self
-	MergeMetricsFromConnection(connection *ConnectionContext)
+	MergeMetricsFromConnection(connection *ConnectionContext, data ConnectionMetrics)
 }
 
 type ConnectionMetricsContext struct {
@@ -51,8 +51,9 @@ func (c *ConnectionMetricsContext) GetMetrics(listenerName string) ConnectionMet
 }
 
 func (c *ConnectionMetricsContext) MergeMetricsFromConnection(connection *ConnectionContext) {
-	for _, metric := range c.data {
-		metric.MergeMetricsFromConnection(connection)
+	for name, metric := range c.data {
+		metrics := connection.Metrics.GetMetrics(name)
+		metric.MergeMetricsFromConnection(connection, metrics)
 	}
 }
 
@@ -60,6 +61,7 @@ type MetricsBuilder struct {
 	prefix  string
 	metrics map[metadata][]*agentv3.MeterData
 	logs    map[metadata][]*logv3.LogData
+	events  []*agentv3.SpanAttachedEvent
 }
 
 func NewMetricsBuilder(prefix string) *MetricsBuilder {
@@ -83,6 +85,10 @@ func (m *MetricsBuilder) AppendMetrics(service, instance string, metrics []*agen
 func (m *MetricsBuilder) AppendLogs(service string, log *logv3.LogData) {
 	meta := metadata{ServiceName: service}
 	m.logs[meta] = append(m.logs[meta], log)
+}
+
+func (m *MetricsBuilder) AppendSpanAttachedEvents(events []*agentv3.SpanAttachedEvent) {
+	m.events = append(m.events, events...)
 }
 
 func (m *MetricsBuilder) MetricPrefix() string {
@@ -139,6 +145,10 @@ func (m *MetricsBuilder) BuildLogs() [][]*logv3.LogData {
 		result = append(result, logs)
 	}
 	return result
+}
+
+func (m *MetricsBuilder) BuildEvents() []*agentv3.SpanAttachedEvent {
+	return m.events
 }
 
 type metadata struct {

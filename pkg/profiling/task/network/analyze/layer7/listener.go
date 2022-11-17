@@ -29,10 +29,13 @@ import (
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
+	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	"github.com/zekroTJA/timedmap"
 )
+
+var ListenerName = "layer7"
 
 const (
 	ConnectionCachedTTL      = time.Minute
@@ -56,7 +59,7 @@ func NewListener(analyzer *base.AnalyzerContext) *Listener {
 }
 
 func (l *Listener) Name() string {
-	return protocols.ListenerName
+	return ListenerName
 }
 
 func (l *Listener) Init(config *profiling.TaskConfig, moduleManager *module.Manager) error {
@@ -123,6 +126,11 @@ func (l *Listener) QueryConnection(conID, randomID uint64) *base.ConnectionConte
 		return cacheCon.(*base.ConnectionContext)
 	}
 	return nil
+}
+
+func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocolName string) protocol.Metrics {
+	metrics := conMetrics.GetMetrics(ListenerName).(*protocols.ProtocolMetrics)
+	return metrics.GetProtocolMetrics(protocolName)
 }
 
 func (l *Listener) generateCachedConnectionKey(conID, randomID uint64) string {

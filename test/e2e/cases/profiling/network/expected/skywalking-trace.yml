@@ -14,23 +14,38 @@
 # limitations under the License.
 
 spans:
-  {{- contains .spans}}
-  - traceid: {{ notEmpty .traceid }}
-    segmentid: {{ notEmpty .segmentid }}
-    spanid: 0
-    parentspanid: -1
-    refs: []
-    servicecode: example
-    serviceinstancename: {{ notEmpty .serviceinstancename }}
-    starttime: {{ gt .starttime 0 }}
-    endtime: {{ gt .endtime 0 }}
-    endpointname: /provider
-    type: Exit
-    peer: https://proxy/provider
-    component: Unknown
-    iserror: false
-    layer: Unknown
-    tags: []
-    logs: []
-    attachedevents: []
+{{- contains .spans}}
+- traceid: {{ notEmpty .traceid }}
+  segmentid: {{ notEmpty .segmentid }}
+  spanid: 0
+  parentspanid: -1
+  refs: []
+  servicecode: example
+  serviceinstancename: {{ notEmpty .serviceinstancename }}
+  starttime: {{ gt .starttime 0 }}
+  endtime: {{ gt .endtime 0 }}
+  endpointname: /provider
+  type: Exit
+  peer: https://proxy/provider
+  component: Unknown
+  iserror: false
+  layer: Unknown
+  tags: []
+  logs: []
+  attachedevents:
+  {{- contains .attachedevents}}
+    - starttime:
+        seconds: {{ gt .starttime.seconds 0 }}
+        nanos: {{ ge .starttime.nanos 0 }}
+      event: HTTP Request Sampling
+      endtime:
+        seconds: {{ gt .endtime.seconds 0 }}
+        nanos: {{ ge .endtime.nanos 0 }}
+      summary: []
+      tags:
+      {{- contains .tags }}
+      - key: data size
+        value: {{ notEmpty .value }}
+      {{- end }}
   {{- end }}
+{{- end }}

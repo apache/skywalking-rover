@@ -107,3 +107,9 @@ Based on the above two data types, the following metrics are provided.
 | Name         | Type  | Unit        | Description                |
 |--------------|-------|-------------|----------------------------|
 | slow_traces  | TopN  | millisecond | The Top N slow trace(id)s  |
+
+##### Span Attached Event
+| Name               | Description                                                                                   |
+|--------------------|-----------------------------------------------------------------------------------------------|
+| http-full-request  | Complete information about the HTTP request, it's only reported when it matches slow traces.  |
+| http-full-response | Complete information about the HTTP response, it's only reported when it matches slow traces. |

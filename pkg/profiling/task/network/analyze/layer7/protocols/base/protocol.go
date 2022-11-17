@@ -15,33 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package host
+package base
 
-import (
-	"fmt"
-	"time"
+import "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 
-	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
+type Protocol interface {
+	Name() string
+	GenerateMetrics() Metrics
 
-	"github.com/shirou/gopsutil/host"
-)
-
-// BootTime the System boot time
-var BootTime time.Time
-
-func init() {
-	boot, err := host.BootTime()
-	if err != nil {
-		panic(fmt.Errorf("init boot time error: %v", err))
-	}
-	BootTime = time.Unix(int64(boot), 0)
+	ReceiveData(context Context, event *SocketDataUploadEvent) bool
 }
 
-func TimeToInstant(bpfTime uint64) *v3.Instant {
-	timeCopy := time.Unix(BootTime.Unix(), int64(BootTime.Nanosecond()))
-	result := timeCopy.Add(time.Duration(bpfTime))
-	return &v3.Instant{
-		Seconds: result.Unix(),
-		Nanos:   int32(result.Nanosecond()),
-	}
+type Context interface {
+	QueryConnection(connectionID, randomID uint64) *base.ConnectionContext
+	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocolName string) Metrics
+}
+
+type Metrics interface {
+	base.ConnectionMetrics
+
+	// FlushMetrics flush all metrics from traffic to the metricsBuilder
+	FlushMetrics(traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder)
 }
