@@ -252,12 +252,12 @@ func TestBuildHTTP1(t *testing.T) {
 		}, 0)
 		for _, event := range testCase.events {
 			req, resp := analyzer.buildHTTP1(l, &base2.SocketDataUploadEvent{
-				DataID:       uint64(event.dataID),
-				MsgType:      base.SocketMessageType(event.dataType),
-				Sequence:     uint16(event.sequence),
-				FinishStatus: uint8(event.finished),
-				Buffer:       bufferConvert(event.data),
-				DataLen:      uint16(len(event.data)),
+				DataID:   uint64(event.dataID),
+				MsgType:  base.SocketMessageType(event.dataType),
+				Sequence: uint16(event.sequence),
+				Finished: uint8(event.finished),
+				Buffer:   bufferConvert(event.data),
+				DataLen:  uint16(len(event.data)),
 			})
 			if req != nil && resp != nil {
 				events = append(events, struct{ start, end int }{start: req.MinDataID(), end: resp.MaxDataID()})

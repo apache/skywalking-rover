@@ -45,7 +45,7 @@ type SocketDataUploadEvent struct {
 	Protocol     base.ConnectionProtocol
 	MsgType      base.SocketMessageType
 	Direction0   base.SocketDataDirection
-	FinishStatus uint8
+	Finished     uint8
 	Sequence     uint16
 	DataLen      uint16
 	StartTime0   uint64
@@ -94,7 +94,7 @@ func (s *SocketDataUploadEvent) IsStart() bool {
 }
 
 func (s *SocketDataUploadEvent) IsFinished() bool {
-	return s.FinishStatus == 1
+	return s.Finished == 1
 }
 
 func (s *SocketDataUploadEvent) Combine(other SocketDataBuffer) SocketDataBuffer {

@@ -216,7 +216,7 @@ func (h *BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEvent *
 	_, err := http.ReadRequest(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())))
 	if err == nil {
 		// update the event as request
-		curEvent.FinishStatus = 1
+		curEvent.Finished = 1
 		h.transformUnknown(h.unknownElement, base.SocketMessageTypeRequest)
 		// update the current data is request
 		h.resetStartRequest(h.unknownElement, h.unknownEventBuffer.FirstEvent())
@@ -228,7 +228,7 @@ func (h *BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEvent *
 	tmpResponse, err := http.ReadResponse(bufio.NewReader(bytes.NewBuffer(h.unknownEventBuffer.BufferData())), &http.Request{})
 	if err == nil {
 		defer tmpResponse.Body.Close()
-		curEvent.FinishStatus = 1
+		curEvent.Finished = 1
 		h.transformUnknown(h.unknownElement, base.SocketMessageTypeResponse)
 		// if request already finished, then remove the request
 		if h.reqFinished {
@@ -248,7 +248,7 @@ func (h *BufferAnalyzer) transformUnknown(element *list.Element, msgType base.So
 	dataLen := int(firstEvent.DataLen)
 	for e := element.Next(); e != nil; e = e.Next() {
 		curEvent := e.Value.(*base2.SocketDataUploadEvent)
-		if curEvent.FinishStatus == 1 {
+		if curEvent.Finished == 1 {
 			curEvent.MsgType = msgType
 			dataLen += int(curEvent.DataLen)
 			firstEvent.TotalSize0 = uint64(dataLen)

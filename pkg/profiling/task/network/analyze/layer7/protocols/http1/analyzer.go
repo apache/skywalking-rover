@@ -112,7 +112,7 @@ func (h *Analyzer) ReceiveData(context protocol.Context, event *protocol.SocketD
 	}
 
 	log.Debugf("receive connection: %s, dataid: %d, sequence: %d, finished: %d, message type: %s, direction: %s, size: %d, total size: %d",
-		connectionID, event.DataID, event.Sequence, event.FinishStatus, event.MsgType.String(), event.Direction().String(), event.DataLen, event.TotalSize0)
+		connectionID, event.DataID, event.Sequence, event.Finished, event.MsgType.String(), event.Direction().String(), event.DataLen, event.TotalSize0)
 	// if the cache is existing in the analyzer context, then delete it
 	if !fromAnalyzerCache {
 		if tmp := h.cache[connectionID]; tmp != nil {
@@ -136,7 +136,7 @@ func (h *Analyzer) ReceiveData(context protocol.Context, event *protocol.SocketD
 func (h *Analyzer) combineAndRemoveEvent(halfConnections *list.List, firstElement *list.Element,
 	lastAppender protocol.SocketDataBuffer) protocol.SocketDataBuffer {
 	firstEvent := firstElement.Value.(*protocol.SocketDataUploadEvent)
-	if firstEvent.Sequence == 0 && firstEvent.FinishStatus == 1 {
+	if firstEvent.Sequence == 0 && firstEvent.Finished == 1 {
 		halfConnections.Remove(firstElement)
 		return h.combineEventIfNeed(firstEvent, lastAppender)
 	}
@@ -153,7 +153,7 @@ func (h *Analyzer) combineAndRemoveEvent(halfConnections *list.List, firstElemen
 		halfConnections.Remove(next)
 		next = tmp
 		// combine event
-		if event.FinishStatus == 1 {
+		if event.Finished == 1 {
 			return h.combineEventIfNeed(buffer, lastAppender)
 		}
 	}
@@ -178,7 +178,7 @@ func (h *Analyzer) buildHTTP1(halfConnections *list.List, event *protocol.Socket
 	if halfConnections.Len() == 1 {
 		firstElement := halfConnections.Front()
 		firstEvent := firstElement.Value.(*protocol.SocketDataUploadEvent)
-		if firstEvent.IsStart() && firstEvent.FinishStatus == 1 && event.IsStart() && event.FinishStatus == 1 &&
+		if firstEvent.IsStart() && firstEvent.Finished == 1 && event.IsStart() && event.Finished == 1 &&
 			firstEvent.DataID+1 == event.DataID && firstEvent.MsgType == base.SocketMessageTypeRequest &&
 			event.MsgType == base.SocketMessageTypeResponse {
 			return h.combineAndRemoveEvent(halfConnections, firstElement, nil), event
