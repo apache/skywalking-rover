@@ -32,6 +32,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	task "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
@@ -62,7 +63,7 @@ type URIMetrics struct {
 	avgDuration       *metrics.AvgCounter
 	durationHistogram *metrics.Histogram
 
-	slowTraces *metrics.TopN
+	sampler *Sampler
 }
 
 func NewHTTP1URIMetrics() *URIMetrics {
@@ -75,11 +76,12 @@ func NewHTTP1URIMetrics() *URIMetrics {
 		RespPackageSizeHistogram: metrics.NewHistogram(PackageSizeHistogramBuckets),
 		avgDuration:              metrics.NewAvgCounter(),
 		durationHistogram:        metrics.NewHistogram(DurationHistogramBuckets),
-		slowTraces:               metrics.NewTopN(SlowTraceTopNSize),
+		sampler:                  NewSampler(),
 	}
 }
 
-func (u *URIMetrics) Append(req *http.Request, reqBuffer protocol.SocketDataBuffer, resp *http.Response, respBuffer protocol.SocketDataBuffer) {
+func (u *URIMetrics) Append(sampleConfig *SamplingConfig,
+	req *http.Request, reqBuffer protocol.SocketDataBuffer, resp *http.Response, respBuffer protocol.SocketDataBuffer) {
 	u.RequestCounter.Increase()
 	statusCounter := u.StatusCounter[resp.StatusCode]
 	if statusCounter == nil {
@@ -98,7 +100,7 @@ func (u *URIMetrics) Append(req *http.Request, reqBuffer protocol.SocketDataBuff
 	u.avgDuration.Increase(durationInMS)
 	u.durationHistogram.Increase(durationInMS)
 
-	u.increaseSlowTraceTopN(u.slowTraces, duration, req, resp, reqBuffer, respBuffer)
+	u.sampler.AppendMetrics(sampleConfig, duration, req, resp, reqBuffer, respBuffer)
 }
 
 func (u *URIMetrics) appendMetrics(traffic *base.ProcessTraffic,
@@ -127,7 +129,8 @@ func (u *URIMetrics) appendMetrics(traffic *base.ProcessTraffic,
 	collections = u.buildMetrics(collections, prefix, "response_package_size_histogram", labels, url, traffic, u.RespPackageSizeHistogram)
 
 	metricsBuilder.AppendMetrics(local.Entity().ServiceName, local.Entity().InstanceName, collections)
-	logsCount := u.slowTraces.AppendData(local, traffic, metricsBuilder)
+
+	logsCount := u.sampler.BuildMetrics(local, traffic, metricsBuilder)
 	return len(collections) + logsCount
 }
 
@@ -162,35 +165,13 @@ func (u *URIMetrics) MergeAndClean(other *URIMetrics) {
 	u.RespPackageSizeHistogram.MergeAndClean(other.RespPackageSizeHistogram)
 	u.avgDuration.MergeAndClean(other.avgDuration)
 	u.durationHistogram.MergeAndClean(other.durationHistogram)
-	u.slowTraces.MergeAndClean(other.slowTraces)
+	u.sampler.MergeAndClean(other.sampler)
 }
 
 func (u *URIMetrics) String() string {
-	return fmt.Sprintf("request count: %d, avg request size: %f, avg response size: %f, avg duration: %f, slow trace count: %d, response counters: %v",
+	return fmt.Sprintf("request count: %d, avg request size: %f, avg response size: %f, avg duration: %f, response counters: %v, sampler: %s",
 		u.RequestCounter.Get(), u.AvgRequestPackageSize.Calculate(), u.AvgResponsePackageSize.Calculate(),
-		u.avgDuration.Calculate(), u.slowTraces.List.Len(), u.StatusCounter)
-}
-
-func (u *URIMetrics) increaseSlowTraceTopN(slowTraceTopN *metrics.TopN, duration time.Duration,
-	request *http.Request, response *http.Response, reqBuffer, respBuffer protocol.SocketDataBuffer) {
-	tracingContext, err := protocol.AnalyzeTracingContext(func(key string) string {
-		return request.Header.Get(key)
-	})
-	if err != nil {
-		log.Warnf("analyze tracing context error: %v", err)
-		return
-	}
-	if tracingContext == nil {
-		return
-	}
-
-	// remove the query parameters
-	uri := request.RequestURI
-	if i := strings.Index(uri, "?"); i > 0 {
-		uri = uri[0:i]
-	}
-	trace := &Trace{Trace: tracingContext, RequestURI: uri, RequestBuffer: reqBuffer, ResponseBuffer: respBuffer, Request: request, Response: response}
-	slowTraceTopN.AddRecord(trace, duration.Milliseconds())
+		u.avgDuration.Calculate(), u.StatusCounter, u.sampler.String())
 }
 
 type Trace struct {
@@ -200,6 +181,8 @@ type Trace struct {
 	Request        *http.Request
 	ResponseBuffer protocol.SocketDataBuffer
 	Response       *http.Response
+	Type           string
+	Settings       *task.NetworkDataCollectingSettings
 }
 
 func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
@@ -218,21 +201,22 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 
 	// body
 	logBody := &logv3.LogDataBody{Type: "json"}
-	body := &SlowTraceLogBody{
+	body := &SamplingTraceLogBody{
 		Latency:       duration,
 		TraceProvider: h.Trace.Provider().Name,
 		DetectPoint:   traffic.Role.String(),
 		Component:     traffic.Protocol.String(),
 		SSL:           traffic.IsSSL,
 		URI:           h.RequestURI,
-		Reason:        "slow",
+		Reason:        h.Type,
+		Status:        h.Response.StatusCode,
 	}
 	if traffic.Role == base.ConnectionRoleClient {
-		body.ClientProcess = &SlowTraceLogProcess{ProcessID: process.ID()}
-		body.ServerProcess = NewHTTP1SlowTRaceLogRemoteProcess(traffic, process)
+		body.ClientProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}
+		body.ServerProcess = NewHTTP1SampledTraceLogRemoteProcess(traffic, process)
 	} else {
-		body.ServerProcess = &SlowTraceLogProcess{ProcessID: process.ID()}
-		body.ClientProcess = NewHTTP1SlowTRaceLogRemoteProcess(traffic, process)
+		body.ServerProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}
+		body.ClientProcess = NewHTTP1SampledTraceLogRemoteProcess(traffic, process)
 	}
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
@@ -250,15 +234,21 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 
 func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
 	events := make([]*v3.SpanAttachedEvent, 0)
-	events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.Header, h.Request.Body, h.RequestBuffer)
-	events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.Header, h.Response.Body, h.ResponseBuffer)
+	if h.Settings != nil && h.Settings.RequireCompleteRequest {
+		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.Header,
+			h.Request.Body, h.RequestBuffer, h.Settings.MaxRequestSize)
+	}
+	if h.Settings != nil && h.Settings.RequireCompleteResponse {
+		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.Header,
+			h.Response.Body, h.ResponseBuffer, h.Settings.MaxResponseSize)
+	}
 
 	metricsBuilder.AppendSpanAttachedEvents(events)
 }
 
 func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
-	tp string, header http.Header, body io.Reader, buffer protocol.SocketDataBuffer) []*v3.SpanAttachedEvent {
-	content, err := h.transformHTTPRequest(header, body, buffer)
+	tp string, header http.Header, body io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) []*v3.SpanAttachedEvent {
+	content, err := h.transformHTTPRequest(header, body, buffer, maxSize)
 	if err != nil {
 		log.Warnf("transform http %s erorr: %v", tp, err)
 		return events
@@ -299,7 +289,7 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 }
 
 // nolint
-func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer protocol.SocketDataBuffer) (string, error) {
+func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) (string, error) {
 	var needGzip, isPlain, isUtf8 = header.Get("Content-Encoding") == "gzip", true, true
 	contentType := header.Get("Content-Type")
 	if contentType != "" {
@@ -312,7 +302,11 @@ func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer 
 	}
 
 	if !needGzip && isPlain && isUtf8 {
-		return string(buffer.BufferData()), nil
+		resultSize := len(buffer.BufferData())
+		if maxSize > 0 && resultSize > int(maxSize) {
+			resultSize = int(maxSize)
+		}
+		return string(buffer.BufferData()[0:resultSize]), nil
 	}
 
 	// re-read the buffer and skip to the body position
@@ -324,12 +318,16 @@ func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer 
 	defer response.Body.Close()
 
 	// no text plain, no need to print the data
-	headerString := string(buffer.BufferData()[:len(buffer.BufferData())-buf.Buffered()])
+	headerLen := len(buffer.BufferData()) - buf.Buffered()
+	if maxSize > 0 && int(maxSize) < headerLen {
+		return string(buffer.BufferData()[:maxSize]), nil
+	}
+	headerString := string(buffer.BufferData()[:headerLen])
 	if !isPlain {
 		return fmt.Sprintf("%s[not plain, current content type: %s]", headerString, contentType), nil
 	}
 
-	data := body
+	data := response.Body
 	if needGzip {
 		data, err = gzip.NewReader(response.Body)
 		if err != nil {
@@ -337,54 +335,76 @@ func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer 
 		}
 	}
 	if !isUtf8 {
-		data, err = charset.NewReader(data, contentType)
+		data, err = newCharsetReader(data, contentType)
 		if err != nil {
 			return "", err
 		}
 	}
 
 	realData, err := io.ReadAll(data)
-	if err != nil {
-		if err != io.ErrUnexpectedEOF {
-			return "", err
-		}
-		realData = append(realData, []byte("[chunked]")...)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return "", err
 	}
-	return fmt.Sprintf("%s%s", headerString, string(realData)), nil
+	resultSize := len(realData)
+	if maxSize > 0 && (resultSize+headerLen) > int(maxSize) {
+		resultSize = int(maxSize) - headerLen
+	}
+	return fmt.Sprintf("%s%s", headerString, string(realData[0:resultSize])), nil
 }
 
-type SlowTraceLogBody struct {
-	URI           string               `json:"uri"`
-	Reason        string               `json:"reason"`
-	Latency       int64                `json:"latency"`
-	TraceProvider string               `json:"trace_provider"`
-	ClientProcess *SlowTraceLogProcess `json:"client_process"`
-	ServerProcess *SlowTraceLogProcess `json:"server_process"`
-	DetectPoint   string               `json:"detect_point"`
-	Component     string               `json:"component"`
-	SSL           bool                 `json:"ssl"`
+type charsetReadWrapper struct {
+	reader io.Reader
 }
 
-type SlowTraceLogProcess struct {
+func newCharsetReader(r io.Reader, contentType string) (*charsetReadWrapper, error) {
+	reader, err := charset.NewReader(r, contentType)
+	if err != nil {
+		return nil, err
+	}
+	return &charsetReadWrapper{reader: reader}, nil
+}
+
+func (c *charsetReadWrapper) Read(p []byte) (n int, err error) {
+	return c.reader.Read(p)
+}
+
+func (c *charsetReadWrapper) Close() error {
+	return nil
+}
+
+type SamplingTraceLogBody struct {
+	URI           string                   `json:"uri"`
+	Reason        string                   `json:"reason"`
+	Latency       int64                    `json:"latency"`
+	TraceProvider string                   `json:"trace_provider"`
+	ClientProcess *SamplingTraceLogProcess `json:"client_process"`
+	ServerProcess *SamplingTraceLogProcess `json:"server_process"`
+	DetectPoint   string                   `json:"detect_point"`
+	Component     string                   `json:"component"`
+	SSL           bool                     `json:"ssl"`
+	Status        int                      `json:"status"`
+}
+
+type SamplingTraceLogProcess struct {
 	ProcessID string `json:"process_id"`
 	Local     bool   `json:"local"`
 	Address   string `json:"address"`
 }
 
-func NewHTTP1SlowTRaceLogRemoteProcess(traffic *base.ProcessTraffic, local api.ProcessInterface) *SlowTraceLogProcess {
+func NewHTTP1SampledTraceLogRemoteProcess(traffic *base.ProcessTraffic, local api.ProcessInterface) *SamplingTraceLogProcess {
 	if len(traffic.RemoteProcesses) != 0 {
 		for _, p := range traffic.RemoteProcesses {
 			// only match with same service instance
 			if local.Entity().ServiceName == p.Entity().ServiceName &&
 				local.Entity().InstanceName == p.Entity().InstanceName {
-				return &SlowTraceLogProcess{ProcessID: p.ID()}
+				return &SamplingTraceLogProcess{ProcessID: p.ID()}
 			}
 		}
 	}
 
 	if tools.IsLocalHostAddress(traffic.RemoteIP) || traffic.Analyzer.IsLocalAddressInCache(traffic.RemoteIP) {
-		return &SlowTraceLogProcess{Local: true}
+		return &SamplingTraceLogProcess{Local: true}
 	}
 
-	return &SlowTraceLogProcess{Address: fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort)}
+	return &SamplingTraceLogProcess{Address: fmt.Sprintf("%s:%d", traffic.RemoteIP, traffic.RemotePort)}
 }

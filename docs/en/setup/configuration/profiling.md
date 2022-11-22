@@ -104,12 +104,14 @@ Based on the above two data types, the following metrics are provided.
 
 ##### Logs 
 
-| Name         | Type  | Unit        | Description                |
-|--------------|-------|-------------|----------------------------|
-| slow_traces  | TopN  | millisecond | The Top N slow trace(id)s  |
+| Name        | Type  | Unit        | Description                                          |
+|-------------|-------|-------------|------------------------------------------------------|
+| slow_traces | TopN  | millisecond | The Top N slow trace(id)s                            |
+| status_4xx  | TopN  | millisecond | The Top N trace(id)s with response status in 400-499 |
+| status_5xx  | TopN  | millisecond | The Top N trace(id)s with response status in 500-599 |
 
 ##### Span Attached Event
-| Name               | Description                                                                                   |
-|--------------------|-----------------------------------------------------------------------------------------------|
-| http-full-request  | Complete information about the HTTP request, it's only reported when it matches slow traces.  |
-| http-full-response | Complete information about the HTTP response, it's only reported when it matches slow traces. |
+| Name                   | Description                                                                                   |
+|------------------------|-----------------------------------------------------------------------------------------------|
+| HTTP Request Sampling  | Complete information about the HTTP request, it's only reported when it matches slow traces.  |
+| HTTP Response Sampling | Complete information about the HTTP response, it's only reported when it matches slow traces. |

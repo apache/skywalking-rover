@@ -44,6 +44,7 @@ setup:
       command: |
         rm -rf skywalking-kubernetes && git clone https://github.com/apache/skywalking-kubernetes.git
         cd skywalking-kubernetes
+        git reset --hard a7d8ff959b46e70cb10428c6714013563ae38cbc
         cd chart
         mkdir -p skywalking/files/conf.d/oap/meter-analyzer-config/ && cp ../../test/e2e/cases/profiling/network/envoy/network-profiling.yaml skywalking/files/conf.d/oap/meter-analyzer-config/network-profiling.yaml
         helm dep up skywalking

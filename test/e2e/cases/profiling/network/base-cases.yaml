@@ -24,7 +24,7 @@ cases:
     expected: expected/process.yml
 
   # create network profiling task
-  - query: swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql profiling ebpf create network --service-name=service --instance-name=test
+  - query: swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql profiling ebpf create network --service-name=service --instance-name=test --sampling-config=test/e2e/cases/profiling/network/sampling.yaml
     expected: expected/profiling-create.yml
   - query: swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql dep process --service-name service --instance-name=test
     expected: expected/dependency-processs.yml

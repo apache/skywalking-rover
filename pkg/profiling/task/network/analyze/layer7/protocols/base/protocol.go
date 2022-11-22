@@ -17,13 +17,17 @@
 
 package base
 
-import "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+import (
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+)
 
 type Protocol interface {
 	Name() string
 	GenerateMetrics() Metrics
 
 	ReceiveData(context Context, event *SocketDataUploadEvent) bool
+	UpdateExtensionConfig(config *profiling.ExtensionConfig)
 }
 
 type Context interface {

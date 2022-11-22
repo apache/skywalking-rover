@@ -31,6 +31,7 @@ import (
 	"sync"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 
@@ -54,11 +55,11 @@ var DurationHistogramBuckets = []float64{
 	330, 380, 430, 480, 500, 600, 700, 800, 900, 1000, 1100, 1300, 1500, 1800, 2000, 5000, 10000, 15000, 20000, 30000,
 }
 
-var SlowTraceTopNSize = 10
-
 type Analyzer struct {
 	// cache connection metrics if the connect event not receive or process
 	cache map[string]*ConnectionMetrics
+
+	sampleConfig *SamplingConfig
 }
 
 type ConnectionMetrics struct {
@@ -131,6 +132,16 @@ func (h *Analyzer) ReceiveData(context protocol.Context, event *protocol.SocketD
 		log.Debugf("connnection: %s, remaining half data list size: %d", connectionID, connectionMetrics.halfData.Len())
 	}
 	return true
+}
+
+func (h *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
+	if config == nil {
+		return
+	}
+	c := NewSamplingConfig(config.NetworkSamplings)
+	if c != nil {
+		h.sampleConfig = c
+	}
 }
 
 func (h *Analyzer) combineAndRemoveEvent(halfConnections *list.List, firstElement *list.Element,
@@ -266,7 +277,7 @@ func (h *Analyzer) analyze(_ protocol.Context, connectionID string, connectionMe
 		data = connectionMetrics.serverMetrics
 		side = base.ConnectionRoleServer
 	}
-	data.Append(request, requestBuffer, response, responseBuffer)
+	data.Append(h.sampleConfig, request, requestBuffer, response, responseBuffer)
 
 	if log.Enable(logrus.DebugLevel) {
 		metricsJSON, _ := json.Marshal(data)

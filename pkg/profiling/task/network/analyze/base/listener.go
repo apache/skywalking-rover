@@ -43,6 +43,9 @@ type AnalyzeListener interface {
 	// ReceiveCloseConnection call this method when receive the connection close event
 	ReceiveCloseConnection(ctx *ConnectionContext, event *SocketCloseEvent)
 
+	// UpdateExtensionConfig for sampling
+	UpdateExtensionConfig(config *base.ExtensionConfig)
+
 	// PreFlushConnectionMetrics prepare to flush the connection metrics
 	PreFlushConnectionMetrics(ccs []*ConnectionWithBPF, bpfLoader *bpf.Loader) error
 	// FlushMetrics flush all metrics from connections

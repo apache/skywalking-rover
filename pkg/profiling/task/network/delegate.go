@@ -37,6 +37,7 @@ var realRunner = NewGlobalRunnerContext()
 type DelegateRunner struct {
 	base *base.Runner
 
+	task      *base.ProfilingTask
 	processes []api.ProcessInterface
 
 	ctx    context.Context
@@ -57,12 +58,13 @@ func (r *DelegateRunner) Init(task *base.ProfilingTask, processes []api.ProcessI
 		return fmt.Errorf("please provide one process at least")
 	}
 	r.processes = processes
+	r.task = task
 	return nil
 }
 
 func (r *DelegateRunner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNotify) error {
 	r.ctx, r.cancel = context.WithCancel(ctx)
-	if err := realRunner.Start(ctx, r.processes); err != nil {
+	if err := realRunner.Start(ctx, r.task, r.processes); err != nil {
 		return err
 	}
 	notify()

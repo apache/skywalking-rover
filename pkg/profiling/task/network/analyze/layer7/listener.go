@@ -99,6 +99,10 @@ func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *ba
 	l.cachedConnections.Set(l.generateCachedConnectionKey(ctx.ConnectionID, ctx.RandomID), ctx, ConnectionCachedTTL)
 }
 
+func (l *Listener) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
+	l.handleProfilingExtensionConfig(config)
+}
+
 func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfLoader *bpf.Loader) error {
 	return nil
 }

@@ -18,6 +18,7 @@
 package base
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ type ProfilingTask struct {
 	TargetType TargetType
 	// MaxRunningDuration of task
 	MaxRunningDuration time.Duration
+	ExtensionConfig    *ExtensionConfig
 }
 
 func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
@@ -57,6 +59,7 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 	targetTypeStr, err := getCommandStringValue(err, command, "TargetType")
 	targetType, err := ParseTargetType(err, targetTypeStr)
 	taskStartTime, err := getCommandIntValue(err, command, "TaskStartTime")
+	extensionConfig, err := getCommandExtensionConfig(err, command, "ExtensionConfigJSON")
 	if err != nil {
 		return nil, err
 	}
@@ -64,12 +67,13 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 	processes := strings.Split(processIDList, ",")
 
 	task := &ProfilingTask{
-		TaskID:        taskID,
-		ProcessIDList: processes,
-		UpdateTime:    taskUpdateTime,
-		StartTime:     taskStartTime,
-		TargetType:    targetType,
-		TriggerType:   triggerType,
+		TaskID:          taskID,
+		ProcessIDList:   processes,
+		UpdateTime:      taskUpdateTime,
+		StartTime:       taskStartTime,
+		TargetType:      targetType,
+		TriggerType:     triggerType,
+		ExtensionConfig: extensionConfig,
 	}
 
 	if err := task.TriggerType.InitTask(task, command); err != nil {
@@ -80,6 +84,25 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 	}
 
 	return task, nil
+}
+
+type ExtensionConfig struct {
+	NetworkSamplings []*NetworkSamplingRule `json:"NetworkSamplings"`
+}
+
+type NetworkSamplingRule struct {
+	URIRegex    *string                        `json:"URIRegex"`
+	MinDuration int32                          `json:"MinDuration"`
+	When4XX     bool                           `json:"When4xx"`
+	When5XX     bool                           `json:"When5xx"`
+	Settings    *NetworkDataCollectingSettings `json:"Settings"`
+}
+
+type NetworkDataCollectingSettings struct {
+	RequireCompleteRequest  bool  `json:"RequireCompleteRequest"`
+	MaxRequestSize          int32 `json:"MaxRequestSize"`
+	RequireCompleteResponse bool  `json:"RequireCompleteResponse"`
+	MaxResponseSize         int32 `json:"MaxResponseSize"`
 }
 
 func getCommandStringValue(err error, command *v3.Command, key string) (string, error) {
@@ -100,4 +123,16 @@ func getCommandIntValue(err error, command *v3.Command, key string) (int64, erro
 		return 0, err
 	}
 	return strconv.ParseInt(val, 10, 64)
+}
+
+func getCommandExtensionConfig(err error, command *v3.Command, key string) (*ExtensionConfig, error) {
+	val, err := getCommandStringValue(err, command, key)
+	if err != nil {
+		return nil, err
+	}
+	config := &ExtensionConfig{}
+	if e := json.Unmarshal([]byte(val), config); e != nil {
+		return nil, e
+	}
+	return config, nil
 }
