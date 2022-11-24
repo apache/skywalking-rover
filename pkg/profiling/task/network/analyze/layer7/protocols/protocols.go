@@ -19,6 +19,7 @@ package protocols
 
 import (
 	"github.com/apache/skywalking-rover/pkg/logger"
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
@@ -64,6 +65,12 @@ func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent)
 	}
 	log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d), type: %s",
 		event.GenerateConnectionID(), event.Protocol.String(), event.Protocol, event.MsgType.String())
+}
+
+func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
+	for _, p := range a.protocols {
+		p.UpdateExtensionConfig(config)
+	}
 }
 
 type ProtocolMetrics struct {

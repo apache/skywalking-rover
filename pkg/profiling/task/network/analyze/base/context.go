@@ -118,6 +118,12 @@ func (c *AnalyzerContext) GetActiveConnection(conID, randomID uint64) *Connectio
 	return data.(*ConnectionContext)
 }
 
+func (c *AnalyzerContext) UpdateExtensionConfig(config *base.ExtensionConfig) {
+	for _, l := range c.listeners {
+		l.UpdateExtensionConfig(config)
+	}
+}
+
 func (c *AnalyzerContext) handleSocketParseQueue(ctx context.Context) {
 	for {
 		select {

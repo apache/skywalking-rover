@@ -114,12 +114,12 @@ func (r *Runner) DeleteProcesses(processes []api.ProcessInterface) (bool, error)
 	return len(r.processes) == 0, err
 }
 
-func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) error {
+func (r *Runner) Start(ctx context.Context, task *base.ProfilingTask, processes []api.ProcessInterface) error {
 	r.startLock.Lock()
 	defer r.startLock.Unlock()
 	// if already start, then just adding the processes
 	if r.bpf != nil {
-		return r.addProcesses(processes)
+		return r.updateTask(task, processes)
 	}
 
 	r.ctx, r.cancel = context.WithCancel(ctx)
@@ -130,7 +130,7 @@ func (r *Runner) Start(ctx context.Context, processes []api.ProcessInterface) er
 	}
 	r.bpf = bpfLoader
 
-	if err := r.addProcesses(processes); err != nil {
+	if err := r.updateTask(task, processes); err != nil {
 		return err
 	}
 
@@ -356,8 +356,9 @@ func (r *Runner) init0(config *base.TaskConfig, moduleMgr *module.Manager) error
 	return nil
 }
 
-func (r *Runner) addProcesses(processes []api.ProcessInterface) error {
+func (r *Runner) updateTask(task *base.ProfilingTask, processes []api.ProcessInterface) error {
 	var err error
+	r.analyzeContext.UpdateExtensionConfig(task.ExtensionConfig)
 	for _, p := range processes {
 		pid := p.Pid()
 		alreadyExists := false

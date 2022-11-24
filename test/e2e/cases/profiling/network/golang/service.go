@@ -36,13 +36,24 @@ var skyWalkingTracer *go2sky.Tracer
 var zipkinTracer *zipkin.Tracer
 
 func provider(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
 	time.Sleep(time.Second * 1)
+	if req.URL.Query().Get("error") == "true" {
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte("service provider\n"))
 }
 
 func consumer(w http.ResponseWriter, req *http.Request) {
+	typeData := req.URL.Query().Get("type")
 	addr := "https://proxy/provider"
+	if typeData == "notfound" {
+		addr = "https://proxy/notfound"
+	} else if typeData == "error" {
+		addr = "https://proxy/provider?error=true"
+	}
+
 	request, err := http.NewRequest("GET", addr, nil)
 	exitSpan, err := skyWalkingTracer.CreateExitSpan(req.Context(), "/provider", addr, func(headerKey, headerValue string) error {
 		request.Header.Set(headerKey, headerValue)

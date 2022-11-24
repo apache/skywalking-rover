@@ -85,6 +85,9 @@ func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *ba
 	layer4.CloseExecuteTime = event.ExeTime
 }
 
+func (l *Listener) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
+}
+
 func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfLoader *bpf.Loader) error {
 	// rebuild to the map for helping quick search correlate ConnectionContext
 	keyWithContext := make(map[string]*base.ConnectionContext)

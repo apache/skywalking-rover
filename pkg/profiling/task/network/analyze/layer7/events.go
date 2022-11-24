@@ -20,6 +20,7 @@ package layer7
 import (
 	"context"
 
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
@@ -38,6 +39,16 @@ func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 		}, func(data interface{}) string {
 			return data.(*base.SocketDataUploadEvent).GenerateConnectionID()
 		})
+}
+
+func (l *Listener) handleProfilingExtensionConfig(config *profiling.ExtensionConfig) {
+	if l.socketDataQueue == nil {
+		return
+	}
+	for _, p := range l.socketDataQueue.partitions {
+		ctx := p.ctx.(*SocketDataPartitionContext)
+		ctx.analyzer.UpdateExtensionConfig(config)
+	}
 }
 
 type SocketDataPartitionContext struct {
