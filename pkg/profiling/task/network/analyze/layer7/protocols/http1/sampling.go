@@ -80,11 +80,6 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 		return
 	}
 
-	// if smaller than minimal duration, then ignore
-	if int64(rule.MinDuration) > duration.Milliseconds() {
-		return
-	}
-
 	var traceType string
 	var topN *metrics.TopN
 	if rule.When5XX && response.StatusCode >= 500 && response.StatusCode < 600 {
@@ -93,9 +88,11 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 	} else if rule.When4XX && response.StatusCode >= 400 && response.StatusCode < 500 {
 		traceType = "status_4xx"
 		topN = s.Error4xxTraces
-	} else {
+	} else if rule.MinDuration != nil && int64(*rule.MinDuration) <= duration.Milliseconds() {
 		traceType = "slow"
 		topN = s.SlowTraces
+	} else {
+		return
 	}
 
 	trace := &Trace{
@@ -107,6 +104,7 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 		Response:       response,
 		Type:           traceType,
 		Settings:       rule.Settings,
+		TaskConfig:     config.ProfilingSampling,
 	}
 	topN.AddRecord(trace, duration.Milliseconds())
 }
@@ -131,9 +129,10 @@ func (s *Sampler) String() string {
 }
 
 type SamplingConfig struct {
-	DefaultRule  *profiling.NetworkSamplingRule
-	URISamplings []*URISampling
-	uriRuleCache *lru.Cache
+	ProfilingSampling *profiling.HTTPSamplingConfig
+	DefaultRule       *profiling.NetworkSamplingRule
+	URISamplings      []*URISampling
+	uriRuleCache      *lru.Cache
 }
 
 type URISampling struct {
@@ -141,24 +140,28 @@ type URISampling struct {
 	Rule       *profiling.NetworkSamplingRule
 }
 
-func NewSamplingConfig(configs []*profiling.NetworkSamplingRule) *SamplingConfig {
-	if len(configs) == 0 {
-		return nil
-	}
+func NewSamplingConfig(config *profiling.TaskConfig) *SamplingConfig {
 	cache, err := lru.New(SamplingRuleCacheSize)
 	if err != nil {
 		log.Warnf("creating sampling cache config failure: %v", err)
 	}
-	result := &SamplingConfig{
-		uriRuleCache: cache,
+	return &SamplingConfig{
+		ProfilingSampling: &config.Network.ProtocolAnalyze.Sampling.HTTP,
+		uriRuleCache:      cache,
+	}
+}
+
+func (s *SamplingConfig) UpdateRules(configs []*profiling.NetworkSamplingRule) {
+	if len(configs) == 0 {
+		return
 	}
 	for _, c := range configs {
 		if c.URIRegex == nil {
-			if result.DefaultRule != nil {
+			if s.DefaultRule != nil {
 				log.Warnf("the default rule is already exists, so ignore it")
 				continue
 			}
-			result.DefaultRule = c
+			s.DefaultRule = c
 			continue
 		}
 
@@ -168,12 +171,11 @@ func NewSamplingConfig(configs []*profiling.NetworkSamplingRule) *SamplingConfig
 			continue
 		}
 
-		result.URISamplings = append(result.URISamplings, &URISampling{
+		s.URISamplings = append(s.URISamplings, &URISampling{
 			URIMatcher: uriPattern,
 			Rule:       c,
 		})
 	}
-	return result
 }
 
 func (s *SamplingConfig) findMatchesRule(uri string) *profiling.NetworkSamplingRule {

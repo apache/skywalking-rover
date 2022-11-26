@@ -26,9 +26,9 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 )
 
-func (l *Listener) initSocketDataQueue(parallels, queueSize int) {
+func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profiling.TaskConfig) {
 	l.socketDataQueue = NewEventQueue(parallels, queueSize, func() PartitionContext {
-		return NewSocketDataPartitionContext(l)
+		return NewSocketDataPartitionContext(l, config)
 	})
 }
 
@@ -55,9 +55,9 @@ type SocketDataPartitionContext struct {
 	analyzer *protocols.Analyzer
 }
 
-func NewSocketDataPartitionContext(l base.Context) *SocketDataPartitionContext {
+func NewSocketDataPartitionContext(l base.Context, config *profiling.TaskConfig) *SocketDataPartitionContext {
 	return &SocketDataPartitionContext{
-		analyzer: protocols.NewAnalyzer(l),
+		analyzer: protocols.NewAnalyzer(l, config),
 	}
 }
 

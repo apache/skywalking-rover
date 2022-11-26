@@ -21,7 +21,8 @@
 
 
 samplings:
-  - when_4xx: true
+  - min_duration: 1
+    when_4xx: true
     when_5xx: true
     setting:
       require_request: true

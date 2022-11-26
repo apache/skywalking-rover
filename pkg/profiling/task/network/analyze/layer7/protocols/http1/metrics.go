@@ -32,7 +32,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	task "github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
@@ -182,7 +182,8 @@ type Trace struct {
 	ResponseBuffer protocol.SocketDataBuffer
 	Response       *http.Response
 	Type           string
-	Settings       *task.NetworkDataCollectingSettings
+	Settings       *profiling.NetworkDataCollectingSettings
+	TaskConfig     *profiling.HTTPSamplingConfig
 }
 
 func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
@@ -248,7 +249,7 @@ func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.Pro
 
 func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
 	tp string, header http.Header, body io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) []*v3.SpanAttachedEvent {
-	content, err := h.transformHTTPRequest(header, body, buffer, maxSize)
+	content, err := h.transformHTTPBody(tp, header, body, buffer, maxSize)
 	if err != nil {
 		log.Warnf("transform http %s erorr: %v", tp, err)
 		return events
@@ -289,15 +290,22 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 }
 
 // nolint
-func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) (string, error) {
+func (h *Trace) transformHTTPBody(tp string, header http.Header, _ io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) (string, error) {
 	var needGzip, isPlain, isUtf8 = header.Get("Content-Encoding") == "gzip", true, true
 	contentType := header.Get("Content-Type")
-	if contentType != "" {
-		isPlain = strings.HasPrefix(contentType, "text/") || contentType == "application/json"
-		if _, params, err := mime.ParseMediaType(contentType); err == nil {
-			if cs, ok := params["charset"]; ok {
-				isUtf8 = cs == "utf-8"
-			}
+	if contentType == "" {
+		if tp == transportRequest {
+			contentType = h.TaskConfig.DefaultRequestEncoding
+		} else {
+			contentType = h.TaskConfig.DefaultResponseEncoding
+		}
+		contentType = fmt.Sprintf("text/html; charset=%s", contentType)
+	}
+
+	isPlain = strings.HasPrefix(contentType, "text/") || contentType == "application/json"
+	if _, params, err := mime.ParseMediaType(contentType); err == nil {
+		if cs, ok := params["charset"]; ok {
+			isUtf8 = strings.ToLower(cs) == "utf-8"
 		}
 	}
 
@@ -311,11 +319,21 @@ func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer 
 
 	// re-read the buffer and skip to the body position
 	buf := bufio.NewReaderSize(bytes.NewBuffer(buffer.BufferData()), len(buffer.BufferData()))
-	response, err := http.ReadResponse(buf, nil)
-	if err != nil {
-		return "", err
+	var httpBody io.ReadCloser
+	if tp == transportRequest {
+		req, err := http.ReadRequest(buf)
+		if err != nil {
+			return "", err
+		}
+		httpBody = req.Body
+	} else {
+		response, err := http.ReadResponse(buf, nil)
+		if err != nil {
+			return "", err
+		}
+		httpBody = response.Body
 	}
-	defer response.Body.Close()
+	defer httpBody.Close()
 
 	// no text plain, no need to print the data
 	headerLen := len(buffer.BufferData()) - buf.Buffered()
@@ -326,10 +344,15 @@ func (h *Trace) transformHTTPRequest(header http.Header, body io.Reader, buffer 
 	if !isPlain {
 		return fmt.Sprintf("%s[not plain, current content type: %s]", headerString, contentType), nil
 	}
+	// nobody
+	if buf.Buffered() == 0 {
+		return headerString, nil
+	}
 
-	data := response.Body
+	data := httpBody
+	var err error
 	if needGzip {
-		data, err = gzip.NewReader(response.Body)
+		data, err = gzip.NewReader(httpBody)
 		if err != nil {
 			return "", err
 		}

@@ -33,7 +33,17 @@ type NetworkConfig struct {
 }
 
 type ProtocolAnalyzeConfig struct {
-	PerCPUBufferSize string `mapstructure:"per_cpu_buffer"`
-	Parallels        int    `mapstructure:"parallels"`
-	QueueSize        int    `mapstructure:"queue_size"`
+	PerCPUBufferSize string         `mapstructure:"per_cpu_buffer"`
+	Parallels        int            `mapstructure:"parallels"`
+	QueueSize        int            `mapstructure:"queue_size"`
+	Sampling         SamplingConfig `mapstructure:"sampling"`
+}
+
+type SamplingConfig struct {
+	HTTP HTTPSamplingConfig `mapstructure:"http"`
+}
+
+type HTTPSamplingConfig struct {
+	DefaultRequestEncoding  string `mapstructure:"default_request_encoding"`  // default http request body encoding
+	DefaultResponseEncoding string `mapstructure:"default_response_encoding"` // default http response body encoding
 }
