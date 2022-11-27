@@ -25,6 +25,7 @@ import (
 type Protocol interface {
 	Name() string
 	GenerateMetrics() Metrics
+	Init(config *profiling.TaskConfig)
 
 	ReceiveData(context Context, event *SocketDataUploadEvent) bool
 	UpdateExtensionConfig(config *profiling.ExtensionConfig)

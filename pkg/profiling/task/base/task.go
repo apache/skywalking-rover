@@ -92,7 +92,7 @@ type ExtensionConfig struct {
 
 type NetworkSamplingRule struct {
 	URIRegex    *string                        `json:"URIRegex"`
-	MinDuration int32                          `json:"MinDuration"`
+	MinDuration *int32                         `json:"MinDuration"`
 	When4XX     bool                           `json:"When4xx"`
 	When5XX     bool                           `json:"When5xx"`
 	Settings    *NetworkDataCollectingSettings `json:"Settings"`

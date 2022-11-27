@@ -46,10 +46,12 @@ type Analyzer struct {
 	protocols []protocol.Protocol
 }
 
-func NewAnalyzer(ctx protocol.Context) *Analyzer {
+func NewAnalyzer(ctx protocol.Context, config *profiling.TaskConfig) *Analyzer {
 	protocols := make([]protocol.Protocol, 0)
 	for _, r := range registerProtocols {
-		protocols = append(protocols, r())
+		p := r()
+		p.Init(config)
+		protocols = append(protocols, p)
 	}
 	return &Analyzer{
 		ctx:       ctx,

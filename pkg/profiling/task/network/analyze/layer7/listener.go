@@ -79,7 +79,7 @@ func (l *Listener) Init(config *profiling.TaskConfig, moduleManager *module.Mana
 	}
 
 	l.protocolPerCPUBuffer = int(perCPUBufferSize)
-	l.initSocketDataQueue(analyzeConfig.Parallels, analyzeConfig.QueueSize)
+	l.initSocketDataQueue(analyzeConfig.Parallels, analyzeConfig.QueueSize, config)
 	return nil
 }
 

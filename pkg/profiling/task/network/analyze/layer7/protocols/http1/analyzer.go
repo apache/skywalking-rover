@@ -90,6 +90,10 @@ func (h *Analyzer) GenerateMetrics() protocol.Metrics {
 	}
 }
 
+func (h *Analyzer) Init(config *profiling.TaskConfig) {
+	h.sampleConfig = NewSamplingConfig(config)
+}
+
 func (h *Analyzer) ReceiveData(context protocol.Context, event *protocol.SocketDataUploadEvent) bool {
 	// only handle the HTTP1 protocol
 	if event.Protocol != base.ConnectionProtocolHTTP {
@@ -138,10 +142,7 @@ func (h *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 	if config == nil {
 		return
 	}
-	c := NewSamplingConfig(config.NetworkSamplings)
-	if c != nil {
-		h.sampleConfig = c
-	}
+	h.sampleConfig.UpdateRules(config.NetworkSamplings)
 }
 
 func (h *Analyzer) combineAndRemoveEvent(halfConnections *list.List, firstElement *list.Element,
