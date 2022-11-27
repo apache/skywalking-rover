@@ -59,6 +59,9 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return err
 	}
+	if err := m.config.TaskConfig.Validate(); err != nil {
+		return err
+	}
 
 	manager, err := NewManager(ctx, mgr, m.config)
 	if err != nil {
