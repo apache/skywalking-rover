@@ -24,14 +24,14 @@ cases:
         --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 20
     expected: expected/slow-traces.yml
   # zipkin trace
-  - query: |
-      curl -s https://${service_host}:${service_10443}/consumer-zipkin > /dev/null;
-      sleep 3;
-      traceid=$(swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
-          --name=sampled_slow_trace_record --service-name service --instance-name test --process-name service \
-          --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 100 | yq e '. | map(select(.name == "zipkin-/provider-zipkin")).[0].id' -);
-      curl http://${oap_host}:${oap_9412}/zipkin/api/v2/trace/${traceid} | yq e -| yq e 'del(.[].tags)' -
-    expected: expected/zipkin-trace.yml
+#  - query: |
+#      curl -s https://${service_host}:${service_10443}/consumer-zipkin > /dev/null;
+#      sleep 3;
+#      traceid=$(swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+#          --name=sampled_slow_trace_record --service-name service --instance-name test --process-name service \
+#          --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 100 | yq e '. | map(select(.name == "zipkin-/provider-zipkin")).[0].id' -);
+#      curl http://${oap_host}:${oap_9412}/zipkin/api/v2/trace/${traceid} | yq e -| yq e 'del(.[].tags)' -
+#    expected: expected/zipkin-trace.yml
   # skywalking trace
   - query: |
       traceid=$(swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
