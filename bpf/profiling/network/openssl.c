@@ -79,6 +79,7 @@ int openssl_write(struct pt_regs* ctx) {
     struct sock_data_args_t data_args = {};
     data_args.fd = fd;
     data_args.buf = buf;
+    data_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&openssl_sock_data_args, &id, &data_args, 0);
 
     set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_SSL_WRITE);
@@ -111,6 +112,7 @@ int openssl_read(struct pt_regs* ctx) {
     data_args.fd = fd;
     data_args.buf = buf;
     data_args.excepted_size = excepted_size;
+    data_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&openssl_sock_data_args, &id, &data_args, 0);
 
     set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_SSL_WRITE);

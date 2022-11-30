@@ -61,6 +61,7 @@ struct go_tls_tgid_goid_t {
 struct go_tls_connection_args_t {
     void* connection_ptr;
     char* buffer_ptr;
+    __u64 start_nacs;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
