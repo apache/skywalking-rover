@@ -44,7 +44,7 @@ spans:
       summary: []
       tags:
       {{- contains .tags }}
-      - key: data size
+      - key: data_size
         value: {{ notEmpty .value }}
       {{- end }}
   {{- end }}
