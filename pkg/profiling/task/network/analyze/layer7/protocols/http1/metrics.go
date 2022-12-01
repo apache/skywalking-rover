@@ -262,23 +262,18 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 	event.Tags = make([]*commonv3.KeyStringValuePair, 0)
 	event.Tags = append(event.Tags,
 		// content data
-		&commonv3.KeyStringValuePair{Key: "data size", Value: units.BytesSize(float64(buffer.TotalSize()))},
-		&commonv3.KeyStringValuePair{Key: "data content", Value: content},
-		&commonv3.KeyStringValuePair{Key: "data direction", Value: buffer.Direction().String()},
-		&commonv3.KeyStringValuePair{Key: "data type", Value: tp},
+		&commonv3.KeyStringValuePair{Key: "data_size", Value: units.BytesSize(float64(buffer.TotalSize()))},
+		&commonv3.KeyStringValuePair{Key: "data_content", Value: content},
+		&commonv3.KeyStringValuePair{Key: "data_direction", Value: buffer.Direction().String()},
+		&commonv3.KeyStringValuePair{Key: "data_type", Value: strings.ToLower(tp)},
 		// connection
-		&commonv3.KeyStringValuePair{Key: "connection role", Value: traffic.Role.String()},
+		&commonv3.KeyStringValuePair{Key: "connection_role", Value: traffic.Role.String()},
 		// entity
-		&commonv3.KeyStringValuePair{Key: "service name", Value: process.Entity().ServiceName},
-		&commonv3.KeyStringValuePair{Key: "service instance name", Value: process.Entity().InstanceName},
-		&commonv3.KeyStringValuePair{Key: "process name", Value: process.Entity().ProcessName},
+		&commonv3.KeyStringValuePair{Key: "service_name", Value: process.Entity().ServiceName},
+		&commonv3.KeyStringValuePair{Key: "service_instance_name", Value: process.Entity().InstanceName},
+		&commonv3.KeyStringValuePair{Key: "process_name", Value: process.Entity().ProcessName},
 	)
 
-	// current event needs bind to the upstream
-	if buffer.Direction() == base.SocketDataDirectionIngress && tp == transportRequest ||
-		buffer.Direction() == base.SocketDataDirectionEgress && tp == transportResponse {
-		event.Tags = append(event.Tags, &commonv3.KeyStringValuePair{Key: "bind to upstream span", Value: "true"})
-	}
 	event.Summary = make([]*commonv3.KeyIntValuePair, 0)
 	event.TraceContext = &v3.SpanAttachedEvent_SpanReference{
 		TraceId:        h.Trace.TraceID(),

@@ -65,9 +65,9 @@ const (
 func (d SocketDataDirection) String() string {
 	switch d {
 	case SocketDataDirectionIngress:
-		return "ingress"
+		return "inbound"
 	case SocketDataDirectionEgress:
-		return "egress"
+		return "outbound"
 	default:
 		return unknown
 	}
