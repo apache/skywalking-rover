@@ -69,7 +69,7 @@ jobs:
   e2e-test:
     name: E2E test
     needs: [ docker ]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -142,7 +142,7 @@ jobs:
   https-e2e-test:
     name: HTTPS E2E test
     needs: [ docker ]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
