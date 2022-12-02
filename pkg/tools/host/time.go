@@ -21,20 +21,23 @@ import (
 	"fmt"
 	"time"
 
-	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
+	"golang.org/x/sys/unix"
 
-	"github.com/shirou/gopsutil/host"
+	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 )
 
 // BootTime the System boot time
 var BootTime time.Time
 
 func init() {
-	boot, err := host.BootTime()
+	var ts unix.Timespec
+	err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+	now := time.Now()
 	if err != nil {
 		panic(fmt.Errorf("init boot time error: %v", err))
 	}
-	BootTime = time.Unix(int64(boot), 0)
+	bootTimeNano := now.UnixNano() - ts.Nano()
+	BootTime = time.Unix(bootTimeNano/1e9, bootTimeNano%1e9)
 }
 
 func TimeToInstant(bpfTime uint64) *v3.Instant {
