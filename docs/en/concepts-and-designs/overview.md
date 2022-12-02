@@ -8,6 +8,8 @@ On the Linux platform, we could collect a lot of telemetry data. Rover could col
 and upload them to the SkyWalking backend for analysis, aggregate, and visualize them.
 
 1. EBPF-based profiling for C, C++, Golang, and Rust.
+2. Network profiling for L4(TCP) and L7(HTTP) traffic, including with TLS.
+3. Tracing enhancement. Collect extra information from OS level as attached events for the existing tracing system, such as attach raw data of HTTP request and reponse.
 
 ## Architecture
 
