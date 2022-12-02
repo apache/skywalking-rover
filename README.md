@@ -7,6 +7,7 @@ Apache SkyWalking Rover
 
 - CPU On/Off profiling for C, C++, Golang, and Rust.
 - Network profiling for TCP, TCP(TLS), HTTP(s) traffic with topology and metrics.
+- Tracing enhancement. Collect extra information from OS level as attached events for the existing tracing system, such as attach raw data of HTTP request and reponse.
 
 [![GitHub stars](https://img.shields.io/github/stars/apache/skywalking.svg?style=for-the-badge&label=Stars&logo=github)](https://github.com/apache/skywalking)
 [![Twitter Follow](https://img.shields.io/twitter/follow/asfskywalking.svg?style=for-the-badge&label=Follow&logo=twitter)](https://twitter.com/AsfSkyWalking)
