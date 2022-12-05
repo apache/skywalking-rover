@@ -18,6 +18,7 @@
 package base
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -89,7 +90,7 @@ func (c *TaskConfig) stringNotEmpty(err error, value, message string) error {
 		return err
 	}
 	if value == "" {
-		return fmt.Errorf(message)
+		return errors.New(message)
 	}
 	return nil
 }
@@ -99,7 +100,7 @@ func (c *TaskConfig) biggerThan(err error, value, needs int, message string) err
 		return err
 	}
 	if value <= needs {
-		return fmt.Errorf(message)
+		return errors.New(message)
 	}
 	return nil
 }

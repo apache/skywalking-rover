@@ -19,7 +19,7 @@ package config
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/viper"
@@ -35,7 +35,7 @@ func Load(file string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	content, err := ioutil.ReadFile(absolutePath)
+	content, err := os.ReadFile(absolutePath)
 	if err != nil {
 		return nil, err
 	}
@@ -46,9 +46,7 @@ func Load(file string) (*Config, error) {
 	}
 
 	// env replace
-	if err := overrideEnv(v); err != nil {
-		return nil, err
-	}
+	overrideEnv(v)
 
 	return &Config{conf: v}, nil
 }

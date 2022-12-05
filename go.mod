@@ -1,9 +1,9 @@
 module github.com/apache/skywalking-rover
 
-go 1.17
+go 1.18
 
 require (
-	github.com/cilium/ebpf v0.8.1
+	github.com/cilium/ebpf v0.9.3
 	github.com/docker/go-units v0.5.0
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -17,7 +17,7 @@ require (
 	github.com/zekroTJA/timedmap v1.4.0
 	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
-	golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab
+	golang.org/x/sys v0.3.0
 	google.golang.org/grpc v1.44.0
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5

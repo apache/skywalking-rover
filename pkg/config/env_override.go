@@ -24,19 +24,13 @@ import (
 	"github.com/spf13/viper"
 )
 
-const EnvRegularExpression = "\\${(?P<ENV>[_A-Z0-9]+):(?P<DEF>.*)}"
+var EnvRegularRegex = regexp.MustCompile(`\${(?P<ENV>[_A-Z0-9]+):(?P<DEF>.*)}`)
 
-func overrideEnv(v *viper.Viper) error {
-	envRegex, err := regexp.Compile(EnvRegularExpression)
-	if err != nil {
-		return err
-	}
-
+func overrideEnv(v *viper.Viper) {
 	keys := v.AllKeys()
 	for _, key := range keys {
-		overrideConfig(v, key, envRegex)
+		overrideConfig(v, key, EnvRegularRegex)
 	}
-	return nil
 }
 
 func overrideConfig(v *viper.Viper, key string, envRegex *regexp.Regexp) {

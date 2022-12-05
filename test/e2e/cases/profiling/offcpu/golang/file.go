@@ -24,7 +24,7 @@ import (
 func main() {
 	d1 := []byte("e2e-test")
 	for {
-		err := os.WriteFile("/tmp/skywalking-rover-e2e-test", d1, 0600)
+		err := os.WriteFile("/tmp/skywalking-rover-e2e-test", d1, 0o600)
 		if err != nil {
 			fmt.Printf("error: %v", err)
 			break

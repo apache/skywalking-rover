@@ -18,7 +18,6 @@
 package kubernetes
 
 import (
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -128,7 +127,7 @@ func chooseServiceName(a, b string) string {
 		return b
 	}
 	// ascii compare
-	if strings.Compare(a, b) < 0 {
+	if a < b {
 		return a
 	}
 	return b

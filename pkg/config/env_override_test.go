@@ -19,7 +19,6 @@ package config
 
 import (
 	"bytes"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"testing"
@@ -93,7 +92,7 @@ func TestOverrideEnv(t *testing.T) {
 			// load config
 			v := viper.New()
 			v.SetConfigType("yaml")
-			content, err := ioutil.ReadFile(tt.file)
+			content, err := os.ReadFile(tt.file)
 			if err != nil {
 				t.Fatalf("read config file error: %v", err)
 			}
@@ -102,9 +101,7 @@ func TestOverrideEnv(t *testing.T) {
 			}
 
 			// environment override
-			if err := overrideEnv(v); err != nil {
-				t.Fatalf("override environment failure: %v", err)
-			}
+			overrideEnv(v)
 
 			// verify result
 			realSettings := v.AllSettings()

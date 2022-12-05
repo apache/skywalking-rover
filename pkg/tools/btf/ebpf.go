@@ -18,11 +18,12 @@
 package btf
 
 import (
-	"bytes"
 	"embed"
 	"fmt"
 	"path/filepath"
 	"sync"
+
+	"github.com/cilium/ebpf/btf"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/operator"
@@ -34,61 +35,49 @@ import (
 var assets embed.FS
 
 var (
-	customizedBTFData []byte
-	findBTFOnce       sync.Once
+	spec        *btf.Spec
+	findBTFOnce sync.Once
 
 	log = logger.GetLogger("tools", "btf")
 )
 
 func GetEBPFCollectionOptionsIfNeed() *ebpf.CollectionOptions {
 	findBTFOnce.Do(func() {
-		btfPath, isCustomizedBTF, err := getKernelBTFAddress()
+		readSpec, err := getKernelBTFAddress()
 		if err != nil {
 			log.Warnf("found BTF failure: %v", err)
 			return
 		}
 
-		if !isCustomizedBTF {
-			return
-		}
-		d, err := asset(btfPath)
-		if err != nil {
-			log.Warnf("could not found the customized BTF file: %s", btfPath)
-			return
-		}
-		customizedBTFData = d
+		spec = readSpec
 	})
 
-	if customizedBTFData == nil {
-		return nil
-	}
-
-	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{TargetBTF: bytes.NewReader(customizedBTFData)}}
+	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{KernelTypes: spec}}
 }
 
 // getKernelBTFAddress means get the kernel BTF file path
-func getKernelBTFAddress() (btfPath string, isCustomizedBTF bool, err error) {
-	path, err := ExistKernelBTF()
+func getKernelBTFAddress() (spec *btf.Spec, err error) {
+	spec, err = btf.LoadKernelSpec()
 	if err == nil {
-		return path, false, nil
+		return spec, nil
 	}
 
 	distributeInfo, err := operator.GetDistributionInfo()
 	if err != nil {
-		return "", false, fmt.Errorf("could not load the system distribute info: %v", err)
+		return nil, fmt.Errorf("could not load the system distribute info: %v", err)
 	}
 	uname, err := operator.GetOSUname()
 	if err != nil {
-		return "", false, fmt.Errorf("could not load the uname info: %v", err)
+		return nil, fmt.Errorf("could not load the uname info: %v", err)
 	}
 
-	btfPath = fmt.Sprintf("files/%s/%s/%s/%s.btf", distributeInfo.Name, distributeInfo.Version,
+	path := fmt.Sprintf("files/%s/%s/%s/%s.btf", distributeInfo.Name, distributeInfo.Version,
 		distributeInfo.Architecture, uname.Release)
-	_, err = asset(btfPath)
+	_, err = asset(path)
 	if err != nil {
-		return "", true, fmt.Errorf("could not found customized BTF file: %s", btfPath)
+		return nil, fmt.Errorf("could not found customized BTF file: %s", path)
 	}
-	return btfPath, true, nil
+	return spec, nil
 }
 
 func asset(file string) ([]byte, error) {
