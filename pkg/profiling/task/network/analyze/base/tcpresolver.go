@@ -20,7 +20,6 @@ package base
 import (
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"regexp"
@@ -66,7 +65,7 @@ func foundAddressByFile(s *SocketPair, exitedError error, filename, inode string
 	if s != nil {
 		return s, nil
 	}
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, multierror.Append(exitedError, err)
 	}

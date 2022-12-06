@@ -41,7 +41,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 // nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
 
 var log = logger.GetLogger("profiling", "task", "offcpu")
 
@@ -102,7 +102,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	funcName := "do_finish_task_switch"
 	replacedPid := false
 	for i, ins := range spec.Programs[funcName].Instructions {
-		if ins.Reference == "MONITOR_PID" {
+		if ins.Reference() == "MONITOR_PID" {
 			spec.Programs[funcName].Instructions[i].Constant = int64(r.pid)
 			spec.Programs[funcName].Instructions[i].Offset = 0
 			replacedPid = true
@@ -116,7 +116,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	}
 	r.bpf = &objs
 
-	kprobe, err := link.Kprobe("finish_task_switch", objs.DoFinishTaskSwitch)
+	kprobe, err := link.Kprobe("finish_task_switch", objs.DoFinishTaskSwitch, nil)
 	if err != nil {
 		return fmt.Errorf("link to finish task swtich failure: %v", err)
 	}

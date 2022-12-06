@@ -119,7 +119,9 @@ func (u *URIMetrics) appendMetrics(traffic *base.ProcessTraffic,
 
 	collections = u.buildMetrics(collections, prefix, "request_counter", labels, url, traffic, u.RequestCounter)
 	for status, counter := range u.StatusCounter {
-		statusLabels := append(labels, &v3.Label{Name: "code", Value: fmt.Sprintf("%d", status)})
+		statusLabels := make([]*v3.Label, len(labels))
+		copy(statusLabels, labels)
+		statusLabels = append(statusLabels, &v3.Label{Name: "code", Value: fmt.Sprintf("%d", status)})
 		collections = u.buildMetrics(collections, prefix, "response_status_counter", statusLabels, url, traffic, counter)
 	}
 

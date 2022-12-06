@@ -43,7 +43,7 @@ var log = logger.GetLogger("profiling", "task", "network", "bpf")
 
 const defaultSymbolPrefix = "sys_"
 
-type LinkFunc func(symbol string, prog *ebpf.Program) (link.Link, error)
+type LinkFunc func(symbol string, prog *ebpf.Program, opts *link.KprobeOptions) (link.Link, error)
 type RingBufferReader func(data interface{})
 
 var syscallPrefix string
@@ -103,7 +103,7 @@ func (m *Linker) AddLink(linkF LinkFunc, p *ebpf.Program, trySymbolNames ...stri
 	var err error
 	var realSym string
 	for _, n := range trySymbolNames {
-		lk, err = linkF(n, p)
+		lk, err = linkF(n, p, nil)
 		if err == nil {
 			realSym = n
 			break
@@ -123,7 +123,7 @@ func (m *Linker) AddSysCall(call string, enter, exit *ebpf.Program) {
 }
 
 func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Program) {
-	kprobe, err := linkK(syscallPrefix+call, p)
+	kprobe, err := linkK(syscallPrefix+call, p, nil)
 
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("could not attach syscall with %s: %v", "sys_"+call, err))
@@ -134,7 +134,7 @@ func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Progr
 }
 
 func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
-	l, e := link.Tracepoint(sys, name, p)
+	l, e := link.Tracepoint(sys, name, p, nil)
 	if e != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", name, e))
 	} else {
@@ -229,9 +229,9 @@ func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 	}
 }
 
-func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Program, customizeOffset uint64) (link.Link, error) {
+func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Program, customizeAddress uint64) (link.Link, error) {
 	// check already linked
-	uprobeIdentity := fmt.Sprintf("%s_%s_%t_%d", u.addr, symbol, enter, customizeOffset)
+	uprobeIdentity := fmt.Sprintf("%s_%s_%t_%d", u.addr, symbol, enter, customizeAddress)
 	if u.linker.linkedUProbes[uprobeIdentity] {
 		log.Debugf("the uprobe already attached, so ignored. file: %s, symbol: %s, type: %s", u.addr, symbol,
 			u.parseEnterOrExitString(enter))
@@ -247,9 +247,9 @@ func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Prog
 	}
 
 	var opts *link.UprobeOptions
-	if customizeOffset > 0 {
+	if customizeAddress > 0 {
 		opts = &link.UprobeOptions{
-			Offset: customizeOffset,
+			Address: customizeAddress,
 		}
 	}
 	return fun(symbol, p, opts)
@@ -287,16 +287,16 @@ func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *
 		return nil, fmt.Errorf("reading symbol data error: %v", err)
 	}
 
-	// find the base offset
-	targetBaseOffset := elfFile.FindBaseOffsetForAttach(targetSymbol.Location)
-	if targetBaseOffset == 0 {
-		return nil, fmt.Errorf("could not found the symbol base address")
+	// find the base addresses
+	targetBaseAddress := elfFile.FindBaseAddressForAttach(targetSymbol.Location)
+	if targetBaseAddress == 0 {
+		return nil, fmt.Errorf("could not found the symbol base addresses")
 	}
 
-	// based on the base offset and symbol data buffer
+	// based on the base addresses and symbol data buffer
 	// calculate all RET addresses
 	// https://github.com/iovisor/bcc/issues/1320#issuecomment-407927542
-	var offsets []uint64
+	var addresses []uint64
 	for i := 0; i < int(targetSymbol.Size); {
 		inst, err := x86asm.Decode(buffer[i:], 64)
 		if err != nil {
@@ -304,25 +304,25 @@ func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *
 		}
 
 		if inst.Op == x86asm.RET {
-			offsets = append(offsets, targetBaseOffset+uint64(i))
+			addresses = append(addresses, targetBaseAddress+uint64(i))
 		}
 
 		i += inst.Len
 	}
 
-	if len(offsets) == 0 {
-		return nil, fmt.Errorf("could not found any return offsets")
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("could not found any return addresses")
 	}
-	log.Debugf("found reuturn offsets of the symbol, symbol: %s, size: %d", symbol, len(offsets))
+	log.Debugf("found reuturn addresses of the symbol, symbol: %s, size: %d", symbol, len(addresses))
 
 	var result []link.Link
-	for _, offset := range offsets {
-		l, err := u.addLinkWithType0(symbol, true, p, offset)
+	for _, address := range addresses {
+		l, err := u.addLinkWithType0(symbol, true, p, address)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, l)
-		log.Debugf("attach to the return probe of the go program, symbol: %s, offset: %d", symbol, offset)
+		log.Debugf("attach to the return probe of the go program, symbol: %s, addresses: %d", symbol, address)
 	}
 	return result, nil
 }

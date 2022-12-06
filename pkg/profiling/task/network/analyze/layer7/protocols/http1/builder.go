@@ -81,7 +81,7 @@ func (h *BufferAnalyzer) handleUnknown(event *list.List, element *list.Element,
 	if curEvent.MsgType != base.SocketMessageTypeUnknown {
 		return false, nil, nil
 	}
-	if h.unknownEventBuffer == nil {
+	if h.unknownEventBuffer == base2.SocketDataBuffer(nil) {
 		// maybe the unknown type is response, so clean the context
 		if !curEvent.IsStart() {
 			h.cleanContext()
@@ -206,7 +206,7 @@ func (h *BufferAnalyzer) resetStartResponse(element *list.Element, curEvent *bas
 }
 
 func (h *BufferAnalyzer) tryingToAnalyzeTheUnknown(events *list.List, curEvent *base2.SocketDataUploadEvent) (req, resp base2.SocketDataBuffer) {
-	if h.unknownEventBuffer == nil {
+	if h.unknownEventBuffer == base2.SocketDataBuffer(nil) {
 		return nil, nil
 	}
 	// length not enough

@@ -22,7 +22,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"google.golang.org/grpc"
@@ -123,7 +122,7 @@ func configTLS(conf *Config) (tc *tls.Config, tlsErr error) {
 	tlsConfig := new(tls.Config)
 	tlsConfig.Renegotiation = tls.RenegotiateNever
 	tlsConfig.InsecureSkipVerify = conf.InsecureSkipVerify
-	caPem, err := ioutil.ReadFile(conf.CaPemPath)
+	caPem, err := os.ReadFile(conf.CaPemPath)
 	if err != nil {
 		return nil, err
 	}

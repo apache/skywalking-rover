@@ -41,7 +41,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 // nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/oncpu.c -- -I$REPO_ROOT/bpf/include
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/oncpu.c -- -I$REPO_ROOT/bpf/include
 
 var log = logger.GetLogger("profiling", "task", "oncpu")
 
@@ -114,7 +114,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	funcName := "do_perf_event"
 	replacedPid := false
 	for i, ins := range spec.Programs[funcName].Instructions {
-		if ins.Reference == "MONITOR_PID" {
+		if ins.Reference() == "MONITOR_PID" {
 			spec.Programs[funcName].Instructions[i].Constant = int64(r.pid)
 			spec.Programs[funcName].Instructions[i].Offset = 0
 			replacedPid = true

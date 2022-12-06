@@ -93,7 +93,7 @@ func (f *File) ReadSymbolData(section string, offset, size uint64) ([]byte, erro
 	return buffer, nil
 }
 
-func (f *File) FindBaseOffsetForAttach(symbolLocation uint64) uint64 {
+func (f *File) FindBaseAddressForAttach(symbolLocation uint64) uint64 {
 	for _, prog := range f.realFile.Progs {
 		if prog.Type != elf.PT_LOAD || (prog.Flags&elf.PF_X) == 0 {
 			continue

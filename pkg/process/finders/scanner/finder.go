@@ -234,7 +234,7 @@ func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
 
 		// modify time + recent > now
 		// means the metadata file is acceptable
-		if !metadataFile.ModTime().Add(p.conf.Agent.ProcessStatusRefreshPeriodDuration).After(time.Now()) {
+		if metadataFile.ModTime().Add(p.conf.Agent.ProcessStatusRefreshPeriodDuration).Before(time.Now()) {
 			continue
 		}
 
