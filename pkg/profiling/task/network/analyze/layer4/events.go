@@ -35,6 +35,9 @@ type SocketExceptionOperationEvent struct {
 	RemoteAddrV4   uint32
 	RemoteAddrV6   [16]uint8
 	RemoteAddrPort uint32
+	LocalAddrV4    uint32
+	LocalAddrV6    [16]uint8
+	LocalAddrPort  uint32
 	Type           base.SocketExceptionOperationType
 }
 

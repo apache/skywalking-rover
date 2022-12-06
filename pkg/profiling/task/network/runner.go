@@ -143,8 +143,8 @@ func (r *Runner) Start(ctx context.Context, task *base.ProfilingTask, processes 
 	bpfLoader.AddSysCall("connect", bpfLoader.SysConnect, bpfLoader.SysConnectRet)
 	bpfLoader.AddSysCall("accept", bpfLoader.SysAccept, bpfLoader.SysAcceptRet)
 	bpfLoader.AddSysCall("accept4", bpfLoader.SysAccept, bpfLoader.SysAcceptRet)
-	bpfLoader.AddLink(link.Kretprobe, bpfLoader.SockAllocRet, "sock_alloc")
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpConnect, "tcp_connect")
+	bpfLoader.AddLink(link.Kretprobe, map[string]*ebpf.Program{"sock_alloc": bpfLoader.SockAllocRet})
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_connect": bpfLoader.TcpConnect})
 
 	// write/receive data
 	bpfLoader.AddSysCall("send", bpfLoader.SysSend, bpfLoader.SysSendRet)
@@ -161,13 +161,13 @@ func (r *Runner) Start(ctx context.Context, task *base.ProfilingTask, processes 
 	bpfLoader.AddSysCall("recvfrom", bpfLoader.SysRecvfrom, bpfLoader.SysRecvfromRet)
 	bpfLoader.AddSysCall("recvmsg", bpfLoader.SysRecvmsg, bpfLoader.SysRecvmsgRet)
 	bpfLoader.AddSysCall("recvmmsg", bpfLoader.SysRecvmmsg, bpfLoader.SysRecvmmsgRet)
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpRcvEstablished, "tcp_rcv_established")
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.SecuritySocketSendmsg, "security_socket_sendmsg")
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.SecuritySocketRecvmsg, "security_socket_recvmsg")
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_rcv_established": bpfLoader.TcpRcvEstablished})
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"security_socket_sendmsg": bpfLoader.SecuritySocketSendmsg})
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"security_socket_recvmsg": bpfLoader.SecuritySocketRecvmsg})
 
 	// retransmit/drop
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpRetransmit, "tcp_retransmit_skb")
-	bpfLoader.AddLink(link.Kprobe, bpfLoader.TcpDrop, "tcp_drop")
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_retransmit_skb": bpfLoader.TcpRetransmit})
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_drop": bpfLoader.TcpDrop, "kfree_skb_reason": bpfLoader.KfreeSkbReason})
 
 	if err := bpfLoader.HasError(); err != nil {
 		_ = bpfLoader.Close()

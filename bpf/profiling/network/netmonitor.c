@@ -1255,6 +1255,17 @@ int tcp_drop(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("kprobe/kfree_skb_reason")
+int kfree_skb_reason(struct pt_regs *ctx) {
+    struct sock *s = (void *)PT_REGS_PARM1(ctx);
+    enum skb_drop_reason reason = PT_REGS_PARM2(ctx);
+
+    if (reason > SKB_DROP_REASON_NOT_SPECIFIED) {
+        send_socket_exception_operation_event(ctx, SOCKET_EXCEPTION_OPERATION_TYPE_DROP, s);
+    }
+    return 0;
+}
+
 #include "openssl.c"
 #include "go_tls.c"
 #include "node_tls.c"
