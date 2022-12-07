@@ -8,6 +8,7 @@ Release Notes.
 * Enhancing the render context for the Kubernetes process.
 * Simplify the logic of network protocol analysis.
 * Upgrade Go library to `1.18`, eBPF library to `0.9.3`.
+* Make the Profiling module compatible with more Linux systems.
 
 #### Bug Fixes
 

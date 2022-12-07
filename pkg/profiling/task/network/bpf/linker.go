@@ -98,19 +98,23 @@ type UProbeExeFile struct {
 	realFile *link.Executable
 }
 
-func (m *Linker) AddLink(linkF LinkFunc, p *ebpf.Program, trySymbolNames ...string) {
+func (m *Linker) AddLink(linkF LinkFunc, symbolWithPrograms map[string]*ebpf.Program) {
 	var lk link.Link
 	var err error
 	var realSym string
-	for _, n := range trySymbolNames {
-		lk, err = linkF(n, p, nil)
+	for symbol, p := range symbolWithPrograms {
+		lk, err = linkF(symbol, p, nil)
 		if err == nil {
-			realSym = n
+			realSym = symbol
 			break
 		}
 	}
 	if err != nil {
-		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", trySymbolNames, err))
+		symbolNames := make([]string, 0)
+		for s := range symbolWithPrograms {
+			symbolNames = append(symbolNames, s)
+		}
+		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", symbolNames, err))
 	} else {
 		log.Debugf("attach to the kprobe: %s", realSym)
 		m.closers = append(m.closers, lk)

@@ -18,6 +18,9 @@
 package profiling
 
 import (
+	"fmt"
+	"regexp"
+
 	"github.com/apache/skywalking-rover/pkg/logger"
 
 	"github.com/ianlancetaylor/demangle"
@@ -136,6 +139,21 @@ func (i *Info) FindSymbolAddress(name string) uint64 {
 		}
 	}
 	return 0
+}
+
+func (i *Info) FindSymbolByRegex(rep string) (string, error) {
+	compile, err := regexp.Compile(rep)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range i.Modules {
+		for _, sym := range m.Symbols {
+			if compile.MatchString(sym.Name) {
+				return sym.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("cannot found any matches symbol: %s", rep)
 }
 
 func (m *Module) contains(addr uint64) (uint64, bool) {

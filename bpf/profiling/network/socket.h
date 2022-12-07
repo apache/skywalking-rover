@@ -76,3 +76,17 @@ struct mmsghdr {
 	struct user_msghdr msg_hdr;
 	unsigned int msg_len;
 } __attribute__((preserve_access_index));
+
+struct sk_buff {
+	struct sock		*sk;
+} __attribute__((preserve_access_index));
+
+enum skb_drop_reason {
+	SKB_DROP_REASON_NOT_SPECIFIED,
+	SKB_DROP_REASON_NO_SOCKET,
+	SKB_DROP_REASON_PKT_TOO_SMALL,
+	SKB_DROP_REASON_TCP_CSUM,
+	SKB_DROP_REASON_TCP_FILTER,
+	SKB_DROP_REASON_UDP_CSUM,
+	SKB_DROP_REASON_MAX,
+};

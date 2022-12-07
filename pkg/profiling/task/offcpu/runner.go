@@ -44,6 +44,7 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
 
 var log = logger.GetLogger("profiling", "task", "offcpu")
+var defaultKernelSymbol = "finish_task_switch"
 
 type ProcessStack struct {
 	UserStackID   uint32
@@ -116,7 +117,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	}
 	r.bpf = &objs
 
-	kprobe, err := link.Kprobe("finish_task_switch", objs.DoFinishTaskSwitch, nil)
+	kprobe, err := link.Kprobe(r.findMatchesSymbol(), objs.DoFinishTaskSwitch, nil)
 	if err != nil {
 		return fmt.Errorf("link to finish task swtich failure: %v", err)
 	}
@@ -125,6 +126,18 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	notify()
 	<-r.stopChan
 	return nil
+}
+
+func (r *Runner) findMatchesSymbol() string {
+	if r.kernelProfiling == nil {
+		return defaultKernelSymbol
+	}
+	res, err := r.kernelProfiling.FindSymbolByRegex(`finish_task_switch(\.\w+\.\d+)?`)
+	if err != nil {
+		log.Warnf("found symbol error: %v", err)
+		return defaultKernelSymbol
+	}
+	return res
 }
 
 func (r *Runner) Stop() error {
