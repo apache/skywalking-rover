@@ -160,7 +160,8 @@ func testNetworkProfiling(ctx context.Context, mgr *module.Manager, p api.Proces
 	}, mgr, p)
 }
 
-func testWithRunner(ctx context.Context, taskType base.TargetType, taskConfig *base.TaskConfig, moduleManager *module.Manager, p api.ProcessInterface) error {
+func testWithRunner(ctx context.Context, taskType base.TargetType, taskConfig *base.TaskConfig,
+	moduleManager *module.Manager, p api.ProcessInterface) error {
 	runner, err := task.NewProfilingRunner(taskType, taskConfig, moduleManager)
 	if err != nil {
 		return err
