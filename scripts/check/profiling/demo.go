@@ -15,29 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package cmd
+package main
 
-import (
-	"context"
+import "time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/apache/skywalking-rover/pkg/boot"
-)
-
-func newStartCmd() *cobra.Command {
-	configPath := ""
-	cmd := &cobra.Command{
-		Use:   "start",
-		Short: "start the rover",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-
-			// run modules
-			return boot.RunModules(ctx, configPath, nil)
-		},
+func main() {
+	for {
+		time.Sleep(time.Minute)
 	}
-
-	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/rover_configs.yaml", "the rover config file path")
-	return cmd
 }

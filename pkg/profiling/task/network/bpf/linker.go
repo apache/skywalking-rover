@@ -99,6 +99,12 @@ type UProbeExeFile struct {
 }
 
 func (m *Linker) AddLink(linkF LinkFunc, symbolWithPrograms map[string]*ebpf.Program) {
+	if e := m.AddLinkOrError(linkF, symbolWithPrograms); e != nil {
+		m.errors = multierror.Append(m.errors, e)
+	}
+}
+
+func (m *Linker) AddLinkOrError(linkF LinkFunc, symbolWithPrograms map[string]*ebpf.Program) error {
 	var lk link.Link
 	var err error
 	var realSym string
@@ -114,11 +120,11 @@ func (m *Linker) AddLink(linkF LinkFunc, symbolWithPrograms map[string]*ebpf.Pro
 		for s := range symbolWithPrograms {
 			symbolNames = append(symbolNames, s)
 		}
-		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", symbolNames, err))
-	} else {
-		log.Debugf("attach to the kprobe: %s", realSym)
-		m.closers = append(m.closers, lk)
+		return multierror.Append(m.errors, fmt.Errorf("open %s error: %v", symbolNames, err))
 	}
+	log.Debugf("attach to the kprobe: %s", realSym)
+	m.closers = append(m.closers, lk)
+	return nil
 }
 
 func (m *Linker) AddSysCall(call string, enter, exit *ebpf.Program) {
@@ -253,7 +259,7 @@ func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Prog
 	var opts *link.UprobeOptions
 	if customizeAddress > 0 {
 		opts = &link.UprobeOptions{
-			Address: customizeAddress,
+			Offset: customizeAddress,
 		}
 	}
 	return fun(symbol, p, opts)
@@ -291,12 +297,6 @@ func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *
 		return nil, fmt.Errorf("reading symbol data error: %v", err)
 	}
 
-	// find the base addresses
-	targetBaseAddress := elfFile.FindBaseAddressForAttach(targetSymbol.Location)
-	if targetBaseAddress == 0 {
-		return nil, fmt.Errorf("could not found the symbol base addresses")
-	}
-
 	// based on the base addresses and symbol data buffer
 	// calculate all RET addresses
 	// https://github.com/iovisor/bcc/issues/1320#issuecomment-407927542
@@ -308,7 +308,7 @@ func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *
 		}
 
 		if inst.Op == x86asm.RET {
-			addresses = append(addresses, targetBaseAddress+uint64(i))
+			addresses = append(addresses, uint64(i))
 		}
 
 		i += inst.Len

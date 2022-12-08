@@ -246,7 +246,7 @@ func testRun(run *testRunStruct, t *testing.T) {
 	shutdownChannel := make(chan error)
 	starter := NewModuleStarter(modules)
 	go func() {
-		err := starter.Run(ctx)
+		err := starter.Run(ctx, nil)
 		if err != nil {
 			shutdownChannel <- err
 		} else {

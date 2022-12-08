@@ -227,7 +227,7 @@ static __inline struct active_connection_t* get_or_create_active_conn(struct pt_
     return bpf_map_lookup_elem(&active_connection_map, &conid);
 }
 
-static __inline void set_conn_as_ssl(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u32 func_name) {
+static __always_inline void set_conn_as_ssl(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u32 func_name) {
     struct active_connection_t* conn = get_or_create_active_conn(ctx, tgid, fd, func_name);
     if (conn == NULL) {
         return;
@@ -276,17 +276,13 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     event->sequence = index;
     event->data_len = size;
     event->finished = is_finished;
-    if (size == 0) {
+    if (size <= 0) {
         return;
     }
-    if (size > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
-        size = MAX_TRANSMIT_SOCKET_READ_LENGTH;
-    }
-    asm volatile("%[size] &= 0x7fffffff;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&event->buffer, size, buf);
+    asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
+    bpf_probe_read(&event->buffer, size & 0x7ff, buf);
 
     bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
-
 }
 
 static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct socket_data_upload_event *event, __u8 force_unfinished) {

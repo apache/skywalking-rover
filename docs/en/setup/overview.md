@@ -48,3 +48,35 @@ So, in rover_configs.yaml, there contains these parts.
 3. [Profiling Module](./configuration/profiling.md).
 
 Also, You could using [Overriding Setting](./configuration/override-settings.md) feature to setup the configuration.
+
+## Prerequisites
+
+Currently, Linux operating systems are supported from version `4.9` and above, except for network profiling which requires version `4.16` or higher. 
+
+The following table are currently support operating systems.
+
+| System           | Kernel Version | On CPU Profiling | Off CPU Profiling | Network Profiling              |
+|------------------|----------------|------------------|-------------------|--------------------------------|
+| CentOS 7         | 3.10.0         | No               | No                | No                             |
+| CentOS Stream 8  | 4.18.0         | Yes              | Yes               | Yes                            |
+| CentOS Stream 9  | 5.47.0         | Yes              | Yes               | Yes                            |
+| Debian 10        | 4.19.0         | Yes              | Yes               | Yes                            |
+| Debian 11        | 5.10.0         | Yes              | Yes               | Yes(TCP Drop Monitor Excluded) |
+| Fedora 35        | 5.14.10        | Yes              | Yes               | Yes(TCP Drop Monitor Excluded) |
+| RHEL 7           | 3.10.0         | No               | No                | No                             |
+| RHEL 8           | 4.18.0         | Yes              | Yes               | Yes                            |
+| RHEL 9           | 5.14.0         | Yes              | Yes               | Yes                            |
+| Rocky Linux 8    | 4.18.0         | Yes              | Yes               | Yes                            |
+| Rocky Linux 9    | 5.14.0         | Yes              | Yes               | Yes                            |
+| Ubuntu 1804      | 5.4.0          | Yes              | Yes               | Yes                            |
+| Ubuntu 20.04     | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu 20.04     | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu 22.04     | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu 22.04     | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu 22.10     | 5.19.0         | Yes              | Yes               | Yes                            |
+| Ubuntu Pro 16.04 | 4.15.0         | Yes              | Yes               | No                             |
+| Ubuntu Pro 18.04 | 5.4.0          | Yes              | Yes               | Yes                            |
+| Ubuntu Pro 20.04 | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu Pro 22.04 | 5.15.0         | Yes              | Yes               | Yes                            |
+| Ubuntu Pro 22.04 | 5.15.0         | Yes              | Yes               | Yes                            |
+

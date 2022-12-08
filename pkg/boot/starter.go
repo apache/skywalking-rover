@@ -28,7 +28,7 @@ import (
 
 var log = logger.GetLogger("boot", "starter")
 
-func RunModules(ctx context.Context, file string) error {
+func RunModules(ctx context.Context, file string, startUpSuccessCallback func(*module.Manager)) error {
 	// read config files
 	conf, err := config.Load(file)
 	if err != nil {
@@ -43,7 +43,7 @@ func RunModules(ctx context.Context, file string) error {
 
 	// startup all modules
 	starter := NewModuleStarter(modules)
-	return starter.Run(ctx)
+	return starter.Run(ctx, startUpSuccessCallback)
 }
 
 func findAllDeclaredModules(conf *config.Config) ([]module.Module, error) {

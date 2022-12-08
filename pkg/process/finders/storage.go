@@ -308,6 +308,16 @@ func (s *ProcessStorage) updateProcessToUploadIgnored(pc *ProcessContext) {
 	log.Infof("could not found the process id from upstream, pid: %d, entity: %v", pc.Pid(), pc.Entity())
 }
 
+func (s *ProcessStorage) GetAllProcesses() []api.ProcessInterface {
+	result := make([]api.ProcessInterface, 0)
+	for _, processList := range s.processes {
+		for _, p := range processList {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
 func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface {
 	for _, finderProcesses := range s.processes {
 		for _, p := range finderProcesses {
