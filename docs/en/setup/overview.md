@@ -61,8 +61,8 @@ The following table are currently support operating systems.
 | CentOS Stream 8  | 4.18.0         | Yes              | Yes               | Yes                            |
 | CentOS Stream 9  | 5.47.0         | Yes              | Yes               | Yes                            |
 | Debian 10        | 4.19.0         | Yes              | Yes               | Yes                            |
-| Debian 11        | 5.10.0         | Yes              | Yes               | Yes(Excepted TCP Drop Monitor) |
-| Fedora 35        | 5.14.10        | Yes              | Yes               | Yes(Excepted TCP Drop Monitor) |
+| Debian 11        | 5.10.0         | Yes              | Yes               | Yes(TCP Drop Monitor Excluded) |
+| Fedora 35        | 5.14.10        | Yes              | Yes               | Yes(TCP Drop Monitor Excluded) |
 | RHEL 7           | 3.10.0         | No               | No                | No                             |
 | RHEL 8           | 4.18.0         | Yes              | Yes               | Yes                            |
 | RHEL 9           | 5.14.0         | Yes              | Yes               | Yes                            |
