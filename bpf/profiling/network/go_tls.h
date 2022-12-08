@@ -49,7 +49,7 @@ struct {
 	__type(key, __u32);
 	__type(value, struct go_tls_args_symaddr_t);
 } go_tls_args_symaddr_map SEC(".maps");
-static __inline struct go_tls_args_symaddr_t* get_go_tls_args_symaddr(__u32 tgid) {
+static __always_inline struct go_tls_args_symaddr_t* get_go_tls_args_symaddr(__u32 tgid) {
     struct go_tls_args_symaddr_t *addr = bpf_map_lookup_elem(&go_tls_args_symaddr_map, &tgid);
     return addr;
 }
@@ -82,7 +82,7 @@ struct {
 } go_regabi_regs_map SEC(".maps");
 // Copies the registers of the golang ABI, so that they can be
 // easily accessed using an offset.
-static __inline uint64_t* go_regabi_regs(const struct pt_regs* ctx) {
+static __always_inline uint64_t* go_regabi_regs(const struct pt_regs* ctx) {
     __u32 zero = 0;
     struct go_regabi_regs_t* regs_heap_var = bpf_map_lookup_elem(&go_regabi_regs_map, &zero);
     if (regs_heap_var == NULL) {
@@ -107,7 +107,7 @@ struct go_interface {
     void* ptr;
 };
 
-static __inline void assign_go_tls_arg(void* arg, size_t arg_size, struct go_tls_arg_location_t loc, const void* sp,
+static __always_inline void assign_go_tls_arg(void* arg, size_t arg_size, struct go_tls_arg_location_t loc, const void* sp,
                                 uint64_t* regs) {
     // stack type
     if (loc.type == 1) {
@@ -120,7 +120,7 @@ static __inline void assign_go_tls_arg(void* arg, size_t arg_size, struct go_tls
     }
 }
 
-static __inline int get_fd_from_go_tls_conn(struct go_interface conn, struct go_tls_args_symaddr_t* symaddr) {
+static __always_inline int get_fd_from_go_tls_conn(struct go_interface conn, struct go_tls_args_symaddr_t* symaddr) {
     // read connection
     bpf_probe_read(&conn, sizeof(conn), conn.ptr + symaddr->tls_conn_offset);
 

@@ -128,7 +128,7 @@ func (m *Manager) StartTask(c *Context) {
 		// close task if not same
 		id := m.tasks[taskIdentity].TaskID()
 		log.Infof("existing profiling task: %s, so need to stop it", id)
-		if err := m.shutdownAndRemoveTask(m.tasks[taskIdentity]); err != nil {
+		if err := m.ShutdownAndRemoveTask(m.tasks[taskIdentity]); err != nil {
 			log.Warnf("shutdown existing profiling task failure, so cannot to start new profiling task: %v. reason: %v", c.task.TaskID, err)
 			return
 		}
@@ -227,7 +227,7 @@ func (m *Manager) shutdownTask(c *Context) error {
 	return err
 }
 
-func (m *Manager) shutdownAndRemoveTask(c *Context) error {
+func (m *Manager) ShutdownAndRemoveTask(c *Context) error {
 	err := m.shutdownTask(c)
 	delete(m.tasks, c.BuildTaskIdentity())
 	return err

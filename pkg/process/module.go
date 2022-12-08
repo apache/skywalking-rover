@@ -75,6 +75,10 @@ func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
 	return m.manager.Shutdown()
 }
 
+func (m *Module) GetAllProcesses() []api.ProcessInterface {
+	return m.manager.GetAllProcesses()
+}
+
 func (m *Module) FindProcessByID(processID string) api.ProcessInterface {
 	return m.manager.FindProcessByID(processID)
 }

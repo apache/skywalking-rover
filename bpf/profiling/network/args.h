@@ -20,9 +20,9 @@
 #pragma once
 
 // for protocol analyze need to read
-#define MAX_PROTOCOL_SOCKET_READ_LENGTH 21
+#define MAX_PROTOCOL_SOCKET_READ_LENGTH 31
 // for transmit to the user space
-#define MAX_TRANSMIT_SOCKET_READ_LENGTH 2048
+#define MAX_TRANSMIT_SOCKET_READ_LENGTH 2047
 
 // unknown the connection type, not trigger the syscall connect,accept
 #define AF_UNKNOWN 0xff
@@ -205,7 +205,7 @@ struct {
 
 struct socket_buffer_reader_t {
     __u32 data_len;
-    char buffer[MAX_PROTOCOL_SOCKET_READ_LENGTH];
+    char buffer[MAX_PROTOCOL_SOCKET_READ_LENGTH + 1];
 };
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -240,9 +240,9 @@ static __inline struct socket_buffer_reader_t* read_socket_data(struct sock_data
     if (size > MAX_PROTOCOL_SOCKET_READ_LENGTH) {
         size = MAX_PROTOCOL_SOCKET_READ_LENGTH;
     }
-    asm volatile("%[size] &= 0xfff;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&reader->buffer, size, buf);
-    reader->data_len = size;
+    asm volatile("%[size] &= 0x1f;\n" ::[size] "+r"(size) :);
+    bpf_probe_read(&reader->buffer, size & MAX_PROTOCOL_SOCKET_READ_LENGTH, buf);
+    reader->data_len = size & MAX_PROTOCOL_SOCKET_READ_LENGTH;
     return reader;
 }
 

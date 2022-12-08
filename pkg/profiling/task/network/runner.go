@@ -167,7 +167,11 @@ func (r *Runner) Start(ctx context.Context, task *base.ProfilingTask, processes 
 
 	// retransmit/drop
 	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_retransmit_skb": bpfLoader.TcpRetransmit})
-	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_drop": bpfLoader.TcpDrop, "kfree_skb_reason": bpfLoader.KfreeSkbReason})
+	if e := bpfLoader.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"tcp_drop":         bpfLoader.TcpDrop,
+		"kfree_skb_reason": bpfLoader.KfreeSkbReason}); e != nil {
+		log.Warnf("cannot monitor the tcp drop, ignore it and keep profiling: %v", e)
+	}
 
 	if err := bpfLoader.HasError(); err != nil {
 		_ = bpfLoader.Close()

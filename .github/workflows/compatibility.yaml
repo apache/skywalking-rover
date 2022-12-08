@@ -1,0 +1,204 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Compatibility Checks
+
+jobs:
+  upload-checkers:
+    name: Upload checkers
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Set up Go 1.18
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}'
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+      - name: Build and Upload
+        run: |
+          # build skywalking rover binary
+          make container-btfgen build
+          cp bin/skywalking-rover-latest-linux-amd64 scripts/check/profiling
+  
+          # build demo program
+          cd scripts/check/profiling
+          go build demo.go
+          mv demo demo-program
+          
+          # upload to the gcloud
+          gcloud storage cp ./* gs://skywalking-rover-compatibility/runner
+
+  checks:
+    name: Compatibility Checks
+    needs: [upload-checkers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # following `gcloud compute images list`
+        system:
+          # ubuntu
+          - name: Ubuntu
+            project: ubuntu-os-cloud
+            family: ubuntu-1804-lts
+            image: ubuntu-1804-bionic-v20221201
+          - name: Ubuntu
+            project: ubuntu-os-cloud
+            family: ubuntu-2004-lts
+            image: ubuntu-2004-focal-v20221202
+          - name: Ubuntu
+            project: ubuntu-os-cloud
+            family: ubuntu-2204-lts
+            image: ubuntu-2204-jammy-v20221201
+          - name: Ubuntu
+            project: ubuntu-os-cloud
+            family: ubuntu-2210-amd64
+            image: ubuntu-2210-kinetic-amd64-v20221201
+
+          # ubuntu pro
+          - name: Ubuntu_Pro
+            project: ubuntu-os-pro-cloud
+            family: ubuntu-pro-1604-lts
+            image: ubuntu-pro-1604-xenial-v20221201
+          - name: Ubuntu_Pro
+            project: ubuntu-os-pro-cloud
+            family: ubuntu-pro-1804-lts
+            image: ubuntu-pro-1804-bionic-v20221201
+          - name: Ubuntu_Pro
+            project: ubuntu-os-pro-cloud
+            family: ubuntu-pro-2004-lts
+            image: ubuntu-pro-2004-focal-v20221202
+          - name: Ubuntu_Pro
+            project: ubuntu-os-pro-cloud
+            family: ubuntu-pro-2204-lts
+            image: ubuntu-pro-2204-jammy-v20221201
+
+          # centos
+          - name: Centos
+            project: centos-cloud
+            family: centos-7
+            image: centos-7-v20221102
+          - name: Centos
+            project: centos-cloud
+            family: centos-stream-8
+            image: centos-stream-8-v20221102
+          - name: Centos
+            project: centos-cloud
+            family: centos-stream-9
+            image: centos-stream-9-v20221102
+
+          # debian
+          - name: Debian
+            project: debian-cloud
+            family: debian-10
+            image: debian-10-buster-v20221102
+          - name: Debian
+            project: debian-cloud
+            family: debian-11
+            image: debian-11-bullseye-v20221102
+
+          # RHEL
+          - name: RHEL
+            project: rhel-cloud
+            family: rhel-7
+            image: rhel-7-v20221102
+          - name: RHEL
+            project: rhel-cloud
+            family: rhel-8
+            image: rhel-8-v20221102
+          - name: RHEL
+            project: rhel-cloud
+            family: rhel-9
+            image: rhel-9-v20221102
+
+          # rocky
+          - name: Rocky
+            project: rocky-linux-cloud
+            family: rocky-linux-8
+            image: rocky-linux-8-v20221102
+          - name: Rocky
+            project: rocky-linux-cloud
+            family: rocky-linux-9
+            image: rocky-linux-9-v20221102
+
+          # Fedora
+          - name: Fedora
+            project: fedora-cloud
+            family: fedora-cloud-34
+            image: fedora-cloud-base-gcp-34-1-2-x86-64
+          - name: Fedora
+            project: fedora-cloud
+            family: fedora-cloud-35
+            image: fedora-cloud-base-gcp-35-1-2-x86-64
+          - name: Fedora
+            project: fedora-cloud
+            family: fedora-cloud-36
+            image: fedora-cloud-base-gcp-36-20220506-n-0-x86-64
+          - name: Fedora
+            project: fedora-cloud
+            family: fedora-cloud-37
+            image: fedora-cloud-base-gcp-37-beta-1-5-x86-64
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}'
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+      - name: Check
+        env:
+          INSTANCE_PROJECT: "${{ matrix.system.project }}"
+          INSTANCE_IMAGE: "${{ matrix.system.image }}"
+          INSTANCE_FAMILY: "${{ matrix.system.family }}"
+          INSTANCE_SYSTEM: "${{ matrix.system.name }}"
+        run: |
+          # download the runner
+          mkdir -p /tmp/runner
+          gcloud storage cp gs://skywalking-rover-compatibility/runner/* /tmp/runner
+          
+          # create instance
+          gcloud compute instances create "skywalking-rover-test-$INSTANCE_IMAGE" --image "$INSTANCE_IMAGE" \
+          	--image-project "$INSTANCE_PROJECT" --machine-type e2-medium --zone us-west1-b
+          
+          # generate the public ssh key
+          ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -f ~/.ssh/google_compute_engine -q -N ""
+          
+          # scp runner
+          gcloud compute scp --recurse /tmp/runner hanliu@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/ --zone us-west1-b
+          
+          # run checker
+          gcloud compute ssh --zone "us-west1-b" "hanliu@skywalking-rover-test-$INSTANCE_IMAGE" \
+            --project "skywalking-live-demo" \
+            --command "cd /tmp/runner; chmod +x /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64; sudo bash check.sh /tmp/runner/config.yaml /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64 /tmp/runner/result/$INSTANCE_SYSTEM/$INSTANCE_FAMILY json"
+          
+          # scp from instance and upload to the storage
+          gcloud compute scp --recurse hanliu@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/runner/result /tmp/runner --zone us-west1-b
+          gcloud storage cp -r /tmp/runner/result gs://skywalking-rover-compatibility/
+
+          # delete test instance
+          gcloud compute instances delete "skywalking-rover-test-$INSTANCE_IMAGE" --zone us-west1-b -q

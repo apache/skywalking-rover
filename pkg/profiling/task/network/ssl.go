@@ -419,7 +419,8 @@ func generateGOTLSSymbolOffsets(modules []*profiling.Module, _ int, elfFile *elf
 		return a == b
 	}, "go.itab.*net.TCPConn,net.Conn")
 	if sym == nil {
-		return nil, nil, fmt.Errorf("could found the tcp connection symbol")
+		log.Warnf("could not found the tcp connection symbol: go.itab.*net.TCPConn,net.Conn")
+		return nil, nil, nil
 	}
 	symbolAddresses.TCPConnOffset = sym.Location
 

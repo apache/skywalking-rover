@@ -62,7 +62,7 @@ func NewModuleStarter(modules []module.Module) *ModuleStarter {
 	}
 }
 
-func (m *ModuleStarter) Run(ctx context.Context) error {
+func (m *ModuleStarter) Run(ctx context.Context, startUpSuccessCallback func(*module.Manager)) error {
 	// resolve module dependencies
 	if err := m.ResolveDependency(); err != nil {
 		return err
@@ -96,6 +96,9 @@ func (m *ModuleStarter) Run(ctx context.Context) error {
 	// notify all modules setup success
 	for _, mod := range m.startedModules {
 		mod.NotifyStartSuccess()
+	}
+	if startUpSuccessCallback != nil {
+		startUpSuccessCallback(m.moduleManager)
 	}
 
 	// register terminal

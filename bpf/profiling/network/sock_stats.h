@@ -269,7 +269,7 @@ struct socket_data_upload_event {
     __u64 randomid;
     __u64 data_id;
     __u64 total_size;
-    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
+    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH + 1];
 };
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);

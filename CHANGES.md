@@ -12,6 +12,9 @@ Release Notes.
 
 #### Bug Fixes
 
+#### Documentation
+* Adding support version of Linux documentation.
+
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/154?closed=1)
 - All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/4?closed=1)
