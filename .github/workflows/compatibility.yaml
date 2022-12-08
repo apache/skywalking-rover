@@ -16,6 +16,8 @@
 
 name: Compatibility Checks
 
+on: workflow_dispatch
+
 jobs:
   upload-checkers:
     name: Upload checkers
