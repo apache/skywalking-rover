@@ -16,7 +16,23 @@
 
 name: Compatibility Checks
 
-on: workflow_dispatch
+# This GitHub Action Is helps to check the compatibility on the GCP
+# Please provide following data to running:
+# 1. Secret.GCP_SERVICE_ACCOUNT_CREDENTIALS: The Key of the service account in Gcloud. The account must could operate GCloud Storage and GCP machine instance.
+# 2. GCloud project name: The name of the GCloud project, which use to create GCP under the project.
+# 3. GCloud storage name: The name of the GCloud storage, which use to update the checker files and check result of compatibility.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcloud-project:
+        description: 'Which project(ID) to create GCP?'
+        type: string
+        required: true
+      gcloud-storage:
+        description: 'Which GCloud Storage(Name) to storage compatibility result?'
+        type: string
+        required: true
 
 jobs:
   upload-checkers:
@@ -49,7 +65,7 @@ jobs:
           mv demo demo-program
           
           # upload to the gcloud
-          gcloud storage cp ./* gs://skywalking-rover-compatibility/runner
+          gcloud storage cp  --project "${{ github.event.inputs.gcloud-project }}" ./* gs://${{ github.event.inputs.gcloud-storage }}/runner
 
   checks:
     name: Compatibility Checks
@@ -181,26 +197,29 @@ jobs:
         run: |
           # download the runner
           mkdir -p /tmp/runner
-          gcloud storage cp gs://skywalking-rover-compatibility/runner/* /tmp/runner
+          gcloud storage cp gs://${{ github.event.inputs.gcloud-storage }}/runner/* /tmp/runner
           
           # create instance
           gcloud compute instances create "skywalking-rover-test-$INSTANCE_IMAGE" --image "$INSTANCE_IMAGE" \
-          	--image-project "$INSTANCE_PROJECT" --machine-type e2-medium --zone us-west1-b
+          	--project "${{ github.event.inputs.gcloud-project }}" --image-project "$INSTANCE_PROJECT" --machine-type e2-medium --zone us-west1-b
           
           # generate the public ssh key
           ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -f ~/.ssh/google_compute_engine -q -N ""
           
           # scp runner
-          gcloud compute scp --recurse /tmp/runner hanliu@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/ --zone us-west1-b
+          gcloud compute scp --recurse /tmp/runner test@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/ \
+            --zone us-west1-b --project "${{ github.event.inputs.gcloud-project }}" 
           
           # run checker
-          gcloud compute ssh --zone "us-west1-b" "hanliu@skywalking-rover-test-$INSTANCE_IMAGE" \
-            --project "skywalking-live-demo" \
+          gcloud compute ssh --zone "us-west1-b" "test@skywalking-rover-test-$INSTANCE_IMAGE" \
+            --project "${{ github.event.inputs.gcloud-project }}" \
             --command "cd /tmp/runner; chmod +x /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64; sudo bash check.sh /tmp/runner/config.yaml /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64 /tmp/runner/result/$INSTANCE_SYSTEM/$INSTANCE_FAMILY json"
           
           # scp from instance and upload to the storage
-          gcloud compute scp --recurse hanliu@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/runner/result /tmp/runner --zone us-west1-b
-          gcloud storage cp -r /tmp/runner/result gs://skywalking-rover-compatibility/
+          gcloud compute scp --recurse test@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/runner/result /tmp/runner \
+            --zone us-west1-b  --project "${{ github.event.inputs.gcloud-project }}" 
+          gcloud storage cp -r /tmp/runner/result gs://"${{ github.event.inputs.gcloud-storage }}"/ \
+            --project "${{ github.event.inputs.gcloud-project }}" 
 
           # delete test instance
-          gcloud compute instances delete "skywalking-rover-test-$INSTANCE_IMAGE" --zone us-west1-b -q
+          gcloud compute instances delete --project "${{ github.event.inputs.gcloud-project }}" "skywalking-rover-test-$INSTANCE_IMAGE" --zone us-west1-b -q
