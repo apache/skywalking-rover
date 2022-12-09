@@ -21,6 +21,8 @@ name: Compatibility Checks
 # 1. Secret.GCP_SERVICE_ACCOUNT_CREDENTIALS: The Key of the service account in Google Cloud. The account must have been granted to operate GCloud Storage and GCP machine instance.
 # 2. GCloud project name: The name of the GCloud project, which use to create GCP under the project.
 # 3. GCloud storage name: The name of the GCloud storage, which use to update the checker files and check the result of compatibility.
+#
+# This CI costs credit on Google Cloud, we only offer this for developers to run on your own environment.
 
 on:
   workflow_dispatch:
