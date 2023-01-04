@@ -46,7 +46,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 		val;                                                           \
 	})
 
-#define SOCKET_UPLOAD_CHUNK_LIMIT 8
+#define SOCKET_UPLOAD_CHUNK_LIMIT 12
 
 static __inline bool family_should_trace(const __u32 family) {
     return family != AF_UNKNOWN && family != AF_INET && family != AF_INET6 ? false : true;
@@ -272,10 +272,11 @@ static __always_inline void resent_connect_event(struct pt_regs *ctx, __u32 tgid
     }
 }
 
-static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, struct socket_data_upload_event *event) {
+static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, __u8 have_reduce_after_chunk, struct socket_data_upload_event *event) {
     event->sequence = index;
     event->data_len = size;
     event->finished = is_finished;
+    event->have_reduce_after_chunk = have_reduce_after_chunk;
     if (size <= 0) {
         return;
     }
@@ -292,8 +293,10 @@ static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t
         // calculate bytes need to send
         ssize_t remaining = size - already_send;
         size_t need_send_in_chunk = 0;
+        __u8 have_reduce_after_chunk = 0;
         if (remaining > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
             need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;
+            have_reduce_after_chunk = 1;
         } else {
             need_send_in_chunk = remaining;
         }
@@ -304,7 +307,7 @@ static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t
             is_finished = 0;
             sequence = generate_socket_sequence(event->conid, event->data_id);
         }
-        __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, event);
+        __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);
         already_send += need_send_in_chunk;
 
     }
@@ -316,19 +319,22 @@ if (iov_index < iovlen) {                                   \
     BPF_PROBE_READ_VAR(cur_iov, &iov[iov_index]);           \
     ssize_t remaining = size - already_send;                \
     size_t need_send_in_chunk = remaining - cur_iov_sended; \
+    __u8 have_reduce_after_chunk = 0;                       \
     if (cur_iov_sended + need_send_in_chunk > cur_iov.iov_len) {            \
         need_send_in_chunk = cur_iov.iov_len - cur_iov_sended;              \
         if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {         \
             need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;           \
+            have_reduce_after_chunk = 1;                                    \
         } else {                                                            \
             iov_index++;                                                    \
             cur_iov_sended = 0;                                             \
         }                                                                   \
     } else if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {      \
         need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;               \
+        have_reduce_after_chunk = 1;                                        \
     }                                                                       \
-    __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false; \
-    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, event);    \
+    __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;                            \
+    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);      \
     already_send += need_send_in_chunk;                                                                                              \
     loop_count++;                                                                                                                    \
 }
@@ -365,23 +371,11 @@ static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_t
     if (connection->ssl != ssl) {
         return;
     }
-    // if the msg type is unknown, then try to re-analysis
-    if (existing_msg_type == CONNECTION_MESSAGE_TYPE_UNKNOWN) {
-        struct socket_buffer_reader_t *buf_reader = read_socket_data(args, bytes_count);
-        if (buf_reader == NULL) {
-            return;
-        }
-        existing_msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, connection);
-        if (existing_msg_type == CONNECTION_MESSAGE_TYPE_UNKNOWN && args->ssl_buffer_force_unfinished == 0) {
-            return;
-        }
-    }
 
     // basic data
     event->start_time = start_time;
     event->end_time = end_time;
     event->protocol = connection->protocol;
-    event->msg_type = existing_msg_type;
     event->direction = data_direction;
     event->conid = conid;
     event->randomid = connection->random_id;

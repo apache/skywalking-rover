@@ -23,6 +23,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
+
+	"golang.org/x/net/context"
 )
 
 var log = logger.GetLogger("profiling", "task", "network", "layer7", "protocols")
@@ -43,15 +45,16 @@ func init() {
 
 type Analyzer struct {
 	ctx       protocol.Context
-	protocols []protocol.Protocol
+	protocols map[base.ConnectionProtocol]*protocol.ProtocolAnalyzer
 }
 
 func NewAnalyzer(ctx protocol.Context, config *profiling.TaskConfig) *Analyzer {
-	protocols := make([]protocol.Protocol, 0)
+	protocols := make(map[base.ConnectionProtocol]*protocol.ProtocolAnalyzer)
 	for _, r := range registerProtocols {
 		p := r()
 		p.Init(config)
-		protocols = append(protocols, p)
+		analyzer := protocol.NewProtocolAnalyzer(ctx, p, config)
+		protocols[p.Protocol()] = analyzer
 	}
 	return &Analyzer{
 		ctx:       ctx,
@@ -59,14 +62,20 @@ func NewAnalyzer(ctx protocol.Context, config *profiling.TaskConfig) *Analyzer {
 	}
 }
 
-func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent) {
+func (a *Analyzer) Start(ctx context.Context) {
 	for _, p := range a.protocols {
-		if p.ReceiveData(a.ctx, event) {
-			return
-		}
+		p.Start(ctx)
 	}
-	log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d), type: %s",
-		event.GenerateConnectionID(), event.Protocol.String(), event.Protocol, event.MsgType.String())
+}
+
+func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent) {
+	analyzer := a.protocols[event.Protocol]
+	if analyzer == nil {
+		log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d)",
+			event.GenerateConnectionID(), event.Protocol.String(), event.Protocol)
+		return
+	}
+	analyzer.ReceiveSocketData(a.ctx, event)
 }
 
 func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
@@ -76,19 +85,19 @@ func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 }
 
 type ProtocolMetrics struct {
-	data map[string]protocol.Metrics
+	data map[base.ConnectionProtocol]protocol.Metrics
 }
 
 func NewProtocolMetrics() *ProtocolMetrics {
-	metrics := make(map[string]protocol.Metrics)
+	metrics := make(map[base.ConnectionProtocol]protocol.Metrics)
 	for _, p := range defaultInstances {
-		metrics[p.Name()] = p.GenerateMetrics()
+		metrics[p.Protocol()] = p.GenerateMetrics()
 	}
 	return &ProtocolMetrics{data: metrics}
 }
 
-func (m *ProtocolMetrics) GetProtocolMetrics(name string) protocol.Metrics {
-	return m.data[name]
+func (m *ProtocolMetrics) GetProtocolMetrics(p base.ConnectionProtocol) protocol.Metrics {
+	return m.data[p]
 }
 
 func (m *ProtocolMetrics) MergeMetricsFromConnection(connection *base.ConnectionContext, data base.ConnectionMetrics) {

@@ -2,6 +2,19 @@ Changes by Version
 ==================
 Release Notes.
 
+0.5.0
+------------------
+#### Features
+* Enhance the protocol reader for support long socket data.
+
+#### Bug Fixes
+
+#### Documentation
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/167?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/5?closed=1)
+
 0.4.0
 ------------------
 #### Features

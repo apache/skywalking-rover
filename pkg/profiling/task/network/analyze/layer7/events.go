@@ -61,6 +61,10 @@ func NewSocketDataPartitionContext(l base.Context, config *profiling.TaskConfig)
 	}
 }
 
+func (p *SocketDataPartitionContext) Start(ctx context.Context) {
+	p.analyzer.Start(ctx)
+}
+
 func (p *SocketDataPartitionContext) Consume(data interface{}) {
 	event := data.(*base.SocketDataUploadEvent)
 	p.analyzer.ReceiveSocketDataEvent(event)

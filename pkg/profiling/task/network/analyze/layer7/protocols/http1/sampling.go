@@ -19,7 +19,6 @@ package http1
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -30,6 +29,7 @@ import (
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
 )
 
@@ -52,13 +52,12 @@ func NewSampler() *Sampler {
 	}
 }
 
-func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
-	request *http.Request, response *http.Response, reqBuffer, respBuffer protocol.SocketDataBuffer) {
+func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration, request *reader.Request, response *reader.Response) {
 	if config == nil {
 		return
 	}
 	tracingContext, err := protocol.AnalyzeTracingContext(func(key string) string {
-		return request.Header.Get(key)
+		return request.Headers().Get(key)
 	})
 	if err != nil {
 		log.Warnf("analyze tracing context error: %v", err)
@@ -68,7 +67,7 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 		return
 	}
 
-	uri := request.RequestURI
+	uri := request.RequestURI()
 	// remove the query parameters
 	if i := strings.Index(uri, "?"); i > 0 {
 		uri = uri[0:i]
@@ -82,10 +81,10 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 
 	var traceType string
 	var topN *metrics.TopN
-	if rule.When5XX && response.StatusCode >= 500 && response.StatusCode < 600 {
+	if rule.When5XX && response.StatusCode() >= 500 && response.StatusCode() < 600 {
 		traceType = "status_5xx"
 		topN = s.Error5xxTraces
-	} else if rule.When4XX && response.StatusCode >= 400 && response.StatusCode < 500 {
+	} else if rule.When4XX && response.StatusCode() >= 400 && response.StatusCode() < 500 {
 		traceType = "status_4xx"
 		topN = s.Error4xxTraces
 	} else if rule.MinDuration != nil && int64(*rule.MinDuration) <= duration.Milliseconds() {
@@ -96,15 +95,13 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration,
 	}
 
 	trace := &Trace{
-		Trace:          tracingContext,
-		RequestURI:     uri,
-		RequestBuffer:  reqBuffer,
-		ResponseBuffer: respBuffer,
-		Request:        request,
-		Response:       response,
-		Type:           traceType,
-		Settings:       rule.Settings,
-		TaskConfig:     config.ProfilingSampling,
+		Trace:      tracingContext,
+		RequestURI: uri,
+		Request:    request,
+		Response:   response,
+		Type:       traceType,
+		Settings:   rule.Settings,
+		TaskConfig: config.ProfilingSampling,
 	}
 	topN.AddRecord(trace, duration.Milliseconds())
 }

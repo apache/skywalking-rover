@@ -18,23 +18,16 @@
 package http1
 
 import (
-	"bufio"
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime"
-	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/net/html/charset"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -80,27 +73,28 @@ func NewHTTP1URIMetrics() *URIMetrics {
 	}
 }
 
-func (u *URIMetrics) Append(sampleConfig *SamplingConfig,
-	req *http.Request, reqBuffer protocol.SocketDataBuffer, resp *http.Response, respBuffer protocol.SocketDataBuffer) {
+func (u *URIMetrics) Append(sampleConfig *SamplingConfig, req *reader.Request, resp *reader.Response) {
 	u.RequestCounter.Increase()
-	statusCounter := u.StatusCounter[resp.StatusCode]
+	statusCounter := u.StatusCounter[resp.StatusCode()]
 	if statusCounter == nil {
 		statusCounter = metrics.NewCounter()
-		u.StatusCounter[resp.StatusCode] = statusCounter
+		u.StatusCounter[resp.StatusCode()] = statusCounter
 	}
 	statusCounter.Increase()
 
-	u.AvgRequestPackageSize.Increase(float64(reqBuffer.TotalSize()))
-	u.AvgResponsePackageSize.Increase(float64(respBuffer.TotalSize()))
-	u.ReqPackageSizeHistogram.Increase(float64(reqBuffer.TotalSize()))
-	u.RespPackageSizeHistogram.Increase(float64(respBuffer.TotalSize()))
+	requestTotalSize := req.ContentTotalSize()
+	responseTotalSize := resp.ContentTotalSize()
+	u.AvgRequestPackageSize.Increase(float64(requestTotalSize))
+	u.AvgResponsePackageSize.Increase(float64(responseTotalSize))
+	u.ReqPackageSizeHistogram.Increase(float64(requestTotalSize))
+	u.RespPackageSizeHistogram.Increase(float64(responseTotalSize))
 
-	duration := time.Duration(respBuffer.EndTime() - reqBuffer.StartTime())
+	duration := time.Duration(resp.EndTime() - req.StartTime())
 	durationInMS := float64(duration.Milliseconds())
 	u.avgDuration.Increase(durationInMS)
 	u.durationHistogram.Increase(durationInMS)
 
-	u.sampler.AppendMetrics(sampleConfig, duration, req, resp, reqBuffer, respBuffer)
+	u.sampler.AppendMetrics(sampleConfig, duration, req, resp)
 }
 
 func (u *URIMetrics) appendMetrics(traffic *base.ProcessTraffic,
@@ -177,15 +171,13 @@ func (u *URIMetrics) String() string {
 }
 
 type Trace struct {
-	Trace          protocol.TracingContext
-	RequestURI     string
-	RequestBuffer  protocol.SocketDataBuffer
-	Request        *http.Request
-	ResponseBuffer protocol.SocketDataBuffer
-	Response       *http.Response
-	Type           string
-	Settings       *profiling.NetworkDataCollectingSettings
-	TaskConfig     *profiling.HTTPSamplingConfig
+	Trace      protocol.TracingContext
+	RequestURI string
+	Request    *reader.Request
+	Response   *reader.Response
+	Type       string
+	Settings   *profiling.NetworkDataCollectingSettings
+	TaskConfig *profiling.HTTPSamplingConfig
 }
 
 func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
@@ -212,7 +204,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 		SSL:           traffic.IsSSL,
 		URI:           h.RequestURI,
 		Reason:        h.Type,
-		Status:        h.Response.StatusCode,
+		Status:        h.Response.StatusCode(),
 	}
 	if traffic.Role == base.ConnectionRoleClient {
 		body.ClientProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}
@@ -238,35 +230,35 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
 	events := make([]*v3.SpanAttachedEvent, 0)
 	if h.Settings != nil && h.Settings.RequireCompleteRequest {
-		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.Header,
-			h.Request.Body, h.RequestBuffer, h.Settings.MaxRequestSize)
+		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.MessageOpt, h.TaskConfig.DefaultRequestEncoding,
+			h.Settings.MaxRequestSize)
 	}
 	if h.Settings != nil && h.Settings.RequireCompleteResponse {
-		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.Header,
-			h.Response.Body, h.ResponseBuffer, h.Settings.MaxResponseSize)
+		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.MessageOpt, h.TaskConfig.DefaultResponseEncoding,
+			h.Settings.MaxResponseSize)
 	}
 
 	metricsBuilder.AppendSpanAttachedEvents(events)
 }
 
 func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
-	tp string, header http.Header, body io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) []*v3.SpanAttachedEvent {
-	content, err := h.transformHTTPBody(tp, header, body, buffer, maxSize)
+	tp string, message *reader.MessageOpt, defaultBodyEncoding string, maxSize int32) []*v3.SpanAttachedEvent {
+	content, err := message.TransformReadableContent(defaultBodyEncoding, int(maxSize))
 	if err != nil {
 		log.Warnf("transform http %s erorr: %v", tp, err)
 		return events
 	}
 
 	event := &v3.SpanAttachedEvent{}
-	event.StartTime = host.TimeToInstant(buffer.StartTime())
-	event.EndTime = host.TimeToInstant(buffer.EndTime())
+	event.StartTime = host.TimeToInstant(message.StartTime())
+	event.EndTime = host.TimeToInstant(message.EndTime())
 	event.Event = fmt.Sprintf("HTTP %s Sampling", tp)
 	event.Tags = make([]*commonv3.KeyStringValuePair, 0)
 	event.Tags = append(event.Tags,
 		// content data
-		&commonv3.KeyStringValuePair{Key: "data_size", Value: units.BytesSize(float64(buffer.TotalSize()))},
+		&commonv3.KeyStringValuePair{Key: "data_size", Value: units.BytesSize(float64(message.ContentTotalSize()))},
 		&commonv3.KeyStringValuePair{Key: "data_content", Value: content},
-		&commonv3.KeyStringValuePair{Key: "data_direction", Value: buffer.Direction().String()},
+		&commonv3.KeyStringValuePair{Key: "data_direction", Value: message.Direction().String()},
 		&commonv3.KeyStringValuePair{Key: "data_type", Value: strings.ToLower(tp)},
 		// connection
 		&commonv3.KeyStringValuePair{Key: "connection_role", Value: traffic.Role.String()},
@@ -284,112 +276,6 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 		Type:           h.Trace.Provider().Type,
 	}
 	return append(events, event)
-}
-
-// nolint
-func (h *Trace) transformHTTPBody(tp string, header http.Header, _ io.Reader, buffer protocol.SocketDataBuffer, maxSize int32) (string, error) {
-	var needGzip, isPlain, isUtf8 = header.Get("Content-Encoding") == "gzip", true, true
-	contentType := header.Get("Content-Type")
-	if contentType == "" {
-		if tp == transportRequest {
-			contentType = h.TaskConfig.DefaultRequestEncoding
-		} else {
-			contentType = h.TaskConfig.DefaultResponseEncoding
-		}
-		contentType = fmt.Sprintf("text/html; charset=%s", contentType)
-	}
-
-	isPlain = strings.HasPrefix(contentType, "text/") || contentType == "application/json"
-	if _, params, err := mime.ParseMediaType(contentType); err == nil {
-		if cs, ok := params["charset"]; ok {
-			isUtf8 = strings.ToLower(cs) == "utf-8"
-		}
-	}
-
-	if !needGzip && isPlain && isUtf8 {
-		resultSize := len(buffer.BufferData())
-		if maxSize > 0 && resultSize > int(maxSize) {
-			resultSize = int(maxSize)
-		}
-		return string(buffer.BufferData()[0:resultSize]), nil
-	}
-
-	// re-read the buffer and skip to the body position
-	buf := bufio.NewReaderSize(bytes.NewBuffer(buffer.BufferData()), len(buffer.BufferData()))
-	var httpBody io.ReadCloser
-	if tp == transportRequest {
-		req, err := http.ReadRequest(buf)
-		if err != nil {
-			return "", err
-		}
-		httpBody = req.Body
-	} else {
-		response, err := http.ReadResponse(buf, nil)
-		if err != nil {
-			return "", err
-		}
-		httpBody = response.Body
-	}
-	defer httpBody.Close()
-
-	// no text plain, no need to print the data
-	headerLen := len(buffer.BufferData()) - buf.Buffered()
-	if maxSize > 0 && int(maxSize) < headerLen {
-		return string(buffer.BufferData()[:maxSize]), nil
-	}
-	headerString := string(buffer.BufferData()[:headerLen])
-	if !isPlain {
-		return fmt.Sprintf("%s[not plain, current content type: %s]", headerString, contentType), nil
-	}
-	// nobody
-	if buf.Buffered() == 0 {
-		return headerString, nil
-	}
-
-	data := httpBody
-	var err error
-	if needGzip {
-		data, err = gzip.NewReader(httpBody)
-		if err != nil {
-			return "", err
-		}
-	}
-	if !isUtf8 {
-		data, err = newCharsetReader(data, contentType)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	realData, err := io.ReadAll(data)
-	if err != nil && err != io.ErrUnexpectedEOF {
-		return "", err
-	}
-	resultSize := len(realData)
-	if maxSize > 0 && (resultSize+headerLen) > int(maxSize) {
-		resultSize = int(maxSize) - headerLen
-	}
-	return fmt.Sprintf("%s%s", headerString, string(realData[0:resultSize])), nil
-}
-
-type charsetReadWrapper struct {
-	reader io.Reader
-}
-
-func newCharsetReader(r io.Reader, contentType string) (*charsetReadWrapper, error) {
-	reader, err := charset.NewReader(r, contentType)
-	if err != nil {
-		return nil, err
-	}
-	return &charsetReadWrapper{reader: reader}, nil
-}
-
-func (c *charsetReadWrapper) Read(p []byte) (n int, err error) {
-	return c.reader.Read(p)
-}
-
-func (c *charsetReadWrapper) Close() error {
-	return nil
 }
 
 type SamplingTraceLogBody struct {

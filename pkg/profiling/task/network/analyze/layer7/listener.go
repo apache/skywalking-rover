@@ -132,9 +132,9 @@ func (l *Listener) QueryConnection(conID, randomID uint64) *base.ConnectionConte
 	return nil
 }
 
-func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocolName string) protocol.Metrics {
+func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, p base.ConnectionProtocol) protocol.Metrics {
 	metrics := conMetrics.GetMetrics(ListenerName).(*protocols.ProtocolMetrics)
-	return metrics.GetProtocolMetrics(protocolName)
+	return metrics.GetProtocolMetrics(p)
 }
 
 func (l *Listener) generateCachedConnectionKey(conID, randomID uint64) string {

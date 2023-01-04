@@ -28,6 +28,7 @@ import (
 )
 
 type PartitionContext interface {
+	Start(ctx context.Context)
 	Consume(data interface{})
 }
 
@@ -72,8 +73,9 @@ func (e *EventQueue) start0(ctx context.Context, bpfLoader *bpf.Loader, emap *eb
 	}
 
 	for i := 0; i < len(e.partitions); i++ {
-		go func(inx int) {
+		go func(ctx context.Context, inx int) {
 			p := e.partitions[inx]
+			p.ctx.Start(ctx)
 			for {
 				select {
 				// consume the data
@@ -84,7 +86,7 @@ func (e *EventQueue) start0(ctx context.Context, bpfLoader *bpf.Loader, emap *eb
 					return
 				}
 			}
-		}(i)
+		}(ctx, i)
 	}
 }
 
