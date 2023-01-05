@@ -258,7 +258,7 @@ struct {
 
 struct socket_data_upload_event {
     __u8 protocol;
-    __u8 msg_type;
+    __u8 have_reduce_after_chunk;
     __u8 direction;
     __u8 finished;
     __u16 sequence;

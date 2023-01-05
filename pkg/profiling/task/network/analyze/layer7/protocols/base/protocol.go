@@ -18,22 +18,32 @@
 package base
 
 import (
+	"time"
+
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 )
 
+type ParseResult int
+
+const (
+	ParseResultSuccess ParseResult = iota
+	ParseResultSkipPackage
+)
+
 type Protocol interface {
-	Name() string
+	Protocol() base.ConnectionProtocol
 	GenerateMetrics() Metrics
 	Init(config *profiling.TaskConfig)
 
-	ReceiveData(context Context, event *SocketDataUploadEvent) bool
+	ParseProtocol(connectionID uint64, metrics Metrics, reader *Buffer) ParseResult
+	PackageMaxExpireDuration() time.Duration
 	UpdateExtensionConfig(config *profiling.ExtensionConfig)
 }
 
 type Context interface {
 	QueryConnection(connectionID, randomID uint64) *base.ConnectionContext
-	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocolName string) Metrics
+	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocol base.ConnectionProtocol) Metrics
 }
 
 type Metrics interface {

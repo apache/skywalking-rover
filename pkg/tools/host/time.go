@@ -41,10 +41,14 @@ func init() {
 }
 
 func TimeToInstant(bpfTime uint64) *v3.Instant {
-	timeCopy := time.Unix(BootTime.Unix(), int64(BootTime.Nanosecond()))
-	result := timeCopy.Add(time.Duration(bpfTime))
+	result := Time(bpfTime)
 	return &v3.Instant{
 		Seconds: result.Unix(),
 		Nanos:   int32(result.Nanosecond()),
 	}
+}
+
+func Time(bpfTime uint64) time.Time {
+	timeCopy := time.Unix(BootTime.Unix(), int64(BootTime.Nanosecond()))
+	return timeCopy.Add(time.Duration(bpfTime))
 }
