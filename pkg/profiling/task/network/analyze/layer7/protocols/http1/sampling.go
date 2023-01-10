@@ -192,7 +192,7 @@ func (s *SamplingConfig) findMatchesRule(uri string) *profiling.NetworkSamplingR
 			continue
 		}
 		result = rule.Rule
-		s.uriRuleCache.Add(uri, rule)
+		s.uriRuleCache.Add(uri, result)
 	}
 	return result
 }
