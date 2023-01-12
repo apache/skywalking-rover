@@ -45,7 +45,9 @@ static __inline __u32 infer_http1_message(const char* buf, size_t count) {
     if (buf[0] == 'P' && buf[1] == 'O' && buf[2] == 'S' && buf[3] == 'T') {
         return CONNECTION_MESSAGE_TYPE_REQUEST;
     }
-    if (buf[0] == 'O' && buf[1] == 'P' && buf[2] == 'T' && buf[3] == 'I' && buf[4] == 'O' && buf[5] == 'N') {
+    if (buf[0] == 'O' && buf[1] == 'P' && buf[2] == 'T' && buf[3] == 'I' && buf[4] == 'O'
+        && buf[5] == 'N' && buf[6] == 'S')
+    {
         return CONNECTION_MESSAGE_TYPE_REQUEST;
     }
     if (buf[0] == 'H' && buf[1] == 'E' && buf[2] == 'A' && buf[3] == 'D') {
@@ -57,7 +59,9 @@ static __inline __u32 infer_http1_message(const char* buf, size_t count) {
     if (buf[0] == 'D' && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'E' && buf[4] == 'T' && buf[5] == 'E') {
         return CONNECTION_MESSAGE_TYPE_REQUEST;
     }
-    if (buf[0] == 'C' && buf[1] == 'O' && buf[2] == 'N' && buf[3] == 'N' && buf[4] == 'E' && buf[5] == 'T') {
+    if (buf[0] == 'C' && buf[1] == 'O' && buf[2] == 'N' && buf[3] == 'N' && buf[4] == 'E'
+        && buf[5] == 'C' && buf[6] == 'T')
+    {
         return CONNECTION_MESSAGE_TYPE_REQUEST;
     }
     if (buf[0] == 'T' && buf[1] == 'R' && buf[2] == 'A' && buf[3] == 'C' && buf[4] == 'E') {
