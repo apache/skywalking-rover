@@ -8,6 +8,7 @@ Release Notes.
 * Enhance the protocol reader for support long socket data.
 
 #### Bug Fixes
+* Fix HTTP method name in protocol analyzer
 * Fixed submitting multiple network profiling tasks with the same uri causing the rover to restart
 
 #### Documentation
