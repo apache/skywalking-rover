@@ -40,7 +40,7 @@ var (
 	bodyBuffer = make([]byte, 4096)
 
 	requestMethods = []string{
-		"GET", "POST", "OPTION", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH",
+		"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH",
 	}
 )
 
