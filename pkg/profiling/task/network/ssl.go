@@ -535,19 +535,19 @@ func buildSSLSymAddrConfig(libcryptoPath string) (*OpenSSLFdSymAddrConfigInBPF, 
 			continue
 		}
 		major := submatch[1]
-		mijor := submatch[2]
+		minor := submatch[2]
 		fix := submatch[3]
 
-		log.Debugf("found the libcrypto.so version: %s.%s.%s", major, mijor, fix)
+		log.Debugf("found the libcrypto.so version: %s.%s.%s", major, minor, fix)
 		conf := &OpenSSLFdSymAddrConfigInBPF{}
 
 		// must be number, already validate in the regex
-		mijorVal, _ := strconv.Atoi(mijor)
+		minorVal, _ := strconv.Atoi(minor)
 		fixVal, _ := strconv.Atoi(fix)
 
 		// max support version is 1.1.1
-		if mijorVal > 1 || fixVal > 1 {
-			return nil, fmt.Errorf("the fix version of the libcrypto is not support: %s.%s.%s", major, mijor, fix)
+		if minorVal > 1 || fixVal > 1 {
+			return nil, fmt.Errorf("the version of the libcrypto is not support: %s.%s.%s", major, minor, fix)
 		}
 
 		// bio offset
@@ -556,7 +556,7 @@ func buildSSLSymAddrConfig(libcryptoPath string) (*OpenSSLFdSymAddrConfigInBPF, 
 		conf.BIOReadOffset = 16
 		conf.BIOWriteOffset = 24
 		// fd offset
-		if (mijorVal == 0) || (mijorVal == 1 && fixVal == 0) {
+		if (minorVal == 0) || (minorVal == 1 && fixVal == 0) {
 			// 1.0.x || 1.1.0
 			// https://github.com/openssl/openssl/blob/OpenSSL_1_0_0-stable/crypto/bio/bio.h#L297-L306
 			conf.FDOffset = 40
@@ -566,7 +566,7 @@ func buildSSLSymAddrConfig(libcryptoPath string) (*OpenSSLFdSymAddrConfigInBPF, 
 			conf.FDOffset = 48
 		}
 		log.Debugf("the lobcrypto.so library symbol verson config, version: %s.%s.%s, bio offset: %d",
-			major, mijor, fix, conf.FDOffset)
+			major, minor, fix, conf.FDOffset)
 		return conf, nil
 	}
 	return nil, fmt.Errorf("could not fount the version of the libcrypto.so")
