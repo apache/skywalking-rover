@@ -34,9 +34,17 @@ type PartitionContext interface {
 
 type EventQueue struct {
 	count      int
+	receivers  []*mapReceiver
 	partitions []*partition
 
 	startOnce sync.Once
+}
+
+type mapReceiver struct {
+	emap         *ebpf.Map
+	perCPUBuffer int
+	dataSupplier func() interface{}
+	router       func(data interface{}) string
 }
 
 func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func() PartitionContext) *EventQueue {
@@ -47,10 +55,19 @@ func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func()
 	return &EventQueue{count: partitionCount, partitions: partitions}
 }
 
-func (e *EventQueue) Start(ctx context.Context, bpfLoader *bpf.Loader, emap *ebpf.Map, receiverCount int,
-	perCPUBufferSize int, dataSupplier func() interface{}, routeGenerator func(data interface{}) string) {
+func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize int, dataSupplier func() interface{},
+	routeGenerator func(data interface{}) string) {
+	e.receivers = append(e.receivers, &mapReceiver{
+		emap:         emap,
+		perCPUBuffer: perCPUBufferSize,
+		dataSupplier: dataSupplier,
+		router:       routeGenerator,
+	})
+}
+
+func (e *EventQueue) Start(ctx context.Context, bpfLoader *bpf.Loader) {
 	e.startOnce.Do(func() {
-		e.start0(ctx, bpfLoader, emap, receiverCount, perCPUBufferSize, dataSupplier, routeGenerator)
+		e.start0(ctx, bpfLoader)
 	})
 }
 
@@ -64,12 +81,13 @@ func (e *EventQueue) Push(key string, data interface{}) {
 	e.partitions[sum32%e.count].channel <- data
 }
 
-func (e *EventQueue) start0(ctx context.Context, bpfLoader *bpf.Loader, emap *ebpf.Map, receiverCount int,
-	perCPUBufferSize int, dataSupplier func() interface{}, routeGenerator func(data interface{}) string) {
-	for i := 0; i < receiverCount; i++ {
-		bpfLoader.ReadEventAsyncWithBufferSize(emap, func(data interface{}) {
-			e.routerTransformer(data, routeGenerator)
-		}, perCPUBufferSize, dataSupplier)
+func (e *EventQueue) start0(ctx context.Context, bpfLoader *bpf.Loader) {
+	for _, r := range e.receivers {
+		func(receiver *mapReceiver) {
+			bpfLoader.ReadEventAsyncWithBufferSize(receiver.emap, func(data interface{}) {
+				e.routerTransformer(data, receiver.router)
+			}, receiver.perCPUBuffer, receiver.dataSupplier)
+		}(r)
 	}
 
 	for i := 0; i < len(e.partitions); i++ {

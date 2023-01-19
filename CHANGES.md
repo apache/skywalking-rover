@@ -6,6 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Enhance the protocol reader for support long socket data.
+* Add the syscall level event to the trace.
 
 #### Bug Fixes
 * Fix HTTP method name in protocol analyzer

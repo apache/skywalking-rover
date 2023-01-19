@@ -113,7 +113,8 @@ Based on the above two data types, the following metrics are provided.
 | status_5xx  | TopN  | millisecond | The Top N trace(id)s with response status in 500-599 |
 
 ##### Span Attached Event
-| Name                   | Description                                                                                   |
-|------------------------|-----------------------------------------------------------------------------------------------|
-| HTTP Request Sampling  | Complete information about the HTTP request, it's only reported when it matches slow traces.  |
-| HTTP Response Sampling | Complete information about the HTTP response, it's only reported when it matches slow traces. |
+| Name                   | Description                                                                                                                                 |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| HTTP Request Sampling  | Complete information about the HTTP request, it's only reported when it matches slow/4xx/5xx traces.                                        |
+| HTTP Response Sampling | Complete information about the HTTP response, it's only reported when it matches slow/4xx/5xx traces.                                       |
+| Syscall xxx            | The methods to use when the process invoke with the network-related syscall method. It's only reported when it matches slow/4xx/5xx traces. |
