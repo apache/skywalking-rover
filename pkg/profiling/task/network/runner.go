@@ -173,6 +173,9 @@ func (r *Runner) Start(ctx context.Context, task *base.ProfilingTask, processes 
 		log.Warnf("cannot monitor the tcp drop, ignore it and keep profiling: %v", e)
 	}
 
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_finish_output": bpfLoader.IpFinishOutput})
+	bpfLoader.AddLink(link.Kprobe, map[string]*ebpf.Program{"skb_copy_datagram_iter": bpfLoader.SkbCopyDatagramIter})
+
 	if err := bpfLoader.HasError(); err != nil {
 		_ = bpfLoader.Close()
 		return err

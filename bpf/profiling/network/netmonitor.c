@@ -36,6 +36,7 @@
 #include "sock_stats.h"
 #include "args.h"
 #include "protocol_analyzer.h"
+#include "socket_detail.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -390,7 +391,7 @@ static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_t
 }
 
 static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
-                                        __u32 data_direction, const bool vecs, __u32 func_name, bool ssl) {
+                                        __u32 data_direction, const bool vecs, __u8 func_name, bool ssl) {
     __u64 curr_nacs = bpf_ktime_get_ns();
     __u32 tgid = (__u32)(id >> 32);
 
@@ -452,6 +453,9 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
             }
         }
     }
+
+    // upload the socket detail
+    upload_socket_detail(ctx, conid, conn, func_name, args, ssl);
 
     // upload the socket data if need
     upload_socket_data(ctx, args->start_nacs, curr_nacs, conid, conn, args, bytes_count, msg_type, data_direction, ssl);
@@ -584,8 +588,12 @@ int sock_alloc_ret(struct pt_regs *ctx) {
 
 SEC("kprobe/sendto")
 int sys_sendto(struct pt_regs *ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
+    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u32 fd = _(PT_REGS_PARM1(ctx));
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
@@ -648,10 +656,14 @@ int tcp_rcv_established(struct pt_regs* ctx) {
 
 SEC("kprobe/write")
 int sys_write(struct pt_regs *ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
-    __u64 id = bpf_get_current_pid_tgid();
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
@@ -677,8 +689,12 @@ int sys_write_ret(struct pt_regs *ctx) {
 
 SEC("kprobe/send")
 int sys_send(struct pt_regs* ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
+    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
 
@@ -706,10 +722,14 @@ int sys_send_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/writev")
 int sys_writev(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct iovec *iovec;
     bpf_probe_read(&iovec, sizeof(iovec), &(PT_REGS_PARM2(ctx)));
-    __u64 id = bpf_get_current_pid_tgid();
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
@@ -736,13 +756,17 @@ int sys_writev_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/sendmsg")
 int sys_sendmsg(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct user_msghdr* msghdr;
     bpf_probe_read(&msghdr, sizeof(msghdr), &(PT_REGS_PARM2(ctx)));
     if (msghdr == NULL) {
         return 0;
     }
-    __u64 id = bpf_get_current_pid_tgid();
     __u32 fd = _(PT_REGS_PARM1(ctx));
 
     struct sockaddr* addr = _(msghdr->msg_name);
@@ -786,6 +810,11 @@ int sys_sendmsg_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/sendmmsg")
 int sys_sendmmsg(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct mmsghdr* mmsghdr;
     bpf_probe_read(&mmsghdr, sizeof(mmsghdr), &(PT_REGS_PARM2(ctx)));
@@ -794,7 +823,6 @@ int sys_sendmmsg(struct pt_regs* ctx) {
         return 0;
     }
 
-    __u64 id = bpf_get_current_pid_tgid();
     __u32 fd = _(PT_REGS_PARM1(ctx));
 
     struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
@@ -902,10 +930,14 @@ int sys_sendfile_ret(struct pt_regs *ctx) {
 
 SEC("kprobe/read")
 int sys_read(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
-    __u64 id = bpf_get_current_pid_tgid();
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
@@ -930,10 +962,14 @@ int sys_read_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/readv")
 int sys_readv(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct iovec *iovec;
     bpf_probe_read(&iovec, sizeof(iovec), &(PT_REGS_PARM2(ctx)));
-    __u64 id = bpf_get_current_pid_tgid();
 
     struct sock_data_args_t data_args = {};
     data_args.fd = _(PT_REGS_PARM1(ctx));
@@ -960,8 +996,12 @@ int sys_readv_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/recv")
 int sys_recv(struct pt_regs* ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
+    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
 
@@ -988,10 +1028,14 @@ int sys_recv_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/recvfrom")
 int sys_recvfrom(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     char* buf;
     bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
-    __u64 id = bpf_get_current_pid_tgid();
 
     struct sockaddr* sock;
     bpf_probe_read(&sock, sizeof(sock), &(PT_REGS_PARM5(ctx)));
@@ -1035,13 +1079,17 @@ int sys_recvfrom_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/recvmsg")
 int sys_recvmsg(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct user_msghdr* msghdr;
     bpf_probe_read(&msghdr, sizeof(msghdr), &(PT_REGS_PARM2(ctx)));
     if (msghdr == NULL) {
         return 0;
     }
-    __u64 id = bpf_get_current_pid_tgid();
     __u32 fd = _(PT_REGS_PARM1(ctx));
 
     struct sockaddr* addr = _(msghdr->msg_name);
@@ -1085,6 +1133,11 @@ int sys_recvmsg_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/recvmmsg")
 int sys_recvmmsg(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    __u32 tgid = id >> 32;
+    if (tgid_should_trace(tgid) == false) {
+        return 0;
+    }
     ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     struct mmsghdr* mmsghdr;
     bpf_probe_read(&mmsghdr, sizeof(mmsghdr), &(PT_REGS_PARM2(ctx)));
@@ -1093,7 +1146,6 @@ int sys_recvmmsg(struct pt_regs* ctx) {
         return 0;
     }
 
-    __u64 id = bpf_get_current_pid_tgid();
     __u32 fd = _(PT_REGS_PARM1(ctx));
 
     struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
@@ -1259,3 +1311,4 @@ int kfree_skb_reason(struct pt_regs *ctx) {
 #include "openssl.c"
 #include "go_tls.c"
 #include "node_tls.c"
+#include "socket_detail.c"

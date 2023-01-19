@@ -58,6 +58,8 @@ struct active_connection_t {
     __u64 write_rtt_count;
     __u64 write_rtt_time;
 
+    void *last_recv_sk_buff;
+
     // for protocol analyze
     __u8 protocol;
     // connect event already send

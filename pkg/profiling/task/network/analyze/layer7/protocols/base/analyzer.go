@@ -87,22 +87,25 @@ func (a *ProtocolAnalyzer) Start(ctx context.Context) {
 	}
 }
 
+func (a *ProtocolAnalyzer) ReceiveSocketDetail(ctx Context, event *SocketDetailEvent) {
+	connectionID := event.GenerateConnectionID()
+	connection := a.getConnection(ctx, event.ConnectionID, event.RandomID)
+
+	log.Debugf("receive detail from connection: %s, dataid: %d", connectionID, event.DataID)
+	connection.buffer.appendDetailEvent(event)
+}
+
 func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *SocketDataUploadEvent) {
 	connectionID := event.GenerateConnectionID()
-	key := connectionKey{connectionID: event.ConnectionID, randomID: event.RandomID}
-	connection := a.connections[key]
-	if connection == nil {
-		connection = newConnectionInfo(a.protocol, ctx, key.connectionID, key.randomID)
-		a.connections[key] = connection
-	}
-	connection.checkConnectionMetrics(ctx)
+	connection := a.getConnection(ctx, event.ConnectionID, event.RandomID)
 
-	log.Debugf("receive connection: %s, dataid: %d, sequence: %d, finished: %d, have reduce after chunk: %t, direction: %s, size: %d, total size: %d",
+	log.Debugf("receive data from connection: %s, dataid: %d, sequence: %d, finished: %d, have reduce after chunk: %t, "+
+		"direction: %s, size: %d, total size: %d",
 		connectionID, event.DataID(), event.DataSequence(), event.Finished, event.HaveReduceDataAfterChunk(),
 		event.Direction().String(), event.DataLen, event.TotalSize0)
 
 	// insert to the event list
-	connection.buffer.appendEvent(event)
+	connection.buffer.appendDataEvent(event)
 
 	// process the events if reach the receiver counter
 	a.receiveEventCount++
@@ -110,6 +113,17 @@ func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *SocketDataUploa
 		a.processEvents()
 	}
 	a.receiveEventCount = 0
+}
+
+func (a *ProtocolAnalyzer) getConnection(ctx Context, connectionID, randomID uint64) *connectionInfo {
+	key := connectionKey{connectionID: connectionID, randomID: randomID}
+	connection := a.connections[key]
+	if connection == nil {
+		connection = newConnectionInfo(a.protocol, ctx, key.connectionID, key.randomID)
+		a.connections[key] = connection
+	}
+	connection.checkConnectionMetrics(ctx)
+	return connection
 }
 
 // processEvents means analyze the protocol in each connection
@@ -147,7 +161,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 	for {
 		// reset the status of reading
 		if !buffer.prepareForReading() {
-			log.Debugf("prepare finsihed: event size: %d", buffer.events.Len())
+			log.Debugf("prepare finsihed: event size: %d", buffer.dataEvents.Len())
 			return
 		}
 
@@ -161,7 +175,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 		}
 
 		if finishReading {
-			log.Debugf("reading finsihed: event size: %d", buffer.events.Len())
+			log.Debugf("reading finsihed: event size: %d", buffer.dataEvents.Len())
 			break
 		}
 	}

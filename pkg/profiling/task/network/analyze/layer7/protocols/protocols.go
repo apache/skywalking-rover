@@ -78,6 +78,16 @@ func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent)
 	analyzer.ReceiveSocketData(a.ctx, event)
 }
 
+func (a *Analyzer) ReceiveSocketDetail(event *protocol.SocketDetailEvent) {
+	analyzer := a.protocols[event.Protocol]
+	if analyzer == nil {
+		log.Warnf("could not found any protocol to handle socket detail, connection id: %s, protocol: %s(%d)",
+			event.GenerateConnectionID(), event.Protocol.String(), event.Protocol)
+		return
+	}
+	analyzer.ReceiveSocketDetail(a.ctx, event)
+}
+
 func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 	for _, p := range a.protocols {
 		p.UpdateExtensionConfig(config)

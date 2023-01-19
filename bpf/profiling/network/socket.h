@@ -17,6 +17,11 @@
 
 #pragma once
 
+#define SKB_DST_NOREF	1UL
+#define SKB_DST_PTRMASK	~(SKB_DST_NOREF)
+typedef int64_t s64;
+typedef s64	ktime_t;
+
 struct in6_addr_redefine {
 	union {
 		__u8		u6_addr8[16];
@@ -64,6 +69,10 @@ struct sock {
 
 struct tcp_sock {
 	__u32 srtt_us;
+	__u32 copied_seq;
+    __u32 write_seq;
+    __u32 packets_out;
+    __u32 retrans_out;
 } __attribute__((preserve_access_index));
 
 struct user_msghdr {
@@ -77,8 +86,35 @@ struct mmsghdr {
 	unsigned int msg_len;
 } __attribute__((preserve_access_index));
 
+struct list_head {
+	struct list_head *next;
+	struct list_head *prev;
+} __attribute__((preserve_access_index));
+struct rb_node {
+	long unsigned int __rb_parent_color;
+	struct rb_node *rb_right;
+	struct rb_node *rb_left;
+} __attribute__((preserve_access_index));
 struct sk_buff {
 	struct sock		*sk;
+	union {
+        struct {
+            long unsigned int _skb_refdst;
+            void (*destructor)(struct sk_buff *);
+        };
+        long unsigned int _sk_redir;
+    };
+    union {
+        ktime_t tstamp;
+        __u64 skb_mstamp_ns;
+    };
+    int			skb_iif;
+    unsigned int len;
+    unsigned int data_len;
+} __attribute__((preserve_access_index));
+
+struct net {
+	int			ifindex;
 } __attribute__((preserve_access_index));
 
 enum skb_drop_reason {
@@ -90,3 +126,26 @@ enum skb_drop_reason {
 	SKB_DROP_REASON_UDP_CSUM,
 	SKB_DROP_REASON_MAX,
 };
+
+struct dst_entry {
+	struct net_device *dev;
+} __attribute__((preserve_access_index));
+
+struct net_device {
+	int ifindex;
+	unsigned long		state;
+	unsigned int		mtu;
+} __attribute__((preserve_access_index));
+
+struct skb_shared_info {
+	__u8 flags;
+	__u8 meta_len;
+	__u8 nr_frags;
+	__u8 tx_flags;
+	short unsigned int gso_size;
+	short unsigned int gso_segs;
+	struct sk_buff *frag_list;
+	unsigned int gso_type;
+	__u32 tskey;
+	void *destructor_arg;
+} __attribute__((preserve_access_index));
