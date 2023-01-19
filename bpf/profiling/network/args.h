@@ -139,7 +139,11 @@ struct sock_data_args_t {
     __u64 data_id;
     // for openssl
     __u32 excepted_size;
+    __u16 fix;
     __u8 ssl_buffer_force_unfinished;
+    __u8 package_count;
+    __u64 total_package_size;
+    __u32 ifindex;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);

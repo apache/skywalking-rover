@@ -136,3 +136,20 @@ func (s *SocketDataEventLimited) BufferLen() int {
 func (s *SocketDataEventLimited) BufferStartPosition() int {
 	return s.from
 }
+
+type SocketDetailEvent struct {
+	ConnectionID     uint64
+	RandomID         uint64
+	DataID           uint64
+	TotalPackageSize uint64
+	IfIndex          uint32
+	PackageCount     uint8
+	FuncName         base.SocketFunctionName
+	RTTCount         uint8
+	Protocol         base.ConnectionProtocol
+	RTTTime          uint64
+}
+
+func (s *SocketDetailEvent) GenerateConnectionID() string {
+	return fmt.Sprintf("%d_%d", s.ConnectionID, s.RandomID)
+}

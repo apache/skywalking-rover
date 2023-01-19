@@ -17,6 +17,8 @@
 
 package base
 
+import "fmt"
+
 const (
 	unknown = "unknown"
 	http    = "http"
@@ -132,5 +134,81 @@ func (m SocketMessageType) String() string {
 		return "response"
 	default:
 		return unknown
+	}
+}
+
+type SocketFunctionName uint8
+
+const (
+	SocketFunctionNameConnect    = 1
+	SocketFunctionNameAccept     = 2
+	SocketFunctionNameClose      = 3
+	SocketFunctionNameSend       = 4
+	SocketFunctionNameSendto     = 5
+	SocketFunctionNameSendMsg    = 6
+	SocketFunctionNameSendMMSg   = 7
+	SocketFunctionNameSendFile   = 8
+	SocketFunctionNameWrite      = 9
+	SocketFunctionNameWritev     = 10
+	SocketFunctionNameRead       = 11
+	SocketFunctionNameReadv      = 12
+	SocketFunctionNameRecv       = 13
+	SocketFunctionNameRecvfrom   = 14
+	SocketFunctionNameRecvMsg    = 15
+	SocketFunctionNameRecvMMsg   = 16
+	SocketFunctionNameResent     = 17
+	SocketFunctionNameSslWrite   = 18
+	SocketFunctionNameSslRead    = 19
+	SocketFunctionNameGoTLSWrite = 20
+	SocketFunctionNameGoTLSRead  = 21
+)
+
+// nolint
+func (f SocketFunctionName) String() string {
+	switch f {
+	case SocketFunctionNameConnect:
+		return "Connect"
+	case SocketFunctionNameAccept:
+		return "Accept"
+	case SocketFunctionNameClose:
+		return "Close"
+	case SocketFunctionNameSend:
+		return "Send"
+	case SocketFunctionNameSendto:
+		return "Sendto"
+	case SocketFunctionNameSendMsg:
+		return "SendMsg"
+	case SocketFunctionNameSendMMSg:
+		return "SendMMSg"
+	case SocketFunctionNameSendFile:
+		return "SendFile"
+	case SocketFunctionNameWrite:
+		return "Write"
+	case SocketFunctionNameWritev:
+		return "Writev"
+	case SocketFunctionNameRead:
+		return "Read"
+	case SocketFunctionNameReadv:
+		return "Readv"
+	case SocketFunctionNameRecv:
+		return "Recv"
+	case SocketFunctionNameRecvfrom:
+		return "Recvfrom"
+	case SocketFunctionNameRecvMsg:
+		return "RecvMsg"
+	case SocketFunctionNameRecvMMsg:
+		return "RecvMMsg"
+	case SocketFunctionNameResent:
+		return "Resent"
+	case SocketFunctionNameSslWrite:
+		return "SslWrite"
+	case SocketFunctionNameSslRead:
+		return "SslRead"
+	case SocketFunctionNameGoTLSWrite:
+		return "GoTLSWrite"
+	case SocketFunctionNameGoTLSRead:
+		return "GoTLSRead"
+	default:
+		return fmt.Sprintf("Unknown(%d)", f)
 	}
 }

@@ -67,7 +67,7 @@ func TestOffsetPosition(t *testing.T) {
 
 	for _, test := range tests {
 		events := list.New()
-		buffer := Buffer{events: events}
+		buffer := Buffer{dataEvents: events}
 		var curElement *list.Element
 		for i, e := range test.events {
 			element := events.PushBack(&SocketDataUploadEvent{

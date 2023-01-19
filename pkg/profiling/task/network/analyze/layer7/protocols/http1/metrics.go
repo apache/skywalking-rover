@@ -223,7 +223,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 
 	metricsBuilder.AppendLogs(process.Entity().ServiceName, logData)
 
-	// append full http content
+	// append full http content and syscall
 	h.AppendHTTPEvents(process, traffic, metricsBuilder)
 }
 
@@ -232,10 +232,12 @@ func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.Pro
 	if h.Settings != nil && h.Settings.RequireCompleteRequest {
 		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.MessageOpt, h.TaskConfig.DefaultRequestEncoding,
 			h.Settings.MaxRequestSize)
+		events = h.appendSyscallEvents(events, process, traffic, h.Request.MessageOpt)
 	}
 	if h.Settings != nil && h.Settings.RequireCompleteResponse {
 		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.MessageOpt, h.TaskConfig.DefaultResponseEncoding,
 			h.Settings.MaxResponseSize)
+		events = h.appendSyscallEvents(events, process, traffic, h.Response.MessageOpt)
 	}
 
 	metricsBuilder.AppendSpanAttachedEvents(events)
@@ -267,6 +269,64 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 		&commonv3.KeyStringValuePair{Key: "service_instance_name", Value: process.Entity().InstanceName},
 		&commonv3.KeyStringValuePair{Key: "process_name", Value: process.Entity().ProcessName},
 	)
+
+	event.Summary = make([]*commonv3.KeyIntValuePair, 0)
+	event.TraceContext = &v3.SpanAttachedEvent_SpanReference{
+		TraceId:        h.Trace.TraceID(),
+		TraceSegmentId: h.Trace.TraceSegmentID(),
+		SpanId:         h.Trace.SpanID(),
+		Type:           h.Trace.Provider().Type,
+	}
+	return append(events, event)
+}
+
+func (h *Trace) appendSyscallEvents(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
+	message *reader.MessageOpt) []*v3.SpanAttachedEvent {
+	headerDetails := message.HeaderBuffer().Details()
+	bodyDetails := message.BodyBuffer().Details()
+	dataIDCache := make(map[uint64]bool)
+	for e := headerDetails.Front(); e != nil; e = e.Next() {
+		event := e.Value.(*protocol.SocketDetailEvent)
+		dataIDCache[event.DataID] = true
+		events = h.appendPerDetailEvent(events, process, traffic, event, message.HeaderBuffer())
+	}
+	for e := bodyDetails.Front(); e != nil; e = e.Next() {
+		event := e.Value.(*protocol.SocketDetailEvent)
+		if dataIDCache[event.DataID] {
+			continue
+		}
+		events = h.appendPerDetailEvent(events, process, traffic, event, message.BodyBuffer())
+	}
+	return events
+}
+
+func (h *Trace) appendPerDetailEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, _ *base.ProcessTraffic,
+	detail *protocol.SocketDetailEvent, buffer *protocol.Buffer) []*v3.SpanAttachedEvent {
+	event := &v3.SpanAttachedEvent{}
+	dataBuffer := buffer.FindFirstDataBuffer(detail.DataID)
+	if dataBuffer == nil {
+		return events
+	}
+	event.StartTime = host.TimeToInstant(dataBuffer.StartTime())
+	event.EndTime = host.TimeToInstant(dataBuffer.EndTime())
+	event.Event = fmt.Sprintf("Syscall %s", detail.FuncName.String())
+	event.Tags = make([]*commonv3.KeyStringValuePair, 0)
+	event.Tags = append(event.Tags,
+		// content data
+		&commonv3.KeyStringValuePair{Key: "package_size", Value: units.BytesSize(float64(detail.TotalPackageSize))},
+		&commonv3.KeyStringValuePair{Key: "package_count", Value: fmt.Sprintf("%d", detail.PackageCount)},
+		&commonv3.KeyStringValuePair{Key: "network_name", Value: host.NetworkName(int(detail.IfIndex))},
+		&commonv3.KeyStringValuePair{Key: "network_index", Value: fmt.Sprintf("%d", detail.IfIndex)},
+		// entity
+		&commonv3.KeyStringValuePair{Key: "service_name", Value: process.Entity().ServiceName},
+		&commonv3.KeyStringValuePair{Key: "service_instance_name", Value: process.Entity().InstanceName},
+		&commonv3.KeyStringValuePair{Key: "process_name", Value: process.Entity().ProcessName},
+	)
+
+	if detail.RTTTime > 0 {
+		event.Tags = append(event.Tags,
+			&commonv3.KeyStringValuePair{Key: "avg_rtt_time", Value: fmt.Sprintf("%dns", int(detail.RTTTime)/int(detail.RTTCount))})
+	}
 
 	event.Summary = make([]*commonv3.KeyIntValuePair, 0)
 	event.TraceContext = &v3.SpanAttachedEvent_SpanReference{
