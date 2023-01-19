@@ -223,11 +223,8 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 
 	metricsBuilder.AppendLogs(process.Entity().ServiceName, logData)
 
-	// append full http content
+	// append full http content and syscall
 	h.AppendHTTPEvents(process, traffic, metricsBuilder)
-
-	// append syscall events
-	h.AppendSyscallEvents(process, traffic, metricsBuilder)
 }
 
 func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
@@ -235,10 +232,12 @@ func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.Pro
 	if h.Settings != nil && h.Settings.RequireCompleteRequest {
 		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.MessageOpt, h.TaskConfig.DefaultRequestEncoding,
 			h.Settings.MaxRequestSize)
+		events = h.appendSyscallEvents(events, process, traffic, h.Request.MessageOpt)
 	}
 	if h.Settings != nil && h.Settings.RequireCompleteResponse {
 		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.MessageOpt, h.TaskConfig.DefaultResponseEncoding,
 			h.Settings.MaxResponseSize)
+		events = h.appendSyscallEvents(events, process, traffic, h.Response.MessageOpt)
 	}
 
 	metricsBuilder.AppendSpanAttachedEvents(events)
@@ -281,19 +280,7 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 	return append(events, event)
 }
 
-func (h *Trace) AppendSyscallEvents(process api.ProcessInterface, traffic *base.ProcessTraffic, builder *base.MetricsBuilder) {
-	events := make([]*v3.SpanAttachedEvent, 0)
-	if h.Settings != nil && h.Settings.RequireCompleteRequest {
-		events = h.appendPerMessageEvents(events, process, traffic, h.Request.MessageOpt)
-	}
-	if h.Settings != nil && h.Settings.RequireCompleteResponse {
-		events = h.appendPerMessageEvents(events, process, traffic, h.Response.MessageOpt)
-	}
-
-	builder.AppendSpanAttachedEvents(events)
-}
-
-func (h *Trace) appendPerMessageEvents(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
+func (h *Trace) appendSyscallEvents(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
 	message *reader.MessageOpt) []*v3.SpanAttachedEvent {
 	headerDetails := message.HeaderBuffer().Details()
 	bodyDetails := message.BodyBuffer().Details()
