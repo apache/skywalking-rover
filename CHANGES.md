@@ -5,9 +5,9 @@ Release Notes.
 0.5.0
 ------------------
 #### Features
-* Try to support OpenSSL 3.0.x.
 * Enhance the protocol reader for support long socket data.
 * Add the syscall level event to the trace.
+* Support OpenSSL 3.0.x.
 
 #### Bug Fixes
 * Fix HTTP method name in protocol analyzer
