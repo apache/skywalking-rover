@@ -37,7 +37,7 @@ import (
 )
 
 var (
-	openSSLVersionRegex  = regexp.MustCompile(`^OpenSSL\s+(?P<Major>\d)\.(?P<Minor>\d)\.(?P<Fix>\d+)\w+`)
+	openSSLVersionRegex  = regexp.MustCompile(`^OpenSSL\s+(?P<Major>\d)\.(?P<Minor>\d)\.(?P<Fix>\d+)\w?\s+`)
 	goVersionRegex       = regexp.MustCompile(`^go(?P<Major>\d)\.(?P<Minor>\d+)`)
 	goTLSWriteSymbol     = "crypto/tls.(*Conn).Write"
 	goTLSReadSymbol      = "crypto/tls.(*Conn).Read"
@@ -542,21 +542,28 @@ func buildSSLSymAddrConfig(libcryptoPath string) (*OpenSSLFdSymAddrConfigInBPF, 
 		conf := &OpenSSLFdSymAddrConfigInBPF{}
 
 		// must be number, already validate in the regex
+		majorVal, _ := strconv.Atoi(major)
 		minorVal, _ := strconv.Atoi(minor)
 		fixVal, _ := strconv.Atoi(fix)
 
-		// max support version is 1.1.1
-		if minorVal > 1 || fixVal > 1 {
+		// max support version is 3.0.x
+		if majorVal > 3 || (majorVal == 3 && minorVal > 0) {
 			return nil, fmt.Errorf("the version of the libcrypto is not support: %s.%s.%s", major, minor, fix)
 		}
 
 		// bio offset
 		// https://github.com/openssl/openssl/blob/OpenSSL_1_0_0-stable/ssl/ssl.h#L1093-L1111
 		// https://github.com/openssl/openssl/blob/OpenSSL_1_1_1-stable/ssl/ssl_local.h#L1068-L1083
+		// https://github.com/openssl/openssl/blob/openssl-3.0.7/ssl/ssl_local.h#L1212-L1227
 		conf.BIOReadOffset = 16
 		conf.BIOWriteOffset = 24
 		// fd offset
-		if (minorVal == 0) || (minorVal == 1 && fixVal == 0) {
+		if majorVal == 3 && minorVal == 0 {
+			// 3.0.x
+			// https://github.com/openssl/openssl/blob/openssl-3.0.7/crypto/bio/bio_local.h#L115-L128
+			// OPENSSL_NO_DEPRECATED_3_0 is not defined by default unless the user pass the specific build option
+			conf.FDOffset = 56
+		} else if (minorVal == 0) || (minorVal == 1 && fixVal == 0) {
 			// 1.0.x || 1.1.0
 			// https://github.com/openssl/openssl/blob/OpenSSL_1_0_0-stable/crypto/bio/bio.h#L297-L306
 			conf.FDOffset = 40
