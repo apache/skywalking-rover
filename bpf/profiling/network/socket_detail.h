@@ -29,7 +29,7 @@ struct socket_detail_t {
     __u8 func_name;
     __u8 rtt_count;
     __u8 protocol;
-    __u64 rtt_time;
+    __u32 rtt_time;
 };
 
 struct {

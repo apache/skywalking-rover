@@ -58,14 +58,13 @@ struct active_connection_t {
     __u64 write_rtt_count;
     __u64 write_rtt_time;
 
+    void *last_recv_sk_buff;
     // for protocol analyze
     __u8 protocol;
     // connect event already send
     __u8 connect_event_send;
     // current connection is ssl
     __u8 ssl;
-    __u8 fix;
-    void *last_recv_sk_buff;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -168,8 +167,8 @@ struct socket_close_event_t {
     __u64 read_exe_time;
 
     // RTT when write
-    __u64 write_rtt_count;
-    __u64 write_rtt_time;
+    __u32 write_rtt_count;
+    __u32 write_rtt_time;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);

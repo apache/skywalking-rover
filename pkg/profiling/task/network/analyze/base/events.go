@@ -65,6 +65,6 @@ type SocketCloseEvent struct {
 	ReadCount    uint64
 	ReadExeTime  uint64
 
-	WriteRTTCount   uint64
-	WriteRTTExeTime uint64
+	WriteRTTCount   uint32
+	WriteRTTExeTime uint32
 }
