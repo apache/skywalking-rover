@@ -8,6 +8,7 @@ Release Notes.
 * Enhance the protocol reader for support long socket data.
 * Add the syscall level event to the trace.
 * Support OpenSSL 3.0.x.
+* Optimized the data structure in BPF.
 
 #### Bug Fixes
 * Fix HTTP method name in protocol analyzer

@@ -131,8 +131,8 @@ struct sock_data_args_t {
     unsigned int* msg_len;
     __u64 start_nacs;
     // rtt
-    __u64 rtt_count;
-    __u64 rtt_time;
+    __u32 rtt_count;
+    __u32 rtt_time;
     // buffer
     char* buf;
     struct iovec *iovec;

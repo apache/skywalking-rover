@@ -41,6 +41,10 @@ type Buffer struct {
 
 	head    *BufferPosition
 	current *BufferPosition
+
+	// record the latest expired data id in connection for expire the older socket detail
+	// because the older socket detail may not be received in buffer
+	latestExpiredDataID uint64
 }
 
 type BufferPosition struct {
@@ -489,14 +493,32 @@ func (r *Buffer) deleteExpireEvents(expireDuration time.Duration) int {
 	defer r.eventLocker.Unlock()
 
 	expireTime := time.Now().Add(-expireDuration)
-	count := 0
-	for e := r.dataEvents.Front(); e != nil; {
-		startTime := host.Time(e.Value.(SocketDataBuffer).StartTime())
+	// data event queue
+	count := r.deleteEventsWithJudgement(r.dataEvents, func(element *list.Element) bool {
+		buffer := element.Value.(SocketDataBuffer)
+		startTime := host.Time(buffer.StartTime())
 		if expireTime.After(startTime) {
+			r.latestExpiredDataID = buffer.DataID()
+			return true
+		}
+		return false
+	})
+
+	// detail event queue
+	count += r.deleteEventsWithJudgement(r.detailEvents, func(element *list.Element) bool {
+		return r.latestExpiredDataID > 0 && element.Value.(*SocketDetailEvent).DataID <= r.latestExpiredDataID
+	})
+	return count
+}
+
+func (r *Buffer) deleteEventsWithJudgement(l *list.List, checker func(element *list.Element) bool) int {
+	count := 0
+	for e := l.Front(); e != nil; {
+		if checker(e) {
 			count++
 			cur := e
 			e = e.Next()
-			r.dataEvents.Remove(cur)
+			l.Remove(cur)
 		} else {
 			break
 		}

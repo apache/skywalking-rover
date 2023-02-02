@@ -99,7 +99,7 @@ func (m *MessageOpt) StartTime() uint64 {
 }
 
 func (m *MessageOpt) EndTime() uint64 {
-	return m.HeaderBuffer().LastSocketBuffer().EndTime()
+	return m.BodyBuffer().LastSocketBuffer().EndTime()
 }
 
 func (m *MessageOpt) Direction() base.SocketDataDirection {
