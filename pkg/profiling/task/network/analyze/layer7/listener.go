@@ -97,6 +97,7 @@ func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *base
 func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *base.SocketCloseEvent) {
 	// cached the closed connection with TTL
 	l.cachedConnections.Set(l.generateCachedConnectionKey(ctx.ConnectionID, ctx.RandomID), ctx, ConnectionCachedTTL)
+	l.handleConnectionClose(event)
 }
 
 func (l *Listener) UpdateExtensionConfig(config *profiling.ExtensionConfig) {

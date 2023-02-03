@@ -19,8 +19,11 @@ package base
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
+
+	cmap "github.com/orcaman/concurrent-map"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
@@ -39,7 +42,7 @@ type ProtocolAnalyzer struct {
 	protocol        Protocol
 	config          *profiling.TaskConfig
 
-	connections       map[connectionKey]*connectionInfo
+	connections       cmap.ConcurrentMap // connections with concurrent key: connection id+random id, value: *connectionInfo
 	analyzeLocker     sync.Mutex
 	receiveEventCount int
 }
@@ -49,7 +52,7 @@ func NewProtocolAnalyzer(protocolContext Context, p Protocol, config *profiling.
 		protocolContext: protocolContext,
 		protocol:        p,
 		config:          config,
-		connections:     make(map[connectionKey]*connectionInfo),
+		connections:     cmap.New(),
 	}
 }
 
@@ -116,14 +119,15 @@ func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *SocketDataUploa
 }
 
 func (a *ProtocolAnalyzer) getConnection(ctx Context, connectionID, randomID uint64) *connectionInfo {
-	key := connectionKey{connectionID: connectionID, randomID: randomID}
-	connection := a.connections[key]
+	conKey := a.generateConnectionInfoKey(connectionID, randomID)
+	connection, _ := a.connections.Get(conKey)
 	if connection == nil {
-		connection = newConnectionInfo(a.protocol, ctx, key.connectionID, key.randomID)
-		a.connections[key] = connection
+		connection = newConnectionInfo(a.protocol, ctx, connectionID, randomID)
+		a.connections.Set(conKey, connection)
 	}
-	connection.checkConnectionMetrics(ctx)
-	return connection
+	info := connection.(*connectionInfo)
+	info.checkConnectionMetrics(ctx)
+	return info
 }
 
 // processEvents means analyze the protocol in each connection
@@ -135,8 +139,19 @@ func (a *ProtocolAnalyzer) processEvents() {
 	}
 	defer a.analyzeLocker.Unlock()
 
-	for _, connection := range a.connections {
-		a.processConnectionEvents(connection)
+	closedConnections := make([]string, 0)
+	a.connections.IterCb(func(conKey string, con interface{}) {
+		info := con.(*connectionInfo)
+		a.processConnectionEvents(info)
+
+		// if the connection already closed and not contains any buffer data, then delete the connection
+		if info.closed && info.buffer.dataEvents.Len() == 0 {
+			closedConnections = append(closedConnections, conKey)
+		}
+	})
+
+	for _, conKey := range closedConnections {
+		a.connections.Remove(conKey)
 	}
 }
 
@@ -146,9 +161,9 @@ func (a *ProtocolAnalyzer) processExpireEvents(expireDuration time.Duration) {
 	a.analyzeLocker.Lock()
 	defer a.analyzeLocker.Unlock()
 
-	for _, connection := range a.connections {
-		a.processConnectionExpireEvents(connection, expireDuration)
-	}
+	a.connections.IterCb(func(_ string, con interface{}) {
+		a.processConnectionExpireEvents(con.(*connectionInfo), expireDuration)
+	})
 }
 
 func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
@@ -161,7 +176,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 	for {
 		// reset the status of reading
 		if !buffer.prepareForReading() {
-			log.Debugf("prepare finsihed: event size: %d", buffer.dataEvents.Len())
+			log.Debugf("prepare finsihed: reduce data event size: %d", buffer.dataEvents.Len())
 			return
 		}
 
@@ -175,7 +190,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 		}
 
 		if finishReading {
-			log.Debugf("reading finsihed: event size: %d", buffer.dataEvents.Len())
+			log.Debugf("reading finsihed: reduce data event size: %d", buffer.dataEvents.Len())
 			break
 		}
 	}
@@ -191,9 +206,16 @@ func (a *ProtocolAnalyzer) UpdateExtensionConfig(config *profiling.ExtensionConf
 	a.protocol.UpdateExtensionConfig(config)
 }
 
-type connectionKey struct {
-	connectionID uint64
-	randomID     uint64
+func (a *ProtocolAnalyzer) ReceiveSocketCloseEvent(event *base.SocketCloseEvent) {
+	con, _ := a.connections.Get(a.generateConnectionInfoKey(event.ConID, event.RandomID))
+	if con == nil {
+		return
+	}
+	con.(*connectionInfo).closed = true
+}
+
+func (a *ProtocolAnalyzer) generateConnectionInfoKey(connectionID, randomID uint64) string {
+	return fmt.Sprintf("%d_%d", connectionID, randomID)
 }
 
 type connectionInfo struct {
@@ -202,6 +224,7 @@ type connectionInfo struct {
 	buffer                 *Buffer
 	metrics                Metrics
 	metricsFromConnection  bool
+	closed                 bool
 }
 
 func newConnectionInfo(p Protocol, connectionContext Context, connectionID, randomID uint64) *connectionInfo {

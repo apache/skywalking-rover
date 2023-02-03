@@ -84,6 +84,9 @@ type ActiveConnectionInBPF struct {
 	WriteRTTCount   uint64
 	WriteRTTExeTime uint64
 
+	// sk buffer
+	_ uint64
+
 	// protocol of connection
 	Protocol ConnectionProtocol
 	// the connect event is already sent

@@ -79,7 +79,7 @@ func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *ba
 	// data transmit counters
 	layer4.WriteCounter.UpdateToCurrent(event.WriteBytes, event.WriteCount, event.WriteExeTime)
 	layer4.ReadCounter.UpdateToCurrent(event.ReadBytes, event.ReadCount, event.ReadExeTime)
-	layer4.WriteRTTCounter.UpdateToCurrent(0, event.WriteRTTCount, event.WriteRTTExeTime)
+	layer4.WriteRTTCounter.UpdateToCurrent(0, uint64(event.WriteRTTCount), uint64(event.WriteRTTExeTime))
 
 	// connection close execute time
 	layer4.CloseExecuteTime = event.ExeTime

@@ -24,6 +24,8 @@ import (
 )
 
 type SocketDataBuffer interface {
+	// GenerateConnectionID for identity the buffer belong which connection
+	GenerateConnectionID() string
 	// BufferData of the buffer
 	BufferData() []byte
 	// TotalSize of socket data, the data may exceed the size of the BufferData()
@@ -147,7 +149,7 @@ type SocketDetailEvent struct {
 	FuncName         base.SocketFunctionName
 	RTTCount         uint8
 	Protocol         base.ConnectionProtocol
-	RTTTime          uint64
+	RTTTime          uint32
 }
 
 func (s *SocketDetailEvent) GenerateConnectionID() string {

@@ -21,6 +21,7 @@ import (
 	"context"
 
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	analyzeBase "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
@@ -57,6 +58,16 @@ func (l *Listener) handleProfilingExtensionConfig(config *profiling.ExtensionCon
 	for _, p := range l.socketDataQueue.partitions {
 		ctx := p.ctx.(*SocketDataPartitionContext)
 		ctx.analyzer.UpdateExtensionConfig(config)
+	}
+}
+
+func (l *Listener) handleConnectionClose(event *analyzeBase.SocketCloseEvent) {
+	if l.socketDataQueue == nil {
+		return
+	}
+	for _, p := range l.socketDataQueue.partitions {
+		ctx := p.ctx.(*SocketDataPartitionContext)
+		ctx.analyzer.ReceiveSocketClose(event)
 	}
 }
 

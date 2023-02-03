@@ -94,6 +94,12 @@ func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 	}
 }
 
+func (a *Analyzer) ReceiveSocketClose(event *base.SocketCloseEvent) {
+	for _, p := range a.protocols {
+		p.ReceiveSocketCloseEvent(event)
+	}
+}
+
 type ProtocolMetrics struct {
 	data map[base.ConnectionProtocol]protocol.Metrics
 }
