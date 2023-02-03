@@ -244,9 +244,11 @@ static __inline struct socket_buffer_reader_t* read_socket_data(struct sock_data
     if (size > MAX_PROTOCOL_SOCKET_READ_LENGTH) {
         size = MAX_PROTOCOL_SOCKET_READ_LENGTH;
     }
+    // use & to work around an issue in kernel verifier.
+    // See https://github.com/apache/skywalking/discussions/10273
     asm volatile("%[size] &= 0x1f;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&reader->buffer, size & MAX_PROTOCOL_SOCKET_READ_LENGTH, buf);
-    reader->data_len = size & MAX_PROTOCOL_SOCKET_READ_LENGTH;
+    bpf_probe_read(&reader->buffer, size, buf);
+    reader->data_len = size;
     return reader;
 }
 
