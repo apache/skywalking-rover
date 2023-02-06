@@ -281,8 +281,11 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     if (size <= 0) {
         return;
     }
+    // use & to work around an issue in kernel verifier.
+    // This issue is tracked in https://github.com/iovisor/bcc/issues/1260
+    // which is related to passing non fixed length to bpf helpers.
     asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&event->buffer, size & 0x7ff, buf);
+    bpf_probe_read(&event->buffer, size, buf);
 
     bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
 }
