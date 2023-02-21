@@ -28,7 +28,7 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/network/netmonitor.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
 
 type Loader struct {
-	*Linker
+	*btf.Linker
 	*bpfObjects
 }
 
@@ -40,7 +40,7 @@ func NewLoader() (*Loader, error) {
 
 	return &Loader{
 		bpfObjects: &objs,
-		Linker:     NewLinker(),
+		Linker:     btf.NewLinker(),
 	}, nil
 }
 

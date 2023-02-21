@@ -9,6 +9,7 @@ Release Notes.
 * Add the syscall level event to the trace.
 * Support OpenSSL 3.0.x.
 * Optimized the data structure in BPF.
+* Support continuous profiling.
 
 #### Bug Fixes
 * Fix HTTP method name in protocol analyzer

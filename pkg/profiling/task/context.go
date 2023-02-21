@@ -93,3 +93,11 @@ func (c *Context) CheckTaskRunnable() bool {
 	}
 	return true
 }
+
+func (c *Context) IsRunning() bool {
+	return c.status == Running
+}
+
+func (c *Context) RunningTime() time.Time {
+	return c.startRunningTime
+}

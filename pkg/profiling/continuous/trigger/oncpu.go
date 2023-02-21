@@ -15,20 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package profiling
+package trigger
 
 import (
 	"github.com/apache/skywalking-rover/pkg/module"
-	continuousBase "github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
+	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
 	taskBase "github.com/apache/skywalking-rover/pkg/profiling/task/base"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
-type Config struct {
-	module.Config `mapstructure:",squash"`
+type OnCPUTrigger struct {
+	*BaseTrigger
+}
 
-	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
-	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
+func NewOnCPUTrigger() base.Trigger {
+	return &OnCPUTrigger{}
+}
 
-	TaskConfig       *taskBase.TaskConfig             `mapstructure:"task"`       // Profiling task config
-	ContinuousConfig *continuousBase.ContinuousConfig `mapstructure:"continuous"` // Continuous profiling config
+func (c *OnCPUTrigger) Init(moduleMgr *module.Manager, conf *base.ContinuousConfig) error {
+	c.BaseTrigger = NewSingleProcessBaseTrigger(conf,
+		func(task *taskBase.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+			task.TargetType = taskBase.TargetTypeOnCPU
+		}, func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+			report.TargetTask = &v3.ContinuousProfilingReport_OnCPU{
+				OnCPU: &v3.ContinuousOnCPUProfilingTask{},
+			}
+		})
+	return c.BaseTrigger.Init(conf)
 }

@@ -15,9 +15,3 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-typedef enum
-{
-    true=1, false=0
-} bool;

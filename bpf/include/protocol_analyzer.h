@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common.h"
-
 #pragma once
 
 #define CONNECTION_PROTOCOL_UNKNOWN 0
@@ -77,16 +75,16 @@ static __inline __u32 infer_http1_message(const char* buf, size_t count) {
 // HTTP 2.x
 // frame format: https://www.rfc-editor.org/rfc/rfc7540.html#section-4.1
 static __inline __u32 infer_http2_message(const char* buf, size_t count) {
-    static const uint8_t kFrameBasicSize = 0x9; // including Length, Type, Flags, Reserved, Stream Identity
-    static const uint8_t kFrameTypeHeader = 0x1; // the type of the frame: https://www.rfc-editor.org/rfc/rfc7540.html#section-6.2
-    static const uint8_t kFrameLoopCount = 5;
+    static const __u8 kFrameBasicSize = 0x9; // including Length, Type, Flags, Reserved, Stream Identity
+    static const __u8 kFrameTypeHeader = 0x1; // the type of the frame: https://www.rfc-editor.org/rfc/rfc7540.html#section-6.2
+    static const __u8 kFrameLoopCount = 5;
 
-    static const uint8_t kStaticTableMaxSize = 61;// https://www.rfc-editor.org/rfc/rfc7541#appendix-A
-    static const uint8_t kStaticTableAuth = 1;
-    static const uint8_t kStaticTableGet = 2;
-    static const uint8_t kStaticTablePost = 3;
-    static const uint8_t kStaticTablePath1 = 4;
-    static const uint8_t kStaticTablePath2 = 5;
+    static const __u8 kStaticTableMaxSize = 61;// https://www.rfc-editor.org/rfc/rfc7541#appendix-A
+    static const __u8 kStaticTableAuth = 1;
+    static const __u8 kStaticTableGet = 2;
+    static const __u8 kStaticTablePost = 3;
+    static const __u8 kStaticTablePath1 = 4;
+    static const __u8 kStaticTablePath2 = 5;
 
     // the buffer size must bigger than basic frame size
     if (count < kFrameBasicSize) {
@@ -154,7 +152,7 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
 	return CONNECTION_MESSAGE_TYPE_UNKNOWN;
 }
 
-static __inline __u32 analyze_protocol(char *buf, __u32 count, struct active_connection_t *conn_info) {
+static __inline __u32 analyze_protocol(char *buf, __u32 count, __u8 *protocol_ref) {
     __u32 protocol = CONNECTION_PROTOCOL_UNKNOWN, type = CONNECTION_MESSAGE_TYPE_UNKNOWN;
 
     // support http 1.x and 2.x
@@ -165,7 +163,7 @@ static __inline __u32 analyze_protocol(char *buf, __u32 count, struct active_con
     }
 
     if (protocol != CONNECTION_PROTOCOL_UNKNOWN) {
-        conn_info->protocol = protocol;
+        *protocol_ref = protocol;
     }
 
     return type;

@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/shirou/gopsutil/process"
+
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
@@ -54,6 +56,8 @@ type ProcessInterface interface {
 	ProfilingStat() *profiling.Info
 	// ExeName get execute file name
 	ExeName() (string, error)
+	// OriginalProcess from process library
+	OriginalProcess() *process.Process
 
 	// PortIsExpose check the port is exposed
 	PortIsExpose(port int) bool

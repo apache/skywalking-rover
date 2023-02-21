@@ -21,6 +21,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+
+	"github.com/shirou/gopsutil/process"
 )
 
 type ProcessUploadStatus int8
@@ -80,6 +82,10 @@ func (p *ProcessContext) ExeName() (string, error) {
 		p.exeName = exe
 	}
 	return p.exeName, nil
+}
+
+func (p *ProcessContext) OriginalProcess() *process.Process {
+	return p.detectProcess.OriginalProcess()
 }
 
 func (p *ProcessContext) PortIsExpose(port int) bool {
