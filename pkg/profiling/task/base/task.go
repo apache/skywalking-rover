@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/process/api"
+
 	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 )
 
@@ -84,6 +86,22 @@ func ProfilingTaskFromCommand(command *v3.Command) (*ProfilingTask, error) {
 	}
 
 	return task, nil
+}
+
+func ProfilingTaskFromContinuous(processes []api.ProcessInterface, taskSetter func(task *ProfilingTask)) *ProfilingTask {
+	processesIDList := make([]string, 0)
+	for _, p := range processes {
+		processesIDList = append(processesIDList, p.ID())
+	}
+	task := &ProfilingTask{
+		ProcessIDList: processesIDList,
+		UpdateTime:    0,
+		StartTime:     0,
+		TriggerType:   TriggerTypeFixedTime,
+	}
+	taskSetter(task)
+
+	return task
 }
 
 type ExtensionConfig struct {

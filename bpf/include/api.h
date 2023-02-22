@@ -27,11 +27,22 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 
-#define _(P)                                                                   \
+#define _KERNEL(P)                                                                   \
 	({                                                                     \
 		typeof(P) val;                                                 \
 		bpf_probe_read_kernel(&val, sizeof(val), &(P));                \
 		val;                                                           \
 	})
 
+#define _(P)                                                                   \
+	({                                                                     \
+		typeof(P) val;                                                 \
+		bpf_probe_read(&val, sizeof(val), &(P));                \
+		val;                                                           \
+	})
+
+typedef enum
+{
+    true=1, false=0
+} bool;
 #endif

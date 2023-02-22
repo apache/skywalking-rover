@@ -40,13 +40,6 @@
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
-#define _(P)                                                                   \
-	({                                                                     \
-		typeof(P) val;                                                 \
-		bpf_probe_read(&val, sizeof(val), &(P));                \
-		val;                                                           \
-	})
-
 #define SOCKET_UPLOAD_CHUNK_LIMIT 12
 
 static __inline bool family_should_trace(const __u32 family) {
@@ -113,6 +106,10 @@ static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 fun
         }
     } else {
         con.socket_family = AF_UNKNOWN;
+    }
+
+    if (con.remote_port == 53) {
+        bpf_printk("found the remote port is 53");
     }
 
     // save to the active connection map
@@ -438,7 +435,7 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
     if ((conn->role == CONNECTION_ROLE_TYPE_UNKNOWN || conn->protocol == 0) && conn->ssl == ssl) {
         struct socket_buffer_reader_t *buf_reader = read_socket_data(args, bytes_count);
         if (buf_reader != NULL) {
-            msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
+            msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, &conn->protocol);
             // if send request data to remote address or receive response data from remote address
             // then, recognized current connection is client
             if ((msg_type == CONNECTION_MESSAGE_TYPE_REQUEST && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||

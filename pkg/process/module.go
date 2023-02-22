@@ -83,6 +83,10 @@ func (m *Module) FindProcessByID(processID string) api.ProcessInterface {
 	return m.manager.FindProcessByID(processID)
 }
 
+func (m *Module) FindAllRegisteredProcesses() []api.ProcessInterface {
+	return m.manager.FindAllRegisteredProcesses()
+}
+
 func (m *Module) FindProcessByPID(pid int32) []api.ProcessInterface {
 	return m.manager.FindProcessByPID(pid)
 }

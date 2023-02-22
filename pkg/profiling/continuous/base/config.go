@@ -15,20 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package profiling
+package base
 
-import (
-	"github.com/apache/skywalking-rover/pkg/module"
-	continuousBase "github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
-	taskBase "github.com/apache/skywalking-rover/pkg/profiling/task/base"
-)
+type ContinuousConfig struct {
+	MeterPrefix string `mapstructure:"meter_prefix"` // continuous related meters prefix name
 
-type Config struct {
-	module.Config `mapstructure:",squash"`
+	FetchInterval string        `mapstructure:"fetch_interval"` // The interval of fetch metrics from the system
+	CheckInterval string        `mapstructure:"check_interval"` // The interval of check metrics is reach the thresholds
+	Trigger       TriggerConfig `mapstructure:"trigger"`
+}
 
-	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
-	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
-
-	TaskConfig       *taskBase.TaskConfig             `mapstructure:"task"`       // Profiling task config
-	ContinuousConfig *continuousBase.ContinuousConfig `mapstructure:"continuous"` // Continuous profiling config
+type TriggerConfig struct {
+	ExecuteDuration string `mapstructure:"execute_duration"` // the duration of the profiling task
+	SilenceDuration string `mapstructure:"silence_duration"` // the duration between the execution of the same profiling task.
 }

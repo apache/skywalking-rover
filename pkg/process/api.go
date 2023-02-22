@@ -24,6 +24,8 @@ type Operator interface {
 	FindProcessByID(processID string) api.ProcessInterface
 	// FindProcessByPID get all processes with difference entity through process PID
 	FindProcessByPID(pid int32) []api.ProcessInterface
+	// FindAllRegisteredProcesses find all registered processes
+	FindAllRegisteredProcesses() []api.ProcessInterface
 	// AddListener add new process listener
 	AddListener(listener api.ProcessListener)
 	// DeleteListener delete the process listener

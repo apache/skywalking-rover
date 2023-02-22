@@ -15,20 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package profiling
+package base
 
 import (
 	"github.com/apache/skywalking-rover/pkg/module"
-	continuousBase "github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
+	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task"
 	taskBase "github.com/apache/skywalking-rover/pkg/profiling/task/base"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
-type Config struct {
-	module.Config `mapstructure:",squash"`
+type TriggerReporter interface {
+	ReportProcesses(causeProcess api.ProcessInterface, profilingProcesses []api.ProcessInterface, cases []ThresholdCause,
+		taskSetter func(task *taskBase.ProfilingTask),
+		reportSetter func(report *v3.ContinuousProfilingReport)) (*task.Context, error)
+}
 
-	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
-	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
-
-	TaskConfig       *taskBase.TaskConfig             `mapstructure:"task"`       // Profiling task config
-	ContinuousConfig *continuousBase.ContinuousConfig `mapstructure:"continuous"` // Continuous profiling config
+type Trigger interface {
+	// Init trigger
+	Init(moduleMgr *module.Manager, conf *ContinuousConfig) error
+	// ShouldTrigger validate the process should be trigger task
+	ShouldTrigger(p api.ProcessInterface) bool
+	// TriggerTasks generate task and execute that policy could be trigger
+	TriggerTasks(reporter TriggerReporter, causes []ThresholdCause) int
 }

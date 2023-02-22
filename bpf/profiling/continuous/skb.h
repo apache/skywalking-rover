@@ -15,20 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package profiling
+struct iovec {
+	void *iov_base;
+	__u64 iov_len;
+} __attribute__((preserve_access_index));
 
-import (
-	"github.com/apache/skywalking-rover/pkg/module"
-	continuousBase "github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
-	taskBase "github.com/apache/skywalking-rover/pkg/profiling/task/base"
-)
+struct iov_iter {
+	__u64 count;
+	union {
+		const struct iovec *iov;
+		const struct kvec *kvec;
+		const struct bio_vec *bvec;
+		struct xarray *xarray;
+		struct pipe_inode_info *pipe;
+	};
+} __attribute__((preserve_access_index));
 
-type Config struct {
-	module.Config `mapstructure:",squash"`
+struct msghdr {
+	struct iov_iter	msg_iter;	/* data */
+	unsigned int	msg_flags;
+} __attribute__((preserve_access_index));
 
-	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
-	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
-
-	TaskConfig       *taskBase.TaskConfig             `mapstructure:"task"`       // Profiling task config
-	ContinuousConfig *continuousBase.ContinuousConfig `mapstructure:"continuous"` // Continuous profiling config
-}
+struct sock {
+	struct socket		*sk_socket;
+	__u32			sk_max_ack_backlog;
+} __attribute__((preserve_access_index));

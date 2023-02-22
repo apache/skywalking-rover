@@ -209,6 +209,9 @@ func (r *Runner) Stop() error {
 }
 
 func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
+	if r.bpf == nil {
+		return nil, nil
+	}
 	var stack Event
 	var counter uint32
 	iterate := r.bpf.Counts.Iterate()

@@ -318,6 +318,18 @@ func (s *ProcessStorage) GetAllProcesses() []api.ProcessInterface {
 	return result
 }
 
+func (s *ProcessStorage) FindAllRegisteredProcesses() []api.ProcessInterface {
+	result := make([]api.ProcessInterface, 0)
+	for _, processList := range s.processes {
+		for _, p := range processList {
+			if p.syncStatus == ReportSuccess {
+				result = append(result, p)
+			}
+		}
+	}
+	return result
+}
+
 func (s *ProcessStorage) FindProcessByID(processID string) api.ProcessInterface {
 	for _, finderProcesses := range s.processes {
 		for _, p := range finderProcesses {

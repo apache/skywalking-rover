@@ -5,19 +5,24 @@ and send the snapshot to the backend server.
 
 ## Configuration
 
-| Name                                                                            | Default     | Environment Key                                                                       | Description                                                         |
-|---------------------------------------------------------------------------------|-------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-| profiling.active                                                                | true        | ROVER_PROFILING_ACTIVE                                                                | Is active the process profiling.                                    |
-| profiling.check_interval                                                        | 10s         | ROVER_PROFILING_CHECK_INTERVAL                                                        | Check the profiling task interval.                                  |
-| profiling.flush_interval                                                        | 5s          | ROVER_PROFILING_FLUSH_INTERVAL                                                        | Combine existing profiling data and report to the backend interval. |
-| profiling.task.on_cpu.dump_period                                               | 9ms         | ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD                                               | The profiling stack dump period.                                    |
-| profiling.task.network.report_interval                                          | 2s          | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL                                 | The interval of send metrics to the backend.                        |
-| profiling.task.network.meter_prefix                                             | rover_net_p | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX                                    | The prefix of network profiling metrics name.                       |
-| profiling.task.network.protocol_analyze.per_cpu_buffer                          | 400KB       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PER_CPU_BUFFER                          | The size of socket data buffer on each CPU.                         |
-| profiling.task.network.protocol_analyze.parallels                               | 2           | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PARALLELS                               | The count of parallel protocol analyzer.                            |
-| profiling.task.network.protocol_analyze.queue_size                              | 5000        | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_QUEUE_SIZE                              | The size of per paralleled analyzer queue.                          |
-| profiling.task.network.protocol_analyze.sampling.http.default_request_encoding  | UTF-8       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_SAMPLING_HTTP_DEFAULT_REQUEST_ENCODING  | The default body encoding when sampling the request.                |
-| profiling.task.network.protocol_analyze.sampling.http.default_response_encoding | UTF-8       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_SAMPLING_HTTP_DEFAULT_RESPONSE_ENCODING | The default body encoding when sampling the response.               |
+| Name                                                                            | Default     | Environment Key                                                                       | Description                                                                           |
+|---------------------------------------------------------------------------------|-------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| profiling.active                                                                | true        | ROVER_PROFILING_ACTIVE                                                                | Is active the process profiling.                                                      |
+| profiling.check_interval                                                        | 10s         | ROVER_PROFILING_CHECK_INTERVAL                                                        | Check the profiling task interval.                                                    |
+| profiling.flush_interval                                                        | 5s          | ROVER_PROFILING_FLUSH_INTERVAL                                                        | Combine existing profiling data and report to the backend interval.                   |
+| profiling.task.on_cpu.dump_period                                               | 9ms         | ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD                                               | The profiling stack dump period.                                                      |
+| profiling.task.network.report_interval                                          | 2s          | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL                                 | The interval of send metrics to the backend.                                          |
+| profiling.task.network.meter_prefix                                             | rover_net_p | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX                                    | The prefix of network profiling metrics name.                                         |
+| profiling.task.network.protocol_analyze.per_cpu_buffer                          | 400KB       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PER_CPU_BUFFER                          | The size of socket data buffer on each CPU.                                           |
+| profiling.task.network.protocol_analyze.parallels                               | 2           | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_PARALLELS                               | The count of parallel protocol analyzer.                                              |
+| profiling.task.network.protocol_analyze.queue_size                              | 5000        | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_QUEUE_SIZE                              | The size of per paralleled analyzer queue.                                            |
+| profiling.task.network.protocol_analyze.sampling.http.default_request_encoding  | UTF-8       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_SAMPLING_HTTP_DEFAULT_REQUEST_ENCODING  | The default body encoding when sampling the request.                                  |
+| profiling.task.network.protocol_analyze.sampling.http.default_response_encoding | UTF-8       | ROVER_PROFILING_TASK_NETWORK_PROTOCOL_ANALYZE_SAMPLING_HTTP_DEFAULT_RESPONSE_ENCODING | The default body encoding when sampling the response.                                 |
+| profiling.continuous.meter_prefix                                               | rover_con_p | ROVER_PROFILING_CONTINUOUS_METER_PREFIX                                               | The continuous related meters prefix name.                                            |
+| profiling.continuous.fetch_interval                                             | 1s          | ROVER_PROFILING_CONTINUOUS_FETCH_INTERVAL                                             | The interval of fetch metrics from the system, such as Process CPU, System Load, etc. |
+| profiling.continuous.check_interval                                             | 5s          | ROVER_PROFILING_CONTINUOUS_CHECK_INTERVAL                                             | The interval of check metrics is reach the thresholds.                                |
+| profiling.continuous.trigger.execute_duration                                   | 10m         | ROVER_PROFILING_CONTINUOUS_TRIGGER_EXECUTE_DURATION                                   | The duration of the profiling task.                                                   |
+| profiling.continuous.trigger.silence_duration                                   | 20m         | ROVER_PROFILING_CONTINUOUS_TRIGGER_SILENCE_DURATION                                   | The minimal duration between the execution of the same profiling task.                |
 
 ## Profiling Type
 
@@ -118,3 +123,43 @@ Based on the above two data types, the following metrics are provided.
 | HTTP Request Sampling  | Complete information about the HTTP request, it's only reported when it matches slow/4xx/5xx traces.                                        |
 | HTTP Response Sampling | Complete information about the HTTP response, it's only reported when it matches slow/4xx/5xx traces.                                       |
 | Syscall xxx            | The methods to use when the process invoke with the network-related syscall method. It's only reported when it matches slow/4xx/5xx traces. |
+
+## Continuous Profiling
+
+The continuous profiling feature monitors low-power target process information, including process CPU usage and network requests, based on configuration passed from the backend. 
+When a threshold is met, it automatically initiates a profiling task(on/off CPU, Network) to provide more detailed analysis.
+
+### Monitor Type
+
+#### System Load
+
+Monitor the average system load for the last minute, which is equivalent to using the first value of the `load average` in the `uptime` command.
+
+#### Process CPU
+
+The target process utilizes a certain percentage of the CPU on the current host.
+
+#### Process Thread Count
+
+The real-time number of threads in the target process.
+
+#### Network
+
+Network monitoring uses eBPF technology to collect real-time performance data of the current process responding to requests. Requests sent upstream are not monitored by the system.
+
+Currently, network monitoring supports parsing of the HTTP/1.x protocol and supports the following types of monitoring:
+
+1. `Error Rate`: The percentage of network request errors, such as HTTP status codes within the range of `[500-600)`, is considered as erroneous.
+2. `Avg Response Time`: Average response time(ms) for specified URI.
+
+### Metrics
+
+Rover would periodically send collected monitoring data to the backend using the `Native Meter Protocol`.
+
+| Name                   | Unit     | Description                                                               |
+|------------------------|----------|---------------------------------------------------------------------------|
+| process_cpu            | (0-100)% | The CPU usage percent                                                     |
+| process_thread_count   | count    | The thread count of process                                               |
+| system_load            | count    | The average system load for the last minute, each process have same value |
+| http_error_rate        | (0-100)% | The network request error rate percentage                                 |
+| http_avg_response_time | ms       | The network average response duration                                     |

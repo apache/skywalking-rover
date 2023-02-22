@@ -29,6 +29,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/path"
@@ -303,9 +304,9 @@ var nodeTLSAddrWithVersions = []struct {
 
 var nodeTLSProbeWithVersions = []struct {
 	v *version.Version
-	f func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
+	f func(uprobe *btf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
 }{
-	{version.Build(10, 19, 0), func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
+	{version.Build(10, 19, 0), func(uprobe *btf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrapC2E"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap7ClearInE"),
@@ -313,7 +314,7 @@ var nodeTLSProbeWithVersions = []struct {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node7TLSWrap8ClearOutE"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 	}},
-	{version.Build(15, 0, 0), func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
+	{version.Build(15, 0, 0), func(uprobe *btf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module) {
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrapC2E"),
 			bpf.NodeTlsWrap, bpf.NodeTlsWrapRet)
 		uprobe.AddLinkWithSymbols(searchSymbolNames([]*profiling.Module{nodeModule}, strings.HasPrefix, "_ZN4node6crypto7TLSWrap7ClearInE"),
@@ -347,7 +348,7 @@ func findNodeTLSAddrConfig(v *version.Version) (*NodeTLSAddrInBPF, error) {
 }
 
 func registerNodeTLSProbes(v *version.Version, loader *bpf.Loader, nodeModule, libSSLModule *profiling.Module) error {
-	var probeFunc func(uprobe *bpf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
+	var probeFunc func(uprobe *btf.UProbeExeFile, bpf *bpf.Loader, nodeModule *profiling.Module)
 	for _, c := range nodeTLSProbeWithVersions {
 		if v.GreaterOrEquals(c.v) {
 			probeFunc = c.f
