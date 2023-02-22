@@ -31,7 +31,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/process"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	"golang.org/x/sys/unix"
@@ -86,14 +86,14 @@ func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface
 	if len(processes) != 1 {
 		return fmt.Errorf("the processes count must be 1, current is: %d", len(processes))
 	}
-	process := processes[0]
-	r.pid = process.Pid()
+	curProcess := processes[0]
+	r.pid = curProcess.Pid()
 	// process profiling stat
-	if r.processProfiling = process.ProfilingStat(); r.processProfiling == nil {
+	if r.processProfiling = curProcess.ProfilingStat(); r.processProfiling == nil {
 		return fmt.Errorf("this process could not be profiling")
 	}
 	// kernel profiling stat
-	kernelProfiling, err := tools.KernelFileProfilingStat()
+	kernelProfiling, err := process.KernelFileProfilingStat()
 	if err != nil {
 		log.Warnf("could not analyze kernel profiling stats: %v", err)
 	}

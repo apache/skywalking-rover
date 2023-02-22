@@ -16,6 +16,7 @@
 // under the License.
 
 #include "args.h"
+#include "symbol_offsets.h"
 #include "openssl.h"
 #include "node_tls.h"
 
@@ -36,7 +37,7 @@ static __inline void process_openssl_data(struct pt_regs* ctx, __u64 id, __u32 d
 }
 
 static int get_fd_symaddr(__u32 tgid, bool read, void* ssl) {
-    struct openssl_fd_symaddr* addr = get_openssl_fd_symaddr(tgid);
+    struct openssl_symaddr* addr = get_openssl_symaddr(tgid);
     if (addr == NULL) {
         return -1;
     }

@@ -28,8 +28,8 @@ import (
 
 	"golang.org/x/arch/x86/x86asm"
 
-	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
+	"github.com/apache/skywalking-rover/pkg/tools/process"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -46,7 +46,7 @@ type RingBufferReader func(data interface{})
 var syscallPrefix string
 
 func init() {
-	stat, err := tools.KernelFileProfilingStat()
+	stat, err := process.KernelFileProfilingStat()
 	if err != nil {
 		syscallPrefix = defaultSymbolPrefix
 		return

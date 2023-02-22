@@ -15,35 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "symbol_offsets.h"
+struct openssl_args {
+    void* ssl;
+    char* buf;
+    __u64 timestamp;
+};
 
-struct go_tls_tgid_goid_t {
-    __u64 tgid;
-    __u64 goid;
-};
-struct go_tls_connection_args_t {
-    void* connection_ptr;
-    char* buffer_ptr;
-    __u64 start_nacs;
-};
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 10000);
-	__type(key, struct go_tls_tgid_goid_t);
-	__type(value, struct go_tls_connection_args_t);
-} go_tls_active_connection_args SEC(".maps");
-
-static __always_inline int get_fd_from_go_tls_conn(struct go_interface conn, struct go_tls_args_symaddr_t* symaddr) {
-    // read connection
-    bpf_probe_read(&conn, sizeof(conn), conn.ptr + symaddr->tls_conn_offset);
-
-    if (conn.type != symaddr->tcp_conn_offset) {
-        return 0;
-    }
-
-    void* fd_ptr;
-    bpf_probe_read(&fd_ptr, sizeof(fd_ptr), conn.ptr);
-    __u64 sysfd;
-    bpf_probe_read(&sysfd, sizeof(sysfd), fd_ptr + symaddr->fd_sys_offset);
-    return sysfd;
-}
+	__type(key, __u64);
+	__type(value, struct openssl_args);
+} openssl_args_map SEC(".maps");

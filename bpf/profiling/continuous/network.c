@@ -53,13 +53,7 @@ static __always_inline bool socket_should_trace(__u64 id, struct sock *sock) {
     return true;
 }
 
-static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *channel_ref, struct msghdr *msg) {
-    const struct iovec *iovec;
-    iovec = _KERNEL(msg->msg_iter.iov);
-    struct iovec iov;
-    bpf_probe_read(&iov, sizeof(iov), iovec);
-    char* buf = (char *)iov.iov_base;
-    __u64 size = iov.iov_len;
+static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *channel_ref, char *buf, __u64 size, __u64 timestamp) {
     if (size <= 0) {
         return;
     }
@@ -72,12 +66,12 @@ static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *ch
     if (reader == NULL) {
         return;
     }
-    asm volatile("%[size] &= 0x9f;\n" ::[size] "+r"(size) :);
+    asm volatile("%[size] &= 0xff;\n" ::[size] "+r"(size) :);
     bpf_probe_read(&reader->buffer, size & MAX_PROTOCOL_SOCKET_READ_LENGTH, buf);
     __u8 protocol;
     __u32 direction = analyze_protocol(reader->buffer, size & MAX_PROTOCOL_SOCKET_READ_LENGTH, &protocol);
     if (protocol != CONNECTION_PROTOCOL_UNKNOWN) {
-        reader->timestamp = bpf_ktime_get_ns();
+        reader->timestamp = timestamp;
         reader->channel_ref = channel_ref;
         reader->pid = (__u32)(id >> 32);
         reader->protocol = protocol;
@@ -85,6 +79,17 @@ static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *ch
         reader->size = size & MAX_PROTOCOL_SOCKET_READ_LENGTH;
         bpf_perf_event_output(ctx, &socket_buffer_send_queue, BPF_F_CURRENT_CPU, reader, sizeof(*reader));
     }
+}
+
+static __always_inline void process_msghdr_data(struct pt_regs *ctx, __u64 id, void *channel_ref, struct msghdr *msg) {
+    const struct iovec *iovec;
+    iovec = _KERNEL(msg->msg_iter.iov);
+    struct iovec iov;
+    bpf_probe_read(&iov, sizeof(iov), iovec);
+    char* buf = (char *)iov.iov_base;
+    __u64 size = iov.iov_len;
+
+    return process_data(ctx, id, channel_ref, buf, size, bpf_ktime_get_ns());
 }
 
 SEC("kprobe/tcp_sendmsg")
@@ -96,7 +101,7 @@ int tcp_sendmsg(struct pt_regs *ctx) {
     }
 
     struct msghdr *msg = (void *)PT_REGS_PARM2(ctx);
-    process_data(ctx, id, s, msg);
+    process_msghdr_data(ctx, id, s, msg);
     return 0;
 }
 
@@ -122,8 +127,11 @@ int ret_tcp_recvmsg(struct pt_regs *ctx) {
     struct recv_msg_args *args = bpf_map_lookup_elem(&receiving_args, &id);
     int bytes_count = PT_REGS_RC(ctx);
     if (args != NULL && bytes_count > 0) {
-        process_data(ctx, id, args->sock, args->msg);
+        process_msghdr_data(ctx, id, args->sock, args->msg);
     }
     bpf_map_delete_elem(&receiving_args, &id);
     return 0;
 }
+
+#include "openssl.c"
+#include "go_tls.c"

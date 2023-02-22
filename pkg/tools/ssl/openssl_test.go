@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package network
+package ssl
 
 import (
 	"os/exec"
@@ -29,6 +29,7 @@ func TestBuildSSLSymAddrConfig(t *testing.T) {
 	mockOutput := func(out string) *exec.Cmd {
 		return exec.Command("echo", out)
 	}
+	register := NewSSLRegister(0, nil)
 
 	result := `%s:%d: OpenSSL internal error: %s
 OpenSSL 1.0.2o  31 Mar 2020
@@ -38,7 +39,7 @@ OpenSSL X9.42 DH method`
 		patches.Reset()
 	})
 
-	conf, err := buildSSLSymAddrConfig("/test")
+	conf, err := register.buildOpenSSLSymAddrConfig("/test")
 	assert.Nil(t, err)
 	assert.Equal(t, uint32(16), conf.BIOReadOffset)
 	assert.Equal(t, uint32(24), conf.BIOWriteOffset)
@@ -49,7 +50,17 @@ OpenSSL X9.42 DH method`
 OpenSSL 1.1.1f  31 Mar 2020
 OpenSSL X9.42 DH method`
 	patches = gomonkey.ApplyFuncReturn(exec.Command, mockOutput(result))
-	conf, err = buildSSLSymAddrConfig("/test")
+	conf, err = register.buildOpenSSLSymAddrConfig("/test")
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(16), conf.BIOReadOffset)
+	assert.Equal(t, uint32(24), conf.BIOWriteOffset)
+	assert.Equal(t, uint32(48), conf.FDOffset)
+
+	// should same with 1.1.1, which from the NodeJS build-in version of OpenSSL
+	patches.Reset()
+	result = `OpenSSL 1.1.1q+quic  5 Jul 2022`
+	patches = gomonkey.ApplyFuncReturn(exec.Command, mockOutput(result))
+	conf, err = register.buildOpenSSLSymAddrConfig("/test")
 	assert.Nil(t, err)
 	assert.Equal(t, uint32(16), conf.BIOReadOffset)
 	assert.Equal(t, uint32(24), conf.BIOWriteOffset)
@@ -60,7 +71,7 @@ OpenSSL X9.42 DH method`
 OpenSSL 3.0.3 3 May 2022
 OpenSSL RSA method`
 	patches = gomonkey.ApplyFuncReturn(exec.Command, mockOutput(result))
-	conf, err = buildSSLSymAddrConfig("/test")
+	conf, err = register.buildOpenSSLSymAddrConfig("/test")
 	assert.Nil(t, err)
 	assert.Equal(t, uint32(16), conf.BIOReadOffset)
 	assert.Equal(t, uint32(24), conf.BIOWriteOffset)

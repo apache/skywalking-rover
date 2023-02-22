@@ -66,7 +66,7 @@ func (h *HTTP1Analyzer) HandleBufferEvent(buffer *networkBufferInBPF) BufferEven
 		return nil
 	}
 	// clean the request buffer
-	h.channelEvents[buffer.ChannelRef] = nil
+	delete(h.channelEvents, buffer.ChannelRef)
 
 	code, err := h.analyzeResponseStatus(buffer)
 	if err != nil {
