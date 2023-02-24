@@ -108,10 +108,6 @@ static __always_inline void submit_new_connection(struct pt_regs* ctx, __u32 fun
         con.socket_family = AF_UNKNOWN;
     }
 
-    if (con.remote_port == 53) {
-        bpf_printk("found the remote port is 53");
-    }
-
     // save to the active connection map
     __u64 conid = gen_tgid_fd(tgid, fd);
     struct socket_connect_event_t *event = create_socket_connect_event();

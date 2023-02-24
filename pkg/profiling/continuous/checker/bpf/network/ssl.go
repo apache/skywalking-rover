@@ -15,3 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
+package network
+
+import (
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/tools/ssl"
+)
+
+func addSSLProcess(pid int, linker *btf.Linker, bpf *bpfObjects) error {
+	register := ssl.NewSSLRegister(pid, linker)
+
+	register.OpenSSL(bpf.OpensslSymaddrMap, bpf.OpensslWrite, bpf.OpensslWriteRet, bpf.OpensslRead, bpf.OpensslReadRet)
+
+	register.Envoy(bpf.EnvoyTlsArgsSymaddrMap, bpf.OpensslWrite, bpf.OpensslWriteRet, bpf.OpensslRead, bpf.OpensslReadRet)
+
+	register.GoTLS(bpf.GoTlsArgsSymaddrMap, bpf.GoCasgstatus, bpf.GoTlsWrite, bpf.GoTlsWriteRet, bpf.GoTlsRead, bpf.GoTlsReadRet)
+
+	register.Node(bpf.OpensslSymaddrMap, nil, bpf.OpensslWrite, bpf.OpensslWriteRet, bpf.OpensslRead, bpf.OpensslReadRet,
+		nil, nil, nil)
+
+	return register.Execute()
+}

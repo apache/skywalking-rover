@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package tools
+package process
 
 import (
 	"bufio"
@@ -61,8 +61,8 @@ func KernelFileProfilingStat() (*profiling.Info, error) {
 	return kernelFinder.Analyze(profiling.KernelSymbolFilePath)
 }
 
-// ProcessProfilingStat is validating the exe file could be profiling and get info
-func ProcessProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
+// ProfilingStat is validating the exe file could be profiling and get info
+func ProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
 	stat, err := os.Stat(exePath)
 	if err != nil {
 		return nil, fmt.Errorf("check file error: %v", err)
@@ -83,8 +83,8 @@ func ProcessProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
 	return analyzeProfilingInfo(context, pid)
 }
 
-// ProcessModules Read the profiling info of the process, without the symbol check
-func ProcessModules(pid int32) ([]*profiling.Module, error) {
+// Modules Read the profiling info of the process, without the symbol check
+func Modules(pid int32) ([]*profiling.Module, error) {
 	context := newAnalyzeContext()
 	info, err := analyzeProfilingInfo(context, pid)
 	if err != nil {

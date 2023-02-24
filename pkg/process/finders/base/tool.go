@@ -25,9 +25,9 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/path"
+	process_tool "github.com/apache/skywalking-rover/pkg/tools/process"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	"github.com/shirou/gopsutil/process"
@@ -41,7 +41,7 @@ func BuildProfilingStat(ps *process.Process) (*profiling.Info, error) {
 	}
 
 	// check support profiling
-	return tools.ProcessProfilingStat(ps.Pid, exePath)
+	return process_tool.ProfilingStat(ps.Pid, exePath)
 }
 
 func tryToFindFileExecutePath(ps *process.Process) string {

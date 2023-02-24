@@ -18,6 +18,7 @@
 package network
 
 import (
+	"os"
 	"sync"
 	"time"
 
@@ -39,11 +40,11 @@ var log = logger.GetLogger("profiling", "continuous", "checker", "network", "bpf
 var locker sync.Mutex
 var bpf *bpfObjects
 var bpfLinker *btf.Linker
-var monitoringProcesses map[int32]map[string]bool
+var monitoringProcesses map[int32]*monitoringProcessInfo
 var notifiers []EventNotify
 
 func init() {
-	monitoringProcesses = make(map[int32]map[string]bool)
+	monitoringProcesses = make(map[int32]*monitoringProcessInfo)
 }
 
 type BufferEvent interface {
@@ -69,21 +70,21 @@ func AddWatchProcess(pid int32, from string) error {
 		return e
 	}
 
-	// first, update to the monitor control
-	if e := bpf.ProcessMonitorControl.Update(uint32(pid), uint32(1), ebpf.UpdateAny); e != nil {
-		// if add failure, then check the BPF should be shutdown or not
-		_ = shutdownBPFIfNoProcesses()
-		return e
-	}
-
-	// then, add to the monitoring cache
+	// adding to the cache
 	monitoring := monitoringProcesses[pid]
 	if monitoring == nil {
-		monitoring = make(map[string]bool)
+		monitoring = newMonitoringProcessInfo(pid)
 		monitoringProcesses[pid] = monitoring
 	}
 
-	monitoring[from] = true
+	// start monitoring process
+	if e := monitoring.AddSource(from); e != nil {
+		// remove the source if add failure
+		if deleteProcess, _ := monitoring.RemoveSource(from); deleteProcess {
+			delete(monitoringProcesses, pid)
+		}
+		return e
+	}
 	return nil
 }
 
@@ -100,23 +101,27 @@ func RemoveWatchProcess(pid int32, from string) error {
 		return nil
 	}
 
-	delete(monitoring, from)
-	shouldRemoveMonitor := false
-	if len(monitoringProcesses[pid]) == 0 {
+	deleteProcess, err := monitoring.RemoveSource(from)
+	if deleteProcess {
 		delete(monitoringProcesses, pid)
-		shouldRemoveMonitor = true
 	}
-
-	if shouldRemoveMonitor {
-		if err := bpf.ProcessMonitorControl.Delete(uint32(pid)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return err
 }
 
 func ForceShutdownBPF() error {
-	return shutdownBPF()
+	// shutdown all processes
+	var err error
+	for _, p := range monitoringProcesses {
+		if e := p.Shutdown(); e != nil {
+			err = multierror.Append(err, e)
+		}
+	}
+	// shutdown the main BPF
+	monitoringProcesses = make(map[int32]*monitoringProcessInfo)
+	if e := shutdownBPF(); e != nil {
+		err = multierror.Append(err, e)
+	}
+	return err
 }
 
 // start the BPF program if contains process that needs monitor
@@ -142,7 +147,7 @@ func startBPFIfNeed() error {
 			n.ReceiveBufferEvent(event)
 		}
 	})
-	bpfLinker.ReadEventAsync(bpf.SocketBufferSendQueue, reader.Read, reader.BufferDataBPFSupplier)
+	bpfLinker.ReadEventAsyncWithBufferSize(bpf.SocketBufferSendQueue, reader.Read, os.Getpagesize()*100, reader.BufferDataBPFSupplier)
 
 	if err := bpfLinker.HasError(); err != nil {
 		_ = bpfLinker.Close()

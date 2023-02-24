@@ -42,7 +42,7 @@ type networkBufferInBPF struct {
 	Direction  BufferDirection
 	Size       uint16
 	Pid        uint32
-	Buffer     [159]byte
+	Buffer     [256]byte
 }
 
 type networkBufferReader struct {

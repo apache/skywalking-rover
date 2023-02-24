@@ -18,7 +18,7 @@
 #include "api.h"
 #include "skb.h"
 
-#define MAX_PROTOCOL_SOCKET_READ_LENGTH 158
+#define MAX_PROTOCOL_SOCKET_READ_LENGTH 255
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
