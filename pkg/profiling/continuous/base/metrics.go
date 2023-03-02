@@ -45,7 +45,9 @@ func (m *MetricsAppender) AppendProcessSingleValue(name string, p api.ProcessInt
 	for k, v := range labels {
 		transformLabels = append(transformLabels, &v3.Label{Name: k, Value: v})
 	}
-	transformLabels = append(transformLabels, &v3.Label{Name: "process_name", Value: p.Entity().ProcessName})
+	transformLabels = append(transformLabels,
+		&v3.Label{Name: "process_name", Value: p.Entity().ProcessName},
+		&v3.Label{Name: "layer", Value: p.Entity().Layer})
 	metadata := serviceInstanceMetadata{
 		service:  p.Entity().ServiceName,
 		instance: p.Entity().InstanceName,

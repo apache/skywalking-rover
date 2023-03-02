@@ -46,6 +46,6 @@ func (s *SystemLoadChecker) Init(config *base.ContinuousConfig) error {
 				return 0, err
 			}
 			return avg.Load1, nil
-		}, v3.ContinuousProfilingCauseType_SystemLoad)
+		}, v3.ContinuousProfilingTriggeredMonitorType_SystemLoad)
 	return nil
 }

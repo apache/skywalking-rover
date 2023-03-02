@@ -42,6 +42,6 @@ func (t *ProcessThreadCountChecker) Init(config *base.ContinuousConfig) error {
 	}, func(p api.ProcessInterface) (int32, error) {
 		threads, err := p.OriginalProcess().NumThreads()
 		return threads, err
-	}, v3.ContinuousProfilingCauseType_ProcessThreadCount)
+	}, v3.ContinuousProfilingTriggeredMonitorType_ProcessThreadCount)
 	return nil
 }

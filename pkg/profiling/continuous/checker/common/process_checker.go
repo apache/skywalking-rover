@@ -34,16 +34,16 @@ type ProcessBasedChecker[V numbers] struct {
 	*BaseChecker[*ProcessBasedInfo[V]]
 
 	CheckType         base.CheckType
-	CauseType         v3.ContinuousProfilingCauseType
+	MonitorType       v3.ContinuousProfilingTriggeredMonitorType
 	ThresholdGenerate func(val string) (V, error)
 	DataGenerate      func(process api.ProcessInterface) (V, error)
 }
 
 func NewProcessBasedChecker[V numbers](checkType base.CheckType, thresholdGenerator func(val string) (V, error),
-	dataGenerator func(p api.ProcessInterface) (V, error), causeType v3.ContinuousProfilingCauseType) *ProcessBasedChecker[V] {
+	dataGenerator func(p api.ProcessInterface) (V, error), monitorType v3.ContinuousProfilingTriggeredMonitorType) *ProcessBasedChecker[V] {
 	checker := &ProcessBasedChecker[V]{
 		CheckType:         checkType,
-		CauseType:         causeType,
+		MonitorType:       monitorType,
 		ThresholdGenerate: thresholdGenerator,
 		DataGenerate:      dataGenerator,
 	}
@@ -118,7 +118,7 @@ func (r *ProcessBasedChecker[V]) Check(ctx base.CheckContext, metricsAppender *b
 	causes := make([]base.ThresholdCause, 0)
 	for _, info := range r.PidWithInfos {
 		for _, threshold := range info.Policies {
-			if data, hasData := info.Windows.FlushLastWriteData(); hasData {
+			if data, hasData := info.Windows.FlushMostRecentData(); hasData {
 				metricsAppender.AppendProcessSingleValue(strings.ToLower(string(r.CheckType)), info.Process, nil, float64(data))
 			}
 			if !ctx.ShouldCheck(info.Process, threshold.Policy) {
@@ -129,7 +129,7 @@ func (r *ProcessBasedChecker[V]) Check(ctx base.CheckContext, metricsAppender *b
 				return val >= threshold.Threshold
 			}); enable {
 				causes = append(causes,
-					NewSingleValueCause(info.Process, threshold.Policy, r.CauseType, float64(threshold.Threshold), float64(lastMatch)))
+					NewSingleValueCause(info.Process, threshold.Policy, r.MonitorType, float64(threshold.Threshold), float64(lastMatch)))
 			}
 		}
 	}

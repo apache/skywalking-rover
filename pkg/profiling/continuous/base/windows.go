@@ -61,8 +61,8 @@ type TimeWindows[V any, R any] struct {
 	windowLocker    sync.RWMutex
 	windowGenerator func() WindowData[V, R]
 
-	lastFlushedElement *list.Element
-	lastWriteElement   *list.Element
+	// mark the latest flush endTime
+	lastFlushTime *time.Time
 }
 
 func NewTimeWindows[V any, R any](items []*PolicyItem, generator func() WindowData[V, R]) *TimeWindows[V, R] {
@@ -143,7 +143,7 @@ func (t *TimeWindows[D, R]) Add(tm time.Time, val D) {
 		second = 0
 	}
 
-	if second > t.data.Len() {
+	if second >= t.data.Len() {
 		// add the older data, ignore it
 		return
 	}
@@ -151,27 +151,45 @@ func (t *TimeWindows[D, R]) Add(tm time.Time, val D) {
 	t.appendDataToSlot(t.data.Len()-second-1, val)
 }
 
-func (t *TimeWindows[D, R]) FlushLastWriteData() (R, bool) {
-	if t.lastWriteElement == nil || t.lastFlushedElement == t.lastWriteElement {
+func (t *TimeWindows[D, R]) FlushMostRecentData() (R, bool) {
+	endTime := t.endTime
+	if !t.shouldFlush(endTime) {
 		var empty R
 		return empty, false
 	}
-	t.lastFlushedElement = t.lastWriteElement
-	return t.lastFlushedElement.Value.(*windowDataWrapper[D, R]).Get(), true
+	t.lastFlushTime = endTime
+	return t.data.Back().Value.(*windowDataWrapper[D, R]).Get(), true
 }
 
-func (t *TimeWindows[D, R]) FlushMultipleWriteData() ([]R, bool) {
-	result := make([]R, 0)
-	if t.lastWriteElement == nil || t.lastFlushedElement == t.lastWriteElement {
+func (t *TimeWindows[D, R]) FlushMultipleRecentData() ([]R, bool) {
+	endTime := t.endTime
+	if !t.shouldFlush(endTime) {
 		return nil, false
 	}
-	for e := t.lastWriteElement; e != t.lastFlushedElement && e != nil; e = e.Prev() {
+	result := make([]R, 0)
+	slotCount := t.data.Len()
+	if t.lastFlushTime != nil {
+		slotCount = int(t.endTime.Sub(*t.lastFlushTime).Seconds()) - 1
+	}
+	for e := t.data.Back(); e != nil && slotCount >= 0; e = e.Prev() {
 		if e.Value.(*windowDataWrapper[D, R]).hasData {
 			result = append(result, e.Value.(*windowDataWrapper[D, R]).Get())
 		}
+		slotCount--
 	}
-	t.lastFlushedElement = t.lastWriteElement
+	t.lastFlushTime = endTime
 	return result, true
+}
+
+func (t *TimeWindows[D, R]) shouldFlush(endTime *time.Time) bool {
+	if endTime == nil {
+		return false
+	}
+	if t.lastFlushTime == nil {
+		return true
+	}
+
+	return t.lastFlushTime != endTime && t.lastFlushTime.Before(*endTime)
 }
 
 func (t *TimeWindows[D, R]) moveTo(tm time.Time) {
@@ -190,9 +208,9 @@ func (t *TimeWindows[D, R]) moveTo(tm time.Time) {
 	} else {
 		for i := 0; i < addSeconds; i++ {
 			// remove the older data
-			first := t.data.Remove(t.data.Back()).(*windowDataWrapper[D, R])
+			first := t.data.Remove(t.data.Front()).(*windowDataWrapper[D, R])
 			first.Reset()
-			t.data.PushFront(first)
+			t.data.PushBack(first)
 		}
 	}
 	t.endTime = &tm
@@ -202,7 +220,7 @@ func (t *TimeWindows[V, R]) appendDataToSlot(index int, data V) {
 	t.windowLocker.RLock()
 	defer t.windowLocker.RUnlock()
 
-	if index <= 0 || index >= t.data.Len() {
+	if index < 0 || index > t.data.Len() {
 		return
 	}
 
@@ -223,7 +241,6 @@ func (t *TimeWindows[V, R]) appendDataToSlot(index int, data V) {
 	}
 
 	element.Value.(*windowDataWrapper[V, R]).Accept(data)
-	t.lastWriteElement = element
 }
 
 type windowDataWrapper[D any, R any] struct {

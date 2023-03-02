@@ -32,17 +32,17 @@ type HTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]] struct
 	*BaseChecker[*HTTPBasedCheckerProcessInfo]
 
 	CheckType         base.CheckType
-	CauseType         v3.ContinuousProfilingCauseType
+	MonitorType       v3.ContinuousProfilingTriggeredMonitorType
 	ThresholdGenerate func(val string) (float64, error)
 }
 
 func NewHTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]](checkType base.CheckType,
 	thresholdGenerator func(val string) (float64, error), dataGenerator func() base.WindowData[network.BufferEvent, float64],
-	causeType v3.ContinuousProfilingCauseType) *HTTPBasedChecker[Data] {
+	monitorType v3.ContinuousProfilingTriggeredMonitorType) *HTTPBasedChecker[Data] {
 	checker := &HTTPBasedChecker[Data]{
 		CheckType:         checkType,
 		ThresholdGenerate: thresholdGenerator,
-		CauseType:         causeType,
+		MonitorType:       monitorType,
 	}
 	checker.BaseChecker = NewBaseChecker[*HTTPBasedCheckerProcessInfo](
 		func(p api.ProcessInterface, older *HTTPBasedCheckerProcessInfo, items []*base.PolicyItem) *HTTPBasedCheckerProcessInfo {
@@ -204,7 +204,7 @@ func (n *HTTPBasedChecker[Data]) Check(ctx base.CheckContext, metricsAppender *b
 					return val >= itemInfo.threshold
 				}); isMatch {
 					causes = append(causes, NewURICause(pidPolicies.Process, false, uri, item,
-						n.CauseType, itemInfo.threshold, lastMatch))
+						n.MonitorType, itemInfo.threshold, lastMatch))
 				}
 			}
 
@@ -213,7 +213,7 @@ func (n *HTTPBasedChecker[Data]) Check(ctx base.CheckContext, metricsAppender *b
 				return val >= itemInfo.threshold
 			}); isMatch {
 				causes = append(causes, NewURICause(pidPolicies.Process, itemInfo.uriRegex != nil, globalURI, item,
-					n.CauseType, itemInfo.threshold, lastMatch))
+					n.MonitorType, itemInfo.threshold, lastMatch))
 			}
 		}
 	}
@@ -225,7 +225,7 @@ func (n *HTTPBasedChecker[Data]) flushMetrics(uri string, windows *base.TimeWind
 	if uri == "" {
 		uri = "global"
 	}
-	if data, hasUpdate := windows.FlushMultipleWriteData(); hasUpdate {
+	if data, hasUpdate := windows.FlushMultipleRecentData(); hasUpdate {
 		// flush each slot data
 		for _, d := range data {
 			metricsAppender.AppendProcessSingleValue(strings.ToLower(string(n.CheckType)), process, map[string]string{

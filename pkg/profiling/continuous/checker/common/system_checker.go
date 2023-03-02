@@ -30,7 +30,7 @@ import (
 
 type SystemBasedChecker[V numbers] struct {
 	CheckType         base.CheckType
-	CauseType         v3.ContinuousProfilingCauseType
+	MonitorType       v3.ContinuousProfilingTriggeredMonitorType
 	ThresholdGenerate func(val string) (V, error)
 	DataGenerate      func() (V, error)
 	GlobalWindows     *base.TimeWindows[V, V]
@@ -39,10 +39,10 @@ type SystemBasedChecker[V numbers] struct {
 }
 
 func NewSystemBasedChecker[V numbers](checkType base.CheckType, thresholdGenerator func(val string) (V, error),
-	dataGenerator func() (V, error), causeType v3.ContinuousProfilingCauseType) *SystemBasedChecker[V] {
+	dataGenerator func() (V, error), monitorType v3.ContinuousProfilingTriggeredMonitorType) *SystemBasedChecker[V] {
 	checker := &SystemBasedChecker[V]{
 		CheckType:         checkType,
-		CauseType:         causeType,
+		MonitorType:       monitorType,
 		ThresholdGenerate: thresholdGenerator,
 		DataGenerate:      dataGenerator,
 		GlobalWindows: base.NewTimeWindows[V, V](nil, func() base.WindowData[V, V] {
@@ -100,7 +100,7 @@ func (s *SystemBasedChecker[V]) Check(ctx base.CheckContext, metricsAppender *ba
 	}
 
 	causes := make([]base.ThresholdCause, 0)
-	data, hasData := s.GlobalWindows.FlushLastWriteData()
+	data, hasData := s.GlobalWindows.FlushMostRecentData()
 
 	for _, policy := range s.Policies {
 		if hasData {
@@ -120,7 +120,7 @@ func (s *SystemBasedChecker[V]) Check(ctx base.CheckContext, metricsAppender *ba
 				continue
 			}
 
-			causes = append(causes, NewSingleValueCause(p, policy.Policy, s.CauseType, float64(policy.Threshold), float64(lastMatch)))
+			causes = append(causes, NewSingleValueCause(p, policy.Policy, s.MonitorType, float64(policy.Threshold), float64(lastMatch)))
 		}
 	}
 
