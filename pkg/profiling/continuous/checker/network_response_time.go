@@ -41,7 +41,7 @@ func (n *NetworkHTTPAvgResponseTimeChecker) Init(config *base.ContinuousConfig) 
 			return strconv.ParseFloat(val, 64)
 		}, func() base.WindowData[network.BufferEvent, float64] {
 			return &processNetworkAvgResponseTimeStatics{}
-		}, v3.ContinuousProfilingCauseType_HTTPAvgResponseTime)
+		}, v3.ContinuousProfilingTriggeredMonitorType_HTTPAvgResponseTime)
 	return nil
 }
 

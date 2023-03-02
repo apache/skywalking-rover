@@ -45,7 +45,7 @@ func (n *NetworkHTTPErrorRateChecker) Init(config *base.ContinuousConfig) error 
 			return v, nil
 		}, func() base.WindowData[network.BufferEvent, float64] {
 			return &processNetworkResponseErrorStatics{}
-		}, v3.ContinuousProfilingCauseType_HTTPErrorRate)
+		}, v3.ContinuousProfilingTriggeredMonitorType_HTTPErrorRate)
 	return nil
 }
 

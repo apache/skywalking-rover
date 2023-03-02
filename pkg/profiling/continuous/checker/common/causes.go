@@ -27,18 +27,18 @@ import (
 type SingleValueCause struct {
 	process            api.ProcessInterface
 	policy             *base.PolicyItem
-	causeType          v3.ContinuousProfilingCauseType
+	monitorType        v3.ContinuousProfilingTriggeredMonitorType
 	threshold, current float64
 }
 
-func NewSingleValueCause(p api.ProcessInterface, policyItem *base.PolicyItem, causeType v3.ContinuousProfilingCauseType,
+func NewSingleValueCause(p api.ProcessInterface, policyItem *base.PolicyItem, monitorType v3.ContinuousProfilingTriggeredMonitorType,
 	threshold, current float64) *SingleValueCause {
 	return &SingleValueCause{
-		process:   p,
-		policy:    policyItem,
-		causeType: causeType,
-		threshold: threshold,
-		current:   current,
+		process:     p,
+		policy:      policyItem,
+		monitorType: monitorType,
+		threshold:   threshold,
+		current:     current,
 	}
 }
 
@@ -52,7 +52,7 @@ func (p *SingleValueCause) FromPolicy() *base.PolicyItem {
 
 func (p *SingleValueCause) GenerateTransferCause() *v3.ContinuousProfilingCause {
 	return &v3.ContinuousProfilingCause{
-		Type: p.causeType,
+		Type: p.monitorType,
 		Cause: &v3.ContinuousProfilingCause_SingleValue{
 			SingleValue: &v3.ContinuousProfilingSingleValueCause{
 				Threshold: p.threshold,
@@ -68,16 +68,16 @@ type URICause struct {
 
 	process            api.ProcessInterface
 	policy             *base.PolicyItem
-	causeType          v3.ContinuousProfilingCauseType
+	causeType          v3.ContinuousProfilingTriggeredMonitorType
 	threshold, current float64
 }
 
-func NewURICause(p api.ProcessInterface, isRegex bool, uri string, policyItem *base.PolicyItem, causeType v3.ContinuousProfilingCauseType,
-	threshold, current float64) *URICause {
+func NewURICause(p api.ProcessInterface, isRegex bool, uri string, policyItem *base.PolicyItem,
+	monitorType v3.ContinuousProfilingTriggeredMonitorType, threshold, current float64) *URICause {
 	return &URICause{
 		process:   p,
 		policy:    policyItem,
-		causeType: causeType,
+		causeType: monitorType,
 		IsRegex:   isRegex,
 		URI:       uri,
 		threshold: threshold,

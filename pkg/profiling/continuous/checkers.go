@@ -286,15 +286,24 @@ func (c *Checkers) queryPolicyUpdates(servicePolicies map[string]string) (map[st
 	if err != nil {
 		return nil, err
 	}
+	// no update
+	if len(policyUpdateCommands.GetCommands()) == 0 {
+		return nil, nil
+	}
 
-	if len(policyUpdateCommands.GetCommands()) != 1 ||
-		policyUpdateCommands.GetCommands()[0].GetCommand() != "ContinuousProfilingPolicyQuery" ||
-		len(policyUpdateCommands.GetCommands()[0].GetArgs()) != 1 ||
-		policyUpdateCommands.GetCommands()[0].GetArgs()[0].GetKey() != "ServiceWithPolicyJSON" {
+	var policyJSON string
+	if len(policyUpdateCommands.GetCommands()) == 1 && policyUpdateCommands.GetCommands()[0].GetCommand() == "ContinuousProfilingPolicyQuery" {
+		for _, arg := range policyUpdateCommands.GetCommands()[0].GetArgs() {
+			if arg.GetKey() == "ServiceWithPolicyJSON" {
+				policyJSON = arg.GetValue()
+				break
+			}
+		}
+	}
+	if policyJSON == "" {
 		return nil, fmt.Errorf("the query policy response not adapt")
 	}
 
-	policyJSON := policyUpdateCommands.GetCommands()[0].GetArgs()[0].GetValue()
 	updates := make([]*QueryPolicyUpdate, 0)
 	err = json.Unmarshal([]byte(policyJSON), &updates)
 	if err != nil {
