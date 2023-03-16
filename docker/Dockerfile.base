@@ -17,10 +17,10 @@
 FROM golang:1.18
 
 RUN apt update && \
-    git clone --depth 1 --branch v0.8.0 https://github.com/libbpf/libbpf.git && \
+    git clone --depth 1 --branch v1.1.0 https://github.com/libbpf/libbpf.git && \
     mkdir -p /usr/include/bpf && cp libbpf/src/*.h /usr/include/bpf && \
-    apt install -y lsb-release wget software-properties-common libc6-dev-i386 && \
-    cp -rf /usr/include/asm-generic/* /usr/include/asm && \
+    apt install -y lsb-release wget software-properties-common "$([ $(uname -m) = "x86_64" ] && echo "libc6-dev-i386" || echo "libc6-dev-armhf-cross")" && \
+    ([ $(uname -m) = "x86_64" ] && cp -rf /usr/include/asm-generic/* /usr/include/asm || cp -rf /usr/include/$(uname -m)*/* /usr/include/) && \
     wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 13

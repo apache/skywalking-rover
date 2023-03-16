@@ -21,7 +21,7 @@ generate: export BPF_CLANG := $(CONTAINER_COMMAND_CLANG)
 generate: export BPF_CFLAGS := $(CONTAINER_COMMAND_CFLAGS)
 generate: export REPO_ROOT := $(REPODIR)
 generate:
-	cd ./ && go generate ./...
+	cd ./ && TARGET=$(if $(findstring x86_64,$(shell uname -m)),amd64,arm64) go generate ./...
 
 # Usually works for generate ebpf ELF file on Mac OS or windows
 .PHONY: container-generate

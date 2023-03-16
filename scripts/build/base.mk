@@ -37,19 +37,38 @@ CONTAINER_COMMAND_TAG ?= v$(VERSION)
 CONTAINER_COMMAND_CLANG ?= clang
 CONTAINER_COMMAND_STRIP ?= llvm-strip
 CONTAINER_COMMAND_CFLAGS := -O2 -g -Wall -Werror $(CFLAGS)
-CONTAINER_COMMAND_ENGINE ?= docker
+CONTAINER_PLATFORMS ?= --platform linux/amd64,linux/arm64
+
+SYS_ARCH := $(shell uname -m)
 
 .PHONY: clean
 clean:
 	-rm -rf coverage.txt
 
 build-base-container:
-	${CONTAINER_COMMAND_ENGINE} build -t ${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
+	docker build -t ${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
+
+build-base-container-with-multi-args-cleanup:
+	docker stop registry && docker rm registry || true
+	docker buildx rm skywalking_rover || true
+
+build-base-container-with-multi-args: build-base-container-with-multi-args-cleanup
+	docker run -d --name registry --network=host registry:2
+	docker buildx create --use --driver-opt network=host --name skywalking_rover || true
+	docker buildx build --push ${CONTAINER_PLATFORMS} -t localhost:5000/skywalking-rover-base:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
 
 container-command: build-base-container
-	${CONTAINER_COMMAND_ENGINE} run --rm \
+	docker run --rm \
 		-v "${REPODIR}":/skywalking-rover -w /skywalking-rover --env MAKEFLAGS \
 		--env CFLAGS="-fdebug-prefix-map=/skywalking-rover=." \
 		--env HOME="/skywalking-rover" \
 		"${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG}" \
 		make ${COMMAND}
+
+container-ssh: build-base-container
+	docker run --rm -it --platform linux/amd64 \
+		-v $(pwd):/skywalking-rover -w /skywalking-rover --env MAKEFLAGS \
+		--env CFLAGS="-fdebug-prefix-map=/skywalking-rover=." \
+		--env HOME="/skywalking-rover" \
+		"localhost:5000/apache/skywalking-rover-base:vlatest" \
+		/bin/bash

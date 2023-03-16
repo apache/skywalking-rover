@@ -16,11 +16,22 @@
 # under the License.
 #
 
-.PHONY: docker
+docker: PLATFORMS =
+docker: LOAD_OR_PUSH = --load
 docker: build-base-container
-	docker build --build-arg VERSION=$(VERSION) --build-arg BASE_IMAGE=${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG} \
-		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/Dockerfile.build
+docker: BASE_IMAGE_NAME = ${CONTAINER_COMMAND_IMAGE}
+docker.push: PLATFORMS = ${CONTAINER_PLATFORMS}
+docker.push: LOAD_OR_PUSH = --push
+docker.push: build-base-container-with-multi-args
+docker.push: BASE_IMAGE_NAME = localhost:5000/skywalking-rover-base
 
-.PHONY: docker.push
-docker.push:
-	docker push $(HUB)/skywalking-rover:$(VERSION)
+docker docker.push:
+	$(DOCKER_RULE)
+
+define DOCKER_RULE
+	docker buildx build ${PLATFORMS} ${LOAD_OR_PUSH} \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BASE_IMAGE=${BASE_IMAGE_NAME}:${CONTAINER_COMMAND_TAG} \
+		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/Dockerfile.build
+	@$(MAKE) build-base-container-with-multi-args-cleanup
+endef
