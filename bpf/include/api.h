@@ -45,4 +45,14 @@ typedef enum
 {
     true=1, false=0
 } bool;
+
+struct thread_struct {
+	long unsigned int fsbase;
+}   __attribute__((preserve_access_index));
+
+struct task_struct {
+	__u32 pid;
+    __u32 tgid;
+    struct thread_struct thread;
+}  __attribute__((preserve_access_index));
 #endif

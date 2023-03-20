@@ -16,7 +16,7 @@
 // under the License.
 
 #include "go_tls.h"
-#include "goid.c"
+#include "goid.h"
 
 SEC("uprobe/go_tls_write")
 int go_tls_write(struct pt_regs* ctx) {
