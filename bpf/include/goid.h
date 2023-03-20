@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include "api.h"
 #include "symbol_offsets.h"
 
 struct {
@@ -24,47 +27,29 @@ struct {
 	__type(value, __u64);
 } go_tgid_goid_map SEC(".maps");
 static __inline __u64 get_goid(__u64 id) {
-    __u64 *val;
-    val = bpf_map_lookup_elem(&go_tgid_goid_map, &id);
-    return !val ? 0 : *val;
-}
-static __inline void set_goid(__u64 id, __u64 goid) {
-    bpf_map_update_elem(&go_tgid_goid_map, &id, &goid, 0);
-}
-
-SEC("uprobe/casgstatus")
-int go_casgstatus(struct pt_regs* ctx) {
-    const void* sp = (const void*)PT_REGS_SP(ctx);
-    __u64* regs = go_regabi_regs(ctx);
-    if (regs == NULL) {
-       return 0;
-    }
-
-    __u64 id = bpf_get_current_pid_tgid();
     __u32 tgid = id >> 32;
     struct go_tls_args_symaddr_t* symaddrs = get_go_tls_args_symaddr(tgid);
     if (symaddrs == NULL) {
        return 0;
     }
 
-    // get runtime.g
-    void* gptr = NULL;
-    assign_go_tls_arg(&gptr, sizeof(gptr), symaddrs->casg_status_gp_loc, sp, regs);
-    if (gptr == NULL) {
+    // Get fsbase from `struct task_struct`.
+    const struct task_struct* task_ptr = (struct task_struct*)bpf_get_current_task();
+    if (!task_ptr) {
         return 0;
     }
 
-    // get goid in runtime.g
-    int64_t goid;
-    bpf_probe_read(&goid, sizeof(goid), gptr + symaddrs->gid_offset);
+    // thread local storage
+    const void* fs_base;
+    bpf_probe_read_kernel(&fs_base, sizeof(fs_base), &(task_ptr->thread.fsbase));
 
-    // newval in runtime.g
-    __u32 status;
-    assign_go_tls_arg(&status, sizeof(status), symaddrs->casg_status_new_val_loc, sp, regs);
+    __u64 g_addr;
+    // struct g location
+    int32_t g_addr_offset = -8;
+    bpf_probe_read_user(&g_addr, sizeof(void*), (void*)(fs_base + g_addr_offset));
 
-    // check the status is running
-    if (status == 2) {
-        set_goid(id, goid);
-    }
-    return 0;
+    // goid in struct g
+    __u64 goid;
+    bpf_probe_read_user(&goid, sizeof(void*), (void*)(g_addr + symaddrs->gid_offset));
+    return goid;
 }

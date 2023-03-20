@@ -29,7 +29,7 @@ func addSSLProcess(pid int, linker *btf.Linker, bpf *bpfObjects) error {
 
 	register.Envoy(bpf.EnvoyTlsArgsSymaddrMap, bpf.OpensslWrite, bpf.OpensslWriteRet, bpf.OpensslRead, bpf.OpensslReadRet)
 
-	register.GoTLS(bpf.GoTlsArgsSymaddrMap, bpf.GoCasgstatus, bpf.GoTlsWrite, bpf.GoTlsWriteRet, bpf.GoTlsRead, bpf.GoTlsReadRet)
+	register.GoTLS(bpf.GoTlsArgsSymaddrMap, bpf.GoTlsWrite, bpf.GoTlsWriteRet, bpf.GoTlsRead, bpf.GoTlsReadRet)
 
 	register.Node(bpf.OpensslSymaddrMap, nil, bpf.OpensslWrite, bpf.OpensslWriteRet, bpf.OpensslRead, bpf.OpensslReadRet,
 		nil, nil, nil)
