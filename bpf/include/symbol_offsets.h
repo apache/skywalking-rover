@@ -99,10 +99,6 @@ struct go_tls_args_symaddr_t {
     __u64 tcp_conn_offset;
     __u64 is_client_offset;
 
-    // casg
-    struct go_tls_arg_location_t casg_status_gp_loc;
-    struct go_tls_arg_location_t casg_status_new_val_loc;
-
     // read
     struct go_tls_arg_location_t read_connection_loc;
     struct go_tls_arg_location_t read_buffer_loc;

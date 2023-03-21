@@ -62,10 +62,6 @@ type GoTLSSymbolAddress struct {
 	TCPConnOffset  uint64
 	IsClientOffset uint64
 
-	// casgstatus(goroutine status change) function relate locations
-	CasgStatusGPLoc     GoSymbolLocation
-	CasgStatusNEWValLoc GoSymbolLocation
-
 	// write function relate locations
 	WriteConnectionLoc GoSymbolLocation
 	WriteBufferLoc     GoSymbolLocation
@@ -79,7 +75,7 @@ type GoTLSSymbolAddress struct {
 	ReadRet1Loc       GoSymbolLocation
 }
 
-func (r *Register) GoTLS(symbolAddrMap *ebpf.Map, goIDChange, write, writeRet, read, readRet *ebpf.Program) {
+func (r *Register) GoTLS(symbolAddrMap *ebpf.Map, write, writeRet, read, readRet *ebpf.Program) {
 	r.addHandler("goTLS", func() (bool, error) {
 		buildVersionSymbol := r.searchSymbolInModules(r.modules, func(a, b string) bool {
 			return a == b
@@ -113,7 +109,6 @@ func (r *Register) GoTLS(symbolAddrMap *ebpf.Map, goIDChange, write, writeRet, r
 		}
 
 		exeFile := r.linker.OpenUProbeExeFile(pidExeFile)
-		exeFile.AddLinkWithType("runtime.casgstatus", true, goIDChange)
 		exeFile.AddGoLink(goTLSWriteSymbol, write, writeRet, elfFile)
 		exeFile.AddGoLink(goTLSReadSymbol, read, readRet, elfFile)
 		if e := r.linker.HasError(); e != nil {
@@ -200,10 +195,6 @@ func (r *Register) generateGOTLSSymbolOffsets(register *Register, elfFile *elf.F
 	assignError = r.assignGoTLSStructureOffset(assignError, reader, goTLSConnSymbol, "conn", &symbolAddresses.TLSConnOffset)
 	assignError = r.assignGoTLSStructureOffset(assignError, reader, goTLSRuntimeG, "goid", &symbolAddresses.GIDOffset)
 	assignError = r.assignGoTLSStructureOffset(assignError, reader, goTLSConnSymbol, "isClient", &symbolAddresses.IsClientOffset)
-
-	// gid status change
-	assignError = r.assignGoTLSArgsLocation(assignError, gidStatusFunction, "gp", &symbolAddresses.CasgStatusGPLoc)
-	assignError = r.assignGoTLSArgsLocation(assignError, gidStatusFunction, "newval", &symbolAddresses.CasgStatusNEWValLoc)
 
 	// write
 	assignError = r.assignGoTLSArgsLocation(assignError, writeFunction, "c", &symbolAddresses.WriteConnectionLoc)

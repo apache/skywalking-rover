@@ -29,7 +29,7 @@ func addSSLProcess(pid int, loader *bpf.Loader) error {
 
 	register.Envoy(nil, loader.OpensslWrite, loader.OpensslWriteRet, loader.OpensslRead, loader.OpensslReadRet)
 
-	register.GoTLS(loader.GoTlsArgsSymaddrMap, loader.GoCasgstatus, loader.GoTlsWrite, loader.GoTlsWriteRet, loader.GoTlsRead, loader.GoTlsReadRet)
+	register.GoTLS(loader.GoTlsArgsSymaddrMap, loader.GoTlsWrite, loader.GoTlsWriteRet, loader.GoTlsRead, loader.GoTlsReadRet)
 
 	register.Node(nil, loader.NodeTlsSymaddrMap, loader.OpensslWrite, loader.OpensslWriteRet, loader.OpensslRead, loader.OpensslReadRet,
 		loader.NodeTlsRetSsl, loader.NodeTlsWrap, loader.NodeTlsWrapRet)
