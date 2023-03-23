@@ -76,22 +76,22 @@ jobs:
       matrix:
         test:
           - name: Golang On CPU Profiling
-            config: test/e2e/cases/profiling/oncpu/golang/e2e.yaml
+            config: test/e2e/cases/profiling/task/oncpu/golang/e2e.yaml
           - name: C++ On CPU Profiling
-            config: test/e2e/cases/profiling/oncpu/c++/e2e.yaml
+            config: test/e2e/cases/profiling/task/oncpu/c++/e2e.yaml
           - name: C On CPU Profiling
-            config: test/e2e/cases/profiling/oncpu/c/e2e.yaml
+            config: test/e2e/cases/profiling/task/oncpu/c/e2e.yaml
           - name: Rust On CPU Profiling
-            config: test/e2e/cases/profiling/oncpu/rust/e2e.yaml
+            config: test/e2e/cases/profiling/task/oncpu/rust/e2e.yaml
 
           - name: Golang Off CPU Profiling
-            config: test/e2e/cases/profiling/offcpu/golang/e2e.yaml
+            config: test/e2e/cases/profiling/task/offcpu/golang/e2e.yaml
           - name: C++ Off CPU Profiling
-            config: test/e2e/cases/profiling/offcpu/c++/e2e.yaml
+            config: test/e2e/cases/profiling/task/offcpu/c++/e2e.yaml
           - name: C Off CPU Profiling
-            config: test/e2e/cases/profiling/offcpu/c/e2e.yaml
+            config: test/e2e/cases/profiling/task/offcpu/c/e2e.yaml
           - name: Rust Off CPU Profiling
-            config: test/e2e/cases/profiling/offcpu/rust/e2e.yaml
+            config: test/e2e/cases/profiling/task/offcpu/rust/e2e.yaml
 
           - name: go2sky Agent Sensor
             config: test/e2e/cases/process/agent_sensor/golang/e2e.yaml
@@ -139,8 +139,8 @@ jobs:
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
 
 
-  https-e2e-test:
-    name: HTTPS E2E test
+  network-profiling-https-e2e-test:
+    name: Network Profiling HTTPS E2E test
     needs: [ docker ]
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -149,18 +149,18 @@ jobs:
       matrix:
         test:
           - name: Golang Profiling
-            config: test/e2e/cases/profiling/network/golang/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/golang/e2e.yaml
           - name: Python Profiling
-            config: test/e2e/cases/profiling/network/golang/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/golang/e2e.yaml
           - name: Envoy Profiling
-            config: test/e2e/cases/profiling/network/envoy/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/envoy/e2e.yaml
             env: ISTIO_VERSION=1.13.1
           - name: C++ Profiling
-            config: test/e2e/cases/profiling/network/c_plus_plus/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/c_plus_plus/e2e.yaml
           - name: Nodejs Profiling
-            config: test/e2e/cases/profiling/network/nodejs/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/nodejs/e2e.yaml
           - name: HTTP2 Profiling
-            config: test/e2e/cases/profiling/network/http2/e2e.yaml
+            config: test/e2e/cases/profiling/task/network/http2/e2e.yaml
     steps:
       - uses: actions/checkout@v3
         with:
@@ -176,8 +176,53 @@ jobs:
         run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
       - name: Setup SSL Certs
         run: |
-          bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh service
-          bash test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh proxy
+          bash test/e2e/base/scripts/gen-selfsigned-ssl.sh service $(pwd)/test/e2e/cases/profiling/task/network/base/ssl/
+          bash test/e2e/base/scripts/gen-selfsigned-ssl.sh proxy $(pwd)/test/e2e/cases/profiling/task/network/base/ssl/
+      - name: ${{ matrix.test.name }}
+        uses: apache/skywalking-infra-e2e@c3eb3241f649289465eda12af8214ca60aaaaa5f
+        with:
+          e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.config }}
+      - uses: actions/upload-artifact@v2
+        if: ${{ failure() }}
+        name: Upload Logs
+        with:
+          name: logs
+          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
+
+  continuous-profiling-e2e-tests:
+    name: Continuous Profiling E2E tests
+    needs: [ docker ]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: HTTP Avg Response Time
+            config: test/e2e/cases/profiling/continuous/http_avg_response_time/e2e.yaml
+          - name: HTTP Error Rate
+            config: test/e2e/cases/profiling/continuous/http_error_rate/e2e.yaml
+          - name: Process CPU
+            config: test/e2e/cases/profiling/continuous/process_cpu/e2e.yaml
+          - name: Process Thread Count
+            config: test/e2e/cases/profiling/continuous/process_thread_count/e2e.yaml
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: actions/download-artifact@v2
+        name: Download docker images
+        with:
+          name: docker-images-skywalking-rover
+          path: docker-images
+      - name: Load docker images
+        run: find docker-images -name "*.tar" -exec docker load -i {} \;
+      - name: Set env var
+        run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
+      - name: Setup SSL Certs
+        run: |
+          mkdir -p $(pwd)/test/e2e/cases/profiling/continuous/ssl/
+          bash test/e2e/base/scripts/gen-selfsigned-ssl.sh service $(pwd)/test/e2e/cases/profiling/continuous/ssl/
       - name: ${{ matrix.test.name }}
         uses: apache/skywalking-infra-e2e@c3eb3241f649289465eda12af8214ca60aaaaa5f
         with:
@@ -195,7 +240,8 @@ jobs:
     needs:
       - build
       - e2e-test
-      - https-e2e-test
+      - network-profiling-https-e2e-test
+      - continuous-profiling-e2e-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
