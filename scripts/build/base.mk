@@ -53,22 +53,16 @@ build-base-container-with-multi-args-cleanup:
 	docker buildx rm skywalking_rover || true
 
 build-base-container-with-multi-args: build-base-container-with-multi-args-cleanup
+	# needs to push the base image into local registry when building multiple platforms image
+	# following https://github.com/docker/buildx/issues/1453
 	docker run -d --name registry --network=host registry:2
 	docker buildx create --use --driver-opt network=host --name skywalking_rover || true
 	docker buildx build --push ${CONTAINER_PLATFORMS} -t localhost:5000/skywalking-rover-base:${CONTAINER_COMMAND_TAG} . -f docker/Dockerfile.base
 
 container-command: build-base-container
-	docker run --rm \
+	docker run --rm  \
 		-v "${REPODIR}":/skywalking-rover -w /skywalking-rover --env MAKEFLAGS \
 		--env CFLAGS="-fdebug-prefix-map=/skywalking-rover=." \
 		--env HOME="/skywalking-rover" \
 		"${CONTAINER_COMMAND_IMAGE}:${CONTAINER_COMMAND_TAG}" \
 		make ${COMMAND}
-
-container-ssh: build-base-container
-	docker run --rm -it --platform linux/amd64 \
-		-v $(pwd):/skywalking-rover -w /skywalking-rover --env MAKEFLAGS \
-		--env CFLAGS="-fdebug-prefix-map=/skywalking-rover=." \
-		--env HOME="/skywalking-rover" \
-		"localhost:5000/apache/skywalking-rover-base:vlatest" \
-		/bin/bash

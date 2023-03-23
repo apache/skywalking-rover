@@ -26,9 +26,9 @@
 #define SYSCALL_PARM_4(x) (_(PT_REGS_PARM4((struct pt_regs *)PT_REGS_PARM1(x))))
 #define SYSCALL_PARM_5(x) (_(PT_REGS_PARM5((struct pt_regs *)PT_REGS_PARM1(x))))
 #else
-#define SYSCALL_PARM_1(x) (PT_REGS_PARM1(x))
-#define SYSCALL_PARM_2(x) (PT_REGS_PARM2(x))
-#define SYSCALL_PARM_3(x) (PT_REGS_PARM3(x))
-#define SYSCALL_PARM_4(x) (PT_REGS_PARM4(x))
-#define SYSCALL_PARM_5(x) (PT_REGS_PARM5(x))
+#define SYSCALL_PARM_1(x) ({__u64 val; bpf_probe_read(&val, sizeof(val), (void *)PT_REGS_PARM1(x)); val;})
+#define SYSCALL_PARM_2(x) ({__u64 val; bpf_probe_read(&val, sizeof(val), (void *)PT_REGS_PARM2(x)); val;})
+#define SYSCALL_PARM_3(x) ({__u64 val; bpf_probe_read(&val, sizeof(val), (void *)PT_REGS_PARM3(x)); val;})
+#define SYSCALL_PARM_4(x) ({__u64 val; bpf_probe_read(&val, sizeof(val), (void *)PT_REGS_PARM4(x)); val;})
+#define SYSCALL_PARM_5(x) ({__u64 val; bpf_probe_read(&val, sizeof(val), (void *)PT_REGS_PARM5(x)); val;})
 #endif
