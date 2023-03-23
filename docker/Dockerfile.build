@@ -26,7 +26,7 @@ COPY . .
 ENV CGO_ENABLED=0
 
 RUN VERSION=$VERSION make btfgen && make linux
-RUN mv /src/bin/skywalking-rover-${VERSION}-linux-amd64 /src/bin/skywalking-rover
+RUN mv /src/bin/skywalking-rover-${VERSION}-linux-* /src/bin/skywalking-rover
 
 FROM alpine
 

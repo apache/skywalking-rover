@@ -39,14 +39,22 @@ static __inline __u64 get_goid(__u64 id) {
         return 0;
     }
 
+    __u64 g_addr;
+#if defined(bpf_target_x86)
     // thread local storage
     const void* fs_base;
     bpf_probe_read_kernel(&fs_base, sizeof(fs_base), &(task_ptr->thread.fsbase));
 
-    __u64 g_addr;
     // struct g location
     int32_t g_addr_offset = -8;
     bpf_probe_read_user(&g_addr, sizeof(void*), (void*)(fs_base + g_addr_offset));
+#else
+    const void* tp;
+    bpf_probe_read_kernel(&tp, sizeof(tp), &(task_ptr->thread.uw.tp_value));
+
+    int32_t g_addr_offset = 16;
+    bpf_probe_read_user(&g_addr, sizeof(void*), (void*)(tp + g_addr_offset));
+#endif
 
     // goid in struct g
     __u64 goid;

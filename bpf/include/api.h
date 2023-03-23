@@ -47,8 +47,14 @@ typedef enum
 } bool;
 
 struct thread_struct {
+    // x86_64
 	long unsigned int fsbase;
-}   __attribute__((preserve_access_index));
+	// arm64
+	struct {
+        unsigned long	tp_value;	/* TLS register */
+        unsigned long	tp2_value;
+    } uw;
+}  __attribute__((preserve_access_index));
 
 struct task_struct {
 	__u32 pid;

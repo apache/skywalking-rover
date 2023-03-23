@@ -23,7 +23,11 @@ GO_BUILD_FLAGS = -v
 GO_BUILD_LDFLAGS = -X main.version=$(VERSION)
 
 PLATFORMS := linux
-ARCH = amd64
+ifeq ($(SYS_ARCH),x86_64)
+  ARCH := amd64
+else
+  ARCH := arm64
+endif
 os = $(word 1, $@)
 
 deps:

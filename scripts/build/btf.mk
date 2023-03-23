@@ -16,9 +16,15 @@
 # under the License.
 #
 
+ifeq ($(SYS_ARCH),x86_64)
+  BTF_ARCH := x86_64
+else
+  BTF_ARCH := arm64
+endif
+
 .PHONY: btfgen
 btfgen: generate
-	bash ${REPODIR}/scripts/build/bash/btfgen.sh /tmp x86_64 ${REPODIR} ${REPODIR}/pkg/tools/btf/files
+	bash ${REPODIR}/scripts/build/bash/btfgen.sh /tmp ${BTF_ARCH} ${REPODIR} ${REPODIR}/pkg/tools/btf/files
 
 # Usually works for generate BTF file on Mac OS or windows
 .PHONY: container-btfgen

@@ -24,8 +24,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"sync"
 
+	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/x86/x86asm"
 
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
@@ -299,16 +301,33 @@ func (u *UProbeExeFile) addGoExitLink0(symbol string, p *ebpf.Program, elfFile *
 	// https://github.com/iovisor/bcc/issues/1320#issuecomment-407927542
 	var addresses []uint64
 	for i := 0; i < int(targetSymbol.Size); {
-		inst, err := x86asm.Decode(buffer[i:], 64)
-		if err != nil {
-			return nil, fmt.Errorf("error decode the function data: %v", err)
+		var instLen int
+		if runtime.GOARCH == "arm64" {
+			inst, err := arm64asm.Decode(buffer[i:])
+			if err != nil {
+				i += 4
+				continue
+			}
+
+			if inst.Op == arm64asm.RET {
+				addresses = append(addresses, uint64(i))
+			}
+
+			instLen = 4
+		} else {
+			inst, err := x86asm.Decode(buffer[i:], 64)
+			if err != nil {
+				return nil, fmt.Errorf("error decode the function data: %v", err)
+			}
+
+			if inst.Op == x86asm.RET {
+				addresses = append(addresses, uint64(i))
+			}
+
+			instLen = inst.Len
 		}
 
-		if inst.Op == x86asm.RET {
-			addresses = append(addresses, uint64(i))
-		}
-
-		i += inst.Len
+		i += instLen
 	}
 
 	if len(addresses) == 0 {

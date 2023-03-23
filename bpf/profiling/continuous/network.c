@@ -21,6 +21,7 @@
 #include <linux/sched.h>
 #include <linux/bpf.h>
 #include <linux/ptrace.h>
+#include <asm/ptrace.h>
 #include <asm/errno.h>
 #include <asm/socket.h>
 #include <linux/netfilter_ipv4.h>

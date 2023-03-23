@@ -55,24 +55,39 @@ struct {
     __type(value, struct go_regabi_regs_t);
     __uint(max_entries, 1);
 } go_regabi_regs_map SEC(".maps");
+
 // Copies the registers of the golang ABI, so that they can be
 // easily accessed using an offset.
-static __always_inline __u64* go_regabi_regs(const struct pt_regs* ctx) {
+static __always_inline __u64* go_regabi_regs(const void* ctx) {
     __u32 zero = 0;
     struct go_regabi_regs_t* regs_heap_var = bpf_map_lookup_elem(&go_regabi_regs_map, &zero);
     if (regs_heap_var == NULL) {
         return NULL;
     }
 
-    regs_heap_var->regs[0] = ctx->rax;
-    regs_heap_var->regs[1] = ctx->rbx;
-    regs_heap_var->regs[2] = ctx->rcx;
-    regs_heap_var->regs[3] = ctx->rdi;
-    regs_heap_var->regs[4] = ctx->rsi;
-    regs_heap_var->regs[5] = ctx->r8;
-    regs_heap_var->regs[6] = ctx->r9;
-    regs_heap_var->regs[7] = ctx->r10;
-    regs_heap_var->regs[8] = ctx->r11;
+#if defined(bpf_target_x86)
+    const struct pt_regs* real = ctx;
+    regs_heap_var->regs[0] = real->rax;
+    regs_heap_var->regs[1] = real->rbx;
+    regs_heap_var->regs[2] = real->rcx;
+    regs_heap_var->regs[3] = real->rdi;
+    regs_heap_var->regs[4] = real->rsi;
+    regs_heap_var->regs[5] = real->r8;
+    regs_heap_var->regs[6] = real->r9;
+    regs_heap_var->regs[7] = real->r10;
+    regs_heap_var->regs[8] = real->r11;
+#else
+    const struct user_pt_regs* real = ctx;
+    regs_heap_var->regs[0] = real->regs[0];
+    regs_heap_var->regs[1] = real->regs[1];
+    regs_heap_var->regs[2] = real->regs[2];
+    regs_heap_var->regs[3] = real->regs[3];
+    regs_heap_var->regs[4] = real->regs[4];
+    regs_heap_var->regs[5] = real->regs[5];
+    regs_heap_var->regs[6] = real->regs[6];
+    regs_heap_var->regs[7] = real->regs[7];
+    regs_heap_var->regs[8] = real->regs[8];
+#endif
 
     return regs_heap_var->regs;
 }
