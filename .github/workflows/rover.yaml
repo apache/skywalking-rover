@@ -253,6 +253,9 @@ jobs:
           if [[ ${{ needs.e2e-test.result }} != 'success' ]]; then
             exit -1
           fi
-          if [[ ${{ needs.https-e2e-test.result }} != 'success' ]]; then
+          if [[ ${{ needs.network-profiling-https-e2e-test.result }} != 'success' ]]; then
+            exit -1
+          fi
+          if [[ ${{ needs.continuous-profiling-e2e-tests.result }} != 'success' ]]; then
             exit -1
           fi
