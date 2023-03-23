@@ -32,8 +32,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/tools/process"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
@@ -41,7 +41,7 @@ import (
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 // nolint
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include -D__TARGET_ARCH_x86
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target $TARGET -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/offcpu.c -- -I$REPO_ROOT/bpf/include
 
 var log = logger.GetLogger("profiling", "task", "offcpu")
 var defaultKernelSymbol = "finish_task_switch"
@@ -80,10 +80,10 @@ func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface
 	if len(processes) != 1 {
 		return fmt.Errorf("the processes count must be 1, current is: %d", len(processes))
 	}
-	process := processes[0]
-	r.pid = process.Pid()
-	r.processProfiling = process.ProfilingStat()
-	kernelProfiling, err := tools.KernelFileProfilingStat()
+	curProcess := processes[0]
+	r.pid = curProcess.Pid()
+	r.processProfiling = curProcess.ProfilingStat()
+	kernelProfiling, err := process.KernelFileProfilingStat()
 	if err != nil {
 		log.Warnf("could not analyze kernel profiling stats: %v", err)
 	}

@@ -16,43 +16,7 @@
 // under the License.
 
 #include "go_tls.h"
-
-SEC("uprobe/casgstatus")
-int go_casgstatus(struct pt_regs* ctx) {
-    const void* sp = (const void*)PT_REGS_SP(ctx);
-    uint64_t* regs = go_regabi_regs(ctx);
-    if (regs == NULL) {
-       return 0;
-    }
-
-    __u64 id = bpf_get_current_pid_tgid();
-    __u32 tgid = id >> 32;
-    struct go_tls_args_symaddr_t* symaddrs = get_go_tls_args_symaddr(tgid);
-    if (symaddrs == NULL) {
-       return 0;
-    }
-
-    // get runtime.g
-    void* gptr = NULL;
-    assign_go_tls_arg(&gptr, sizeof(gptr), symaddrs->casg_status_gp_loc, sp, regs);
-    if (gptr == NULL) {
-        return 0;
-    }
-
-    // get goid in runtime.g
-    int64_t goid;
-    bpf_probe_read(&goid, sizeof(goid), gptr + symaddrs->gid_offset);
-
-    // newval in runtime.g
-    __u32 status;
-    assign_go_tls_arg(&status, sizeof(status), symaddrs->casg_status_new_val_loc, sp, regs);
-
-    // check the status is running
-    if (status == 2) {
-        set_goid(id, goid);
-    }
-    return 0;
-}
+#include "goid.h"
 
 SEC("uprobe/go_tls_write")
 int go_tls_write(struct pt_regs* ctx) {
@@ -70,7 +34,7 @@ int go_tls_write(struct pt_regs* ctx) {
     }
 
     const void* sp = (const void*)PT_REGS_SP(ctx);
-    uint64_t* regs = go_regabi_regs(ctx);
+    __u64* regs = go_regabi_regs(ctx);
     if (regs == NULL) {
         return 0;
     }
@@ -103,7 +67,7 @@ int go_tls_write_ret(struct pt_regs* ctx) {
     }
 
     const void* sp = (const void*)PT_REGS_SP(ctx);
-    uint64_t* regs = go_regabi_regs(ctx);
+    __u64* regs = go_regabi_regs(ctx);
     if (regs == NULL) {
         return 0;
     }
@@ -157,7 +121,7 @@ int go_tls_read(struct pt_regs* ctx) {
     }
 
     const void* sp = (const void*)PT_REGS_SP(ctx);
-    uint64_t* regs = go_regabi_regs(ctx);
+    __u64* regs = go_regabi_regs(ctx);
     if (regs == NULL) {
         return 0;
     }
@@ -190,7 +154,7 @@ int go_tls_read_ret(struct pt_regs* ctx) {
     }
 
     const void* sp = (const void*)PT_REGS_SP(ctx);
-    uint64_t* regs = go_regabi_regs(ctx);
+    __u64* regs = go_regabi_regs(ctx);
     if (regs == NULL) {
         return 0;
     }

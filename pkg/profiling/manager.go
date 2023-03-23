@@ -22,32 +22,25 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/core"
+	"github.com/apache/skywalking-rover/pkg/profiling/continuous"
+
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/profiling/task"
-
-	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
 // Manager the profiling task, receive them from the backend side
 type Manager struct {
-	profilingClient v3.EBPFProfilingServiceClient
-	interval        time.Duration
-	taskManager     *task.Manager
+	checkInterval     time.Duration
+	flushInterval     time.Duration
+	taskManager       *task.Manager
+	continuousManager *continuous.Manager
 
 	ctx    context.Context
 	cancel context.CancelFunc
-
-	instanceID     string
-	lastUpdateTime int64
 }
 
 func NewManager(ctx context.Context, manager *module.Manager, conf *Config) (*Manager, error) {
-	coreOperator := manager.FindModule(core.ModuleName).(core.Operator)
-	connection := coreOperator.BackendOperator().GetConnection()
-	profilingClient := v3.NewEBPFProfilingServiceClient(connection)
-	instanceID := coreOperator.InstanceID()
-	duration, err := time.ParseDuration(conf.CheckInterval)
+	checkDuration, err := time.ParseDuration(conf.CheckInterval)
 	if err != nil {
 		return nil, fmt.Errorf("parse profling check interval failure: %v", err)
 	}
@@ -57,97 +50,59 @@ func NewManager(ctx context.Context, manager *module.Manager, conf *Config) (*Ma
 		return nil, fmt.Errorf("parse profiling data flush interval failure: %v", err)
 	}
 
-	taskManager, err := task.NewManager(ctx, manager, profilingClient, flushDuration, conf.TaskConfig)
+	taskManager, err := task.NewManager(ctx, manager, conf.TaskConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	continuousManager, err := continuous.NewManager(ctx, taskManager, manager, conf.ContinuousConfig)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	return &Manager{
-		profilingClient: profilingClient,
-		taskManager:     taskManager,
-		interval:        duration,
-		ctx:             ctx,
-		cancel:          cancel,
-		instanceID:      instanceID,
-		lastUpdateTime:  -1,
+		checkInterval:     checkDuration,
+		flushInterval:     flushDuration,
+		taskManager:       taskManager,
+		continuousManager: continuousManager,
+		ctx:               ctx,
+		cancel:            cancel,
 	}, nil
 }
 
 func (m *Manager) Start() {
 	m.taskManager.Start()
+	m.continuousManager.Start()
 	go func() {
-		timeTicker := time.NewTicker(m.interval)
+		checkTicker := time.NewTicker(m.checkInterval)
+		flushTicker := time.NewTicker(m.flushInterval)
 		for {
 			select {
-			case <-timeTicker.C:
-				if err := m.startingWatchTask(); err != nil {
-					log.Errorf("fetch profiling task failure: %v", err)
-				}
+			case <-checkTicker.C:
+				m.logErrorIfContains(m.taskManager.StartingWatchTask(), "check profiling task")
+				m.logErrorIfContains(m.continuousManager.CheckPolicies(), "check profiling policies")
+			case <-flushTicker.C:
+				m.logErrorIfContains(m.taskManager.FlushProfilingData(), "flush profiling task")
 			case <-m.ctx.Done():
-				timeTicker.Stop()
+				checkTicker.Stop()
 				return
 			}
 		}
 	}()
 }
 
-func (m *Manager) startingWatchTask() error {
-	// query task
-	tasks, err := m.profilingClient.QueryTasks(m.ctx, &v3.EBPFProfilingTaskQuery{
-		RoverInstanceId:  m.instanceID,
-		LatestUpdateTime: m.lastUpdateTime,
-	})
+func (m *Manager) logErrorIfContains(err error, t string) {
 	if err != nil {
-		return err
+		log.Warnf("%s failure: %v", t, err)
 	}
-	if len(tasks.Commands) == 0 {
-		return nil
-	}
-
-	// analyze profiling tasks
-	taskContexts := make([]*task.Context, 0)
-	lastUpdateTime := m.lastUpdateTime
-	for _, cmd := range tasks.Commands {
-		taskContext, err := m.taskManager.BuildContext(cmd)
-		if err != nil {
-			log.Warnf("could not execute task, ignored. %v", err)
-			continue
-		}
-
-		if taskContext.UpdateTime() > lastUpdateTime {
-			lastUpdateTime = taskContext.UpdateTime()
-		}
-
-		if !taskContext.CheckTaskRunnable() {
-			continue
-		}
-
-		taskContexts = append(taskContexts, taskContext)
-	}
-
-	// update last task time
-	m.lastUpdateTime = lastUpdateTime
-
-	if len(taskContexts) == 0 {
-		return nil
-	}
-
-	taskIDList := make([]string, len(taskContexts))
-	for inx, c := range taskContexts {
-		taskIDList[inx] = c.TaskID()
-	}
-	log.Infof("received %d profiling task: %v", len(taskContexts), taskIDList)
-
-	// start tasks
-	for _, t := range taskContexts {
-		m.taskManager.StartTask(t)
-	}
-	return nil
 }
 
 func (m *Manager) Shutdown() error {
 	if err := m.taskManager.Shutdown(); err != nil {
 		log.Warnf("task manager shutdown failure: %v", err)
+	}
+	if err := m.continuousManager.Shutdown(); err != nil {
+		log.Warnf("continuous profiling manager shutdown failure: %v", err)
 	}
 	m.cancel()
 	return nil

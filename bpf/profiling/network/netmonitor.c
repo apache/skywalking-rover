@@ -31,6 +31,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+#include "syscall_reading.h"
 #include "common.h"
 #include "socket.h"
 #include "sock_stats.h"
@@ -39,13 +40,6 @@
 #include "socket_detail.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
-
-#define _(P)                                                                   \
-	({                                                                     \
-		typeof(P) val;                                                 \
-		bpf_probe_read(&val, sizeof(val), &(P));                \
-		val;                                                           \
-	})
 
 #define SOCKET_UPLOAD_CHUNK_LIMIT 12
 
@@ -441,7 +435,7 @@ static __always_inline void process_write_data(struct pt_regs *ctx, __u64 id, st
     if ((conn->role == CONNECTION_ROLE_TYPE_UNKNOWN || conn->protocol == 0) && conn->ssl == ssl) {
         struct socket_buffer_reader_t *buf_reader = read_socket_data(args, bytes_count);
         if (buf_reader != NULL) {
-            msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, conn);
+            msg_type = analyze_protocol(buf_reader->buffer, buf_reader->data_len, &conn->protocol);
             // if send request data to remote address or receive response data from remote address
             // then, recognized current connection is client
             if ((msg_type == CONNECTION_MESSAGE_TYPE_REQUEST && data_direction == SOCK_DATA_DIRECTION_EGRESS) ||
@@ -510,12 +504,11 @@ static __inline void process_connect(struct pt_regs *ctx, __u64 id, struct conne
 
 SEC("kprobe/connect")
 int sys_connect(struct pt_regs *ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     uint64_t id = bpf_get_current_pid_tgid();
 
     struct connect_args_t connect_args = {};
-    connect_args.fd = _(PT_REGS_PARM1(ctx));
-    bpf_probe_read(&connect_args.addr, sizeof(connect_args.addr), &(PT_REGS_PARM2(ctx)));
+    connect_args.fd = SYSCALL_PARM_1(ctx);
+    connect_args.addr = (void *)SYSCALL_PARM_2(ctx);
     connect_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
 	return 0;
@@ -557,11 +550,9 @@ static __inline void process_accept(struct pt_regs *ctx, __u64 id, struct accept
 
 SEC("kprobe/sys_accept")
 int sys_accept(struct pt_regs *ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
     struct accept_args_t sock = {};
-//    sock.addr = (void *)PT_REGS_PARM2(ctx);
-    bpf_probe_read(&sock.addr, sizeof(sock.addr), &(PT_REGS_PARM2(ctx)));
+    sock.addr = (void *)SYSCALL_PARM_2(ctx);
     sock.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&accepting_args, &id, &sock, 0);
     return 0;
@@ -596,13 +587,10 @@ int sys_sendto(struct pt_regs *ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    __u32 fd = _(PT_REGS_PARM1(ctx));
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    __u32 fd = SYSCALL_PARM_1(ctx);
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
-    struct sockaddr* sockaddr;
-    bpf_probe_read(&sockaddr, sizeof(sockaddr), &(PT_REGS_PARM5(ctx)));
+    struct sockaddr* sockaddr = (void *)SYSCALL_PARM_5(ctx);
     if (sockaddr != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = sockaddr;
@@ -664,12 +652,10 @@ int sys_write(struct pt_regs *ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITE);
@@ -697,12 +683,10 @@ int sys_send(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SEND);
@@ -730,13 +714,11 @@ int sys_writev(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct iovec *iovec;
-    bpf_probe_read(&iovec, sizeof(iovec), &(PT_REGS_PARM2(ctx)));
+    struct iovec *iovec = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
-    data_args.iovlen = _(PT_REGS_PARM3(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
+    data_args.iovlen = SYSCALL_PARM_3(ctx);
     data_args.iovec = iovec;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITEV);
@@ -764,13 +746,11 @@ int sys_sendmsg(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct user_msghdr* msghdr;
-    bpf_probe_read(&msghdr, sizeof(msghdr), &(PT_REGS_PARM2(ctx)));
+    struct user_msghdr* msghdr = (void *)SYSCALL_PARM_2(ctx);
     if (msghdr == NULL) {
         return 0;
     }
-    __u32 fd = _(PT_REGS_PARM1(ctx));
+    __u32 fd = SYSCALL_PARM_1(ctx);
 
     struct sockaddr* addr = _(msghdr->msg_name);
     if (addr != NULL) {
@@ -818,15 +798,13 @@ int sys_sendmmsg(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct mmsghdr* mmsghdr;
-    bpf_probe_read(&mmsghdr, sizeof(mmsghdr), &(PT_REGS_PARM2(ctx)));
-    __u32 vlen = _(PT_REGS_PARM3(ctx));
+    struct mmsghdr* mmsghdr = (void *)SYSCALL_PARM_2(ctx);
+    __u32 vlen = SYSCALL_PARM_3(ctx);
     if (mmsghdr == NULL || vlen <= 0) {
         return 0;
     }
 
-    __u32 fd = _(PT_REGS_PARM1(ctx));
+    __u32 fd = SYSCALL_PARM_1(ctx);
 
     struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
     if (addr != NULL) {
@@ -843,7 +821,7 @@ int sys_sendmmsg(struct pt_regs* ctx) {
     data_args.iovec = msg_iov;
     size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
     data_args.iovlen = msg_iovlen;
-    data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
+    data_args.msg_len = (unsigned int*)(&mmsghdr->msg_hdr.msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDMMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -906,13 +884,12 @@ static __inline void process_sendfile(struct pt_regs* ctx, __u64 id, struct send
 
 SEC("kprobe/sendfile")
 int sys_sendfile(struct pt_regs *ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
 
     struct sendfile_args_t args = {};
-    args.out_fd = _(PT_REGS_PARM1(ctx));
-    args.in_fd = _(PT_REGS_PARM2(ctx));
-    args.count = _(PT_REGS_PARM4(ctx));
+    args.out_fd = SYSCALL_PARM_1(ctx);
+    args.in_fd = SYSCALL_PARM_2(ctx);
+    args.count = SYSCALL_PARM_4(ctx);
     args.start_nacs = bpf_ktime_get_ns();
     args.data_id = generate_socket_data_id(id, args.out_fd, SOCKET_OPTS_TYPE_SENDFILE);
     bpf_map_update_elem(&sendfile_args, &id, &args, 0);
@@ -938,12 +915,10 @@ int sys_read(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READ);
@@ -970,13 +945,11 @@ int sys_readv(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct iovec *iovec;
-    bpf_probe_read(&iovec, sizeof(iovec), &(PT_REGS_PARM2(ctx)));
+    struct iovec *iovec = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
-    data_args.iovlen = _(PT_REGS_PARM3(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
+    data_args.iovlen = SYSCALL_PARM_3(ctx);
     data_args.iovec = iovec;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READV);
@@ -1004,12 +977,10 @@ int sys_recv(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = _(PT_REGS_PARM1(ctx));
+    data_args.fd = SYSCALL_PARM_1(ctx);
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECV);
@@ -1036,13 +1007,10 @@ int sys_recvfrom(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    char* buf;
-    bpf_probe_read(&buf, sizeof(buf), &(PT_REGS_PARM2(ctx)));
+    char* buf = (void *)SYSCALL_PARM_2(ctx);
 
-    struct sockaddr* sock;
-    bpf_probe_read(&sock, sizeof(sock), &(PT_REGS_PARM5(ctx)));
-    __u32 fd = _(PT_REGS_PARM1(ctx));
+    struct sockaddr* sock = (void *)SYSCALL_PARM_5(ctx);
+    __u32 fd = SYSCALL_PARM_1(ctx);
     if (sock != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = sock;
@@ -1087,13 +1055,11 @@ int sys_recvmsg(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct user_msghdr* msghdr;
-    bpf_probe_read(&msghdr, sizeof(msghdr), &(PT_REGS_PARM2(ctx)));
+    struct user_msghdr* msghdr = (void *)SYSCALL_PARM_2(ctx);
     if (msghdr == NULL) {
         return 0;
     }
-    __u32 fd = _(PT_REGS_PARM1(ctx));
+    __u32 fd = SYSCALL_PARM_1(ctx);
 
     struct sockaddr* addr = _(msghdr->msg_name);
     if (addr != NULL) {
@@ -1141,15 +1107,13 @@ int sys_recvmmsg(struct pt_regs* ctx) {
     if (tgid_should_trace(tgid) == false) {
         return 0;
     }
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
-    struct mmsghdr* mmsghdr;
-    bpf_probe_read(&mmsghdr, sizeof(mmsghdr), &(PT_REGS_PARM2(ctx)));
-    __u32 vlen = _(PT_REGS_PARM3(ctx));
+    struct mmsghdr* mmsghdr = (void *)SYSCALL_PARM_2(ctx);
+    __u32 vlen = SYSCALL_PARM_3(ctx);
     if (mmsghdr == NULL || vlen <= 0) {
         return 0;
     }
 
-    __u32 fd = _(PT_REGS_PARM1(ctx));
+    __u32 fd = SYSCALL_PARM_1(ctx);
 
     struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
     if (addr != NULL) {
@@ -1166,7 +1130,7 @@ int sys_recvmmsg(struct pt_regs* ctx) {
     data_args.iovec = msg_iov;
     size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
     data_args.iovlen = msg_iovlen;
-    data_args.msg_len = &mmsghdr->msg_hdr.msg_iovlen;
+    data_args.msg_len = (unsigned int*)(&mmsghdr->msg_hdr.msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVMMSG);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -1197,11 +1161,10 @@ int sys_recvmmsg_ret(struct pt_regs* ctx) {
 
 SEC("kprobe/close")
 int sys_close(struct pt_regs* ctx) {
-    ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     __u64 id = bpf_get_current_pid_tgid();
 
     struct sock_close_args_t close_args = {};
-    close_args.fd = _(PT_REGS_PARM1(ctx));
+    close_args.fd = SYSCALL_PARM_1(ctx);
     close_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&closing_args, &id, &close_args, 0);
     return 0;

@@ -15,21 +15,3 @@
 // specific language governing permissions and limitations
 // under the License.
 
-struct openssl_fd_symaddr {
-    // read the BIO offset from ssl
-    __u32 bio_read_offset;
-    __u32 bio_write_offset;
-    // read the fd offset from BIO
-    __u32 fd_offset;
-};
-
-struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
-	__type(key, __u32);
-	__type(value, struct openssl_fd_symaddr);
-} openssl_fd_symaddr_finder SEC(".maps");
-static __inline struct openssl_fd_symaddr* get_openssl_fd_symaddr(__u32 tgid) {
-    struct openssl_fd_symaddr *addr = bpf_map_lookup_elem(&openssl_fd_symaddr_finder, &tgid);
-    return addr;
-}

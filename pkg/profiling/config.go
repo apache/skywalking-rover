@@ -19,7 +19,8 @@ package profiling
 
 import (
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	continuousBase "github.com/apache/skywalking-rover/pkg/profiling/continuous/base"
+	taskBase "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 )
 
 type Config struct {
@@ -28,5 +29,6 @@ type Config struct {
 	CheckInterval string `mapstructure:"check_interval"` // Check the profiling task interval
 	FlushInterval string `mapstructure:"flush_interval"` // Flush profiling data interval
 
-	TaskConfig *base.TaskConfig `mapstructure:"task"` // Profiling task config
+	TaskConfig       *taskBase.TaskConfig             `mapstructure:"task"`       // Profiling task config
+	ContinuousConfig *continuousBase.ContinuousConfig `mapstructure:"continuous"` // Continuous profiling config
 }

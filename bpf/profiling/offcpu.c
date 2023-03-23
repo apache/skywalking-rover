@@ -29,8 +29,8 @@ int do_finish_task_switch(struct pt_regs *ctx) {
     __u64 ts, *tsp;
 
     struct task_struct *prev = (void *) PT_REGS_PARM1(ctx);
-    pid = _(prev->pid);
-    tgid = _(prev->tgid);
+    pid = _KERNEL(prev->pid);
+    tgid = _KERNEL(prev->tgid);
 
     // in kernel, tgid means the process id
     // monitor_pid is the same concept with process id

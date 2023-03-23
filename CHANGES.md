@@ -9,6 +9,9 @@ Release Notes.
 * Add the syscall level event to the trace.
 * Support OpenSSL 3.0.x.
 * Optimized the data structure in BPF.
+* Support continuous profiling.
+* Improve the performance when getting `goid` in eBPF.
+* Support build multiple architecture docker image: `x86_64`, `arm64`. 
 
 #### Bug Fixes
 * Fix HTTP method name in protocol analyzer

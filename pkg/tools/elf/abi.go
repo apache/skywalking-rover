@@ -125,11 +125,13 @@ type GolangStackLocator struct {
 	curStackOffset uint64
 }
 
-func (g *GolangStackLocator) GetLocation(_ TypeClass, _, alignmentSize uint64, _ int, _ bool) (*ArgLocation, error) {
+func (g *GolangStackLocator) GetLocation(_ TypeClass, typeSize, alignmentSize uint64, _ int, _ bool) (*ArgLocation, error) {
 	g.curStackOffset = snapUpToMultiple(g.curStackOffset, alignmentSize)
 	result := &ArgLocation{}
 	result.Type = ArgLocationTypeStack
 	result.Offset = g.curStackOffset
+
+	g.curStackOffset += typeSize
 	return result, nil
 }
 
@@ -142,5 +144,5 @@ func (u *UnknownLocator) GetLocation(typeClass TypeClass, typeSize, alignmentSiz
 }
 
 func snapUpToMultiple(curSize, alignmentSize uint64) uint64 {
-	return (curSize + (alignmentSize-1)/alignmentSize) * alignmentSize
+	return ((curSize + (alignmentSize - 1)) / alignmentSize) * alignmentSize
 }

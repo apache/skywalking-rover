@@ -45,8 +45,3 @@ struct {
 	__type(value, struct value_t);
 	__uint(max_entries, 10000);
 } counts SEC(".maps");
-
-struct task_struct {
-	__u32 pid;
-    __u32 tgid;
-}  __attribute__((preserve_access_index));

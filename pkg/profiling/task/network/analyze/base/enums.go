@@ -111,13 +111,6 @@ func (c ConnectionProtocol) String() string {
 	}
 }
 
-type GoTLSArgsLocationType uint32
-
-const (
-	GoTLSArgsLocationTypeStack    GoTLSArgsLocationType = 1
-	GoTLSArgsLocationTypeRegister GoTLSArgsLocationType = 2
-)
-
 type SocketMessageType uint8
 
 const (

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "api.h"
 #include "socket.h"
 
 #pragma once

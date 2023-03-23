@@ -133,6 +133,10 @@ func (m *ProcessManager) FindProcessByPID(pid int32) []api.ProcessInterface {
 	return m.storage.FindProcessByPID(pid)
 }
 
+func (m *ProcessManager) FindAllRegisteredProcesses() []api.ProcessInterface {
+	return m.storage.FindAllRegisteredProcesses()
+}
+
 func (m *ProcessManager) AddListener(listener api.ProcessListener) {
 	m.storage.AddListener(listener)
 }

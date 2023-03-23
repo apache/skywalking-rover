@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/core"
+
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process"
@@ -39,16 +41,19 @@ type Manager struct {
 	moduleMgr       *module.Manager
 	processOperator process.Operator
 	profilingClient profiling_v3.EBPFProfilingServiceClient
-	flushInterval   time.Duration
 	ctx             context.Context
 	cancel          context.CancelFunc
 	taskConfig      *base.TaskConfig
 
-	tasks map[string]*Context
+	tasks          map[string]*Context
+	instanceID     string
+	lastUpdateTime int64
 }
 
-func NewManager(ctx context.Context, moduleMgr *module.Manager,
-	profilingClient profiling_v3.EBPFProfilingServiceClient, flushInterval time.Duration, taskConfig *base.TaskConfig) (*Manager, error) {
+func NewManager(ctx context.Context, moduleMgr *module.Manager, taskConfig *base.TaskConfig) (*Manager, error) {
+	coreOperator := moduleMgr.FindModule(core.ModuleName).(core.Operator)
+	connection := coreOperator.BackendOperator().GetConnection()
+	profilingClient := profiling_v3.NewEBPFProfilingServiceClient(connection)
 	processOperator := moduleMgr.FindModule(process.ModuleName).(process.Operator)
 	if err := CheckProfilingTaskConfig(taskConfig, moduleMgr); err != nil {
 		return nil, err
@@ -61,7 +66,7 @@ func NewManager(ctx context.Context, moduleMgr *module.Manager,
 		profilingClient: profilingClient,
 		taskConfig:      taskConfig,
 		tasks:           make(map[string]*Context),
-		flushInterval:   flushInterval,
+		instanceID:      coreOperator.InstanceID(),
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -69,10 +74,9 @@ func NewManager(ctx context.Context, moduleMgr *module.Manager,
 }
 
 func (m *Manager) Start() {
-	go m.startFlushProfilingData()
 }
 
-func (m *Manager) BuildContext(command *common_v3.Command) (*Context, error) {
+func (m *Manager) BuildContextFromCommand(command *common_v3.Command) (*Context, error) {
 	// analyze command
 	t, err := base.ProfilingTaskFromCommand(command)
 	if err != nil || t == nil {
@@ -99,18 +103,52 @@ func (m *Manager) BuildContext(command *common_v3.Command) (*Context, error) {
 	}
 
 	// init runner
-	var r base.ProfileTaskRunner
-	if runner, err := NewProfilingRunner(t.TargetType, m.taskConfig, m.moduleMgr); err != nil {
+	if err := m.initTaskContext(taskContext); err != nil {
 		return nil, err
-	} else if err := runner.Init(t, processes); err != nil {
-		return nil, fmt.Errorf("could not init %s runner for task: %s: %v", t.TriggerType, t.TaskID, err)
+	}
+	return taskContext, nil
+}
+
+func (m *Manager) BuildContextFromContinuous(processes []api.ProcessInterface,
+	taskSetter func(task *base.ProfilingTask), taskIDGenerator func() (string, error)) (*Context, error) {
+	task := base.ProfilingTaskFromContinuous(processes, taskSetter)
+
+	taskContext := &Context{task: task, processes: processes, status: NotRunning, recalcDuration: make(chan bool, 1)}
+	// if the task already exist, then return error
+	existTask := m.tasks[taskContext.BuildTaskIdentity()]
+	// if task are same, then just rewrite the task information and return
+	if existTask != nil && existTask.IsSameTask(taskContext) {
+		return nil, fmt.Errorf("already exist profiling task, so ignore")
+	}
+
+	taskID, err := taskIDGenerator()
+	if err != nil {
+		return nil, err
+	}
+	task.TaskID = taskID
+
+	// init runner
+	if err := m.initTaskContext(taskContext); err != nil {
+		return nil, err
+	}
+	return taskContext, nil
+}
+
+func (m *Manager) initTaskContext(taskContext *Context) error {
+	// init runner
+	var r base.ProfileTaskRunner
+	task := taskContext.task
+	if runner, err := NewProfilingRunner(task.TargetType, m.taskConfig, m.moduleMgr); err != nil {
+		return err
+	} else if err := runner.Init(task, taskContext.processes); err != nil {
+		return fmt.Errorf("could not init %s runner for task: %s: %v", task.TriggerType, task.TaskID, err)
 	} else {
 		r = runner
 	}
 
 	taskContext.runner = r
 	taskContext.ctx, taskContext.cancel = context.WithCancel(m.ctx)
-	return taskContext, nil
+	return nil
 }
 
 func (m *Manager) StartTask(c *Context) {
@@ -246,24 +284,63 @@ func (m *Manager) checkStoppedTaskAndRemoved() {
 	}
 }
 
-func (m *Manager) startFlushProfilingData() {
-	timeTicker := time.NewTicker(m.flushInterval)
-	for {
-		select {
-		case <-timeTicker.C:
-			if err := m.flushProfilingData(); err != nil {
-				log.Warnf("flush profiling data failure: %v", err)
-			}
-			// cleanup the stopped after flush profiling data to make sure all the profiling data been sent
-			m.checkStoppedTaskAndRemoved()
-		case <-m.ctx.Done():
-			timeTicker.Stop()
-			return
-		}
+func (m *Manager) StartingWatchTask() error {
+	// query task
+	tasks, err := m.profilingClient.QueryTasks(m.ctx, &profiling_v3.EBPFProfilingTaskQuery{
+		RoverInstanceId:  m.instanceID,
+		LatestUpdateTime: m.lastUpdateTime,
+	})
+	if err != nil {
+		return err
 	}
+	if len(tasks.Commands) == 0 {
+		return nil
+	}
+
+	// analyze profiling tasks
+	taskContexts := make([]*Context, 0)
+	lastUpdateTime := m.lastUpdateTime
+	for _, cmd := range tasks.Commands {
+		taskContext, err := m.BuildContextFromCommand(cmd)
+		if err != nil {
+			log.Warnf("could not execute task, ignored. %v", err)
+			continue
+		}
+
+		if taskContext.UpdateTime() > lastUpdateTime {
+			lastUpdateTime = taskContext.UpdateTime()
+		}
+
+		if !taskContext.CheckTaskRunnable() {
+			continue
+		}
+
+		taskContexts = append(taskContexts, taskContext)
+	}
+
+	// update last task time
+	m.lastUpdateTime = lastUpdateTime
+
+	if len(taskContexts) == 0 {
+		return nil
+	}
+
+	taskIDList := make([]string, len(taskContexts))
+	for inx, c := range taskContexts {
+		taskIDList[inx] = c.TaskID()
+	}
+	log.Infof("received %d profiling task: %v", len(taskContexts), taskIDList)
+
+	// start tasks
+	for _, t := range taskContexts {
+		m.StartTask(t)
+	}
+	return nil
 }
 
-func (m *Manager) flushProfilingData() error {
+func (m *Manager) FlushProfilingData() error {
+	// cleanup the stopped after flush profiling data to make sure all the profiling data been sent
+	defer m.checkStoppedTaskAndRemoved()
 	if len(m.tasks) == 0 {
 		return nil
 	}

@@ -129,7 +129,7 @@ func (r *Buffer) Slice(validated bool, start, end *BufferPosition) *Buffer {
 }
 
 func (r *Buffer) Len() int {
-	if r.head == nil {
+	if r == nil || r.head == nil {
 		return 0
 	}
 	var result int
