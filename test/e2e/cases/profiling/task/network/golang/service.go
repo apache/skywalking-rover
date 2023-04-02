@@ -18,7 +18,7 @@
 package main
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -63,7 +63,7 @@ func consumer(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.Printf("send request error: %v", err)
 	}
-	all, err := ioutil.ReadAll(get.Body)
+	all, err := io.ReadAll(get.Body)
 	_ = get.Body.Close()
 	if err != nil {
 		log.Printf("get response body error: %v", err)
@@ -91,7 +91,7 @@ func consumerZipkin(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.Printf("send request error: %v", err)
 	}
-	all, err := ioutil.ReadAll(get.Body)
+	all, err := io.ReadAll(get.Body)
 	_ = get.Body.Close()
 	if err != nil {
 		log.Printf("get response body error: %v", err)
