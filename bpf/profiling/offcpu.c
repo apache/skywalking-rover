@@ -42,9 +42,9 @@ int do_finish_task_switch(struct pt_regs *ctx) {
 
     // if current process have record start time in the map
     // means the monitored process switch to the on-cpu
-    struct task_struct *current = (void *)bpf_get_current_task();
-    pid = _(current->pid);
-    tgid = _(current->tgid);
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    pid = pid_tgid;
+    tgid = pid_tgid >> 32;
     if (tgid != monitor_pid) {
         return 0;
     }
