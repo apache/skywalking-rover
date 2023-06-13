@@ -22,3 +22,5 @@
       urilist:
         - /provider
       uriregex: null
+  triggeredcount: {{ ge (index . 0).triggeredcount 1 }}
+  lasttriggertimestamp: {{ ge (index . 0).lasttriggertimestamp 1 }}

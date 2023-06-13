@@ -33,6 +33,7 @@
         uripath: /provider
         threshold: 1000
         current: {{ ge (index .continuousprofilingcauses 0).uri.current 1 }}
+      message: {{ notEmpty (index .continuousprofilingcauses 0).message }}
   targettype: NETWORK
   createtime: {{ ge .createtime 1 }}
 {{- end }}
