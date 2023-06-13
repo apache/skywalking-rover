@@ -47,7 +47,7 @@ func (r *ProcessCPUChecker) Init(config *base.ContinuousConfig) error {
 		if err != nil {
 			return 0, err
 		}
-		return percent * 100, nil
+		return percent, nil
 	}, v3.ContinuousProfilingTriggeredMonitorType_ProcessCPU)
 	return nil
 }
