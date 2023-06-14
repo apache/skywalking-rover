@@ -45,4 +45,4 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push docker images
-        run: make docker docker.push
+        run: make docker.push

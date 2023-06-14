@@ -48,3 +48,6 @@ each_all_bpf_so_file() {
 ${TMPDIR}/btfhub/tools/btfgen.sh -a ${ARCH} $(each_all_bpf_so_file $FROM)
 mkdir -p ${OUTPUT}
 cp -r ${TMPDIR}/btfhub/custom-archive/* ${OUTPUT}
+
+# remove the btfhub for save the space
+rm -rf $TMPDIR/btfhub
