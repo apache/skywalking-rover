@@ -21,9 +21,9 @@ Follow the [releases page](https://skywalking.apache.org/downloads/#SkyWalkingRo
 
 # Contact Us
 * Mail list: **dev@skywalking.apache.org**. Mail to `dev-subscribe@skywalking.apache.org`, follow the reply to subscribe the mail list.
-* Join `skywalking` channel at [Apache Slack](http://s.apache.org/slack-invite). If the link is not working, find the latest one at [Apache INFRA WIKI](https://cwiki.apache.org/confluence/display/INFRA/Slack+Guest+Invites).
-* Twitter, [ASFSkyWalking](https://twitter.com/ASFSkyWalking)
-* QQ Group: 901167865(Recommended), 392443393
+* Send `Request to join SkyWalking slack` mail to the mail list(`dev@skywalking.apache.org`), we will invite you in.
+* For Chinese speaker, send `[CN] Request to join SkyWalking slack` mail to the mail list(`dev@skywalking.apache.org`), we will invite you in.
+* Twitter, [ASFSkyWalking](https://twitter.com/AsfSkyWalking)
 * [bilibili B站 视频](https://space.bilibili.com/390683219)
 
 # License
