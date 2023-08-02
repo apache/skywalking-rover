@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package buffer
 
 import (
 	"container/list"
@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -39,28 +40,28 @@ type Buffer struct {
 
 	eventLocker sync.RWMutex
 
-	head    *BufferPosition
-	current *BufferPosition
+	head    *Position
+	current *Position
 
 	// record the latest expired data id in connection for expire the older socket detail
 	// because the older socket detail may not be received in buffer
 	latestExpiredDataID uint64
 }
 
-type BufferPosition struct {
+type Position struct {
 	// element of the event list
 	element *list.Element
 	// bufIndex the buffer index of the element
 	bufIndex int
 }
 
-func (p *BufferPosition) String() string {
-	buffer := p.element.Value.(SocketDataBuffer)
+func (p *Position) String() string {
+	buffer := p.element.Value.(events.SocketDataBuffer)
 	return fmt.Sprintf("data id: %d, sequence: %d, buffer index: %d",
 		buffer.DataID(), buffer.DataSequence(), p.bufIndex)
 }
 
-func newBuffer() *Buffer {
+func NewBuffer() *Buffer {
 	return &Buffer{
 		dataEvents:   list.New(),
 		detailEvents: list.New(),
@@ -68,9 +69,9 @@ func newBuffer() *Buffer {
 	}
 }
 
-func (r *Buffer) FindFirstDataBuffer(dataID uint64) SocketDataBuffer {
+func (r *Buffer) FindFirstDataBuffer(dataID uint64) events.SocketDataBuffer {
 	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
-		cur := e.Value.(SocketDataBuffer)
+		cur := e.Value.(events.SocketDataBuffer)
 		if cur.DataID() == dataID {
 			return cur
 		}
@@ -78,11 +79,11 @@ func (r *Buffer) FindFirstDataBuffer(dataID uint64) SocketDataBuffer {
 	return nil
 }
 
-func (r *Buffer) Position() *BufferPosition {
+func (r *Buffer) Position() *Position {
 	return r.current.Clone()
 }
 
-func (r *Buffer) Slice(validated bool, start, end *BufferPosition) *Buffer {
+func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents := list.New()
 	detailEvents := list.New()
 	var firstDetailElement *list.Element
@@ -90,7 +91,7 @@ func (r *Buffer) Slice(validated bool, start, end *BufferPosition) *Buffer {
 		// found first matches detail event
 		if detailEvents.Len() == 0 || firstDetailElement == nil {
 			for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-				if e.Value.(*SocketDetailEvent).DataID >= nextElement.Value.(SocketDataBuffer).DataID() {
+				if e.Value.(*events.SocketDetailEvent).DataID >= nextElement.Value.(events.SocketDataBuffer).DataID() {
 					detailEvents.PushBack(e.Value)
 					firstDetailElement = e
 					break
@@ -99,20 +100,20 @@ func (r *Buffer) Slice(validated bool, start, end *BufferPosition) *Buffer {
 		}
 		dataEvents.PushBack(nextElement.Value)
 	}
-	lastBuffer := end.element.Value.(SocketDataBuffer)
-	dataEvents.PushBack(&SocketDataEventLimited{lastBuffer, 0, end.bufIndex})
+	lastBuffer := end.element.Value.(events.SocketDataBuffer)
+	dataEvents.PushBack(&events.SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
 	// if the first detail element been found, append the details until the last buffer data id
 	if firstDetailElement == nil {
 		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-			if e.Value.(*SocketDetailEvent).DataID == lastBuffer.DataID() {
+			if e.Value.(*events.SocketDetailEvent).DataID == lastBuffer.DataID() {
 				detailEvents.PushBack(e.Value)
 				break
 			}
 		}
-	} else if firstDetailElement != nil && firstDetailElement.Value.(*SocketDetailEvent).DataID != lastBuffer.DataID() {
+	} else if firstDetailElement != nil && firstDetailElement.Value.(*events.SocketDetailEvent).DataID != lastBuffer.DataID() {
 		for tmp := firstDetailElement.Next(); tmp != nil; tmp = tmp.Next() {
-			if tmp.Value.(*SocketDetailEvent).DataID > lastBuffer.DataID() {
+			if tmp.Value.(*events.SocketDetailEvent).DataID > lastBuffer.DataID() {
 				break
 			}
 			detailEvents.PushBack(tmp.Value)
@@ -123,8 +124,8 @@ func (r *Buffer) Slice(validated bool, start, end *BufferPosition) *Buffer {
 		dataEvents:   dataEvents,
 		detailEvents: detailEvents,
 		validated:    validated,
-		head:         &BufferPosition{element: dataEvents.Front(), bufIndex: start.bufIndex},
-		current:      &BufferPosition{element: dataEvents.Front(), bufIndex: start.bufIndex},
+		head:         &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
+		current:      &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
 	}
 }
 
@@ -135,7 +136,7 @@ func (r *Buffer) Len() int {
 	var result int
 	var startIndex = r.head.bufIndex
 	for e := r.head.element; e != nil; e = e.Next() {
-		result += r.head.element.Value.(SocketDataBuffer).BufferLen() - startIndex
+		result += r.head.element.Value.(events.SocketDataBuffer).BufferLen() - startIndex
 		startIndex = 0
 	}
 	return result
@@ -145,31 +146,31 @@ func (r *Buffer) Details() *list.List {
 	return r.detailEvents
 }
 
-func (r *Buffer) FirstSocketBuffer() SocketDataBuffer {
+func (r *Buffer) FirstSocketBuffer() events.SocketDataBuffer {
 	if r.dataEvents.Len() == 0 {
 		return nil
 	}
-	return r.dataEvents.Front().Value.(SocketDataBuffer)
+	return r.dataEvents.Front().Value.(events.SocketDataBuffer)
 }
 
-func (r *Buffer) LastSocketBuffer() SocketDataBuffer {
+func (r *Buffer) LastSocketBuffer() events.SocketDataBuffer {
 	if r.dataEvents.Len() == 0 {
 		return nil
 	}
-	return r.dataEvents.Back().Value.(SocketDataBuffer)
+	return r.dataEvents.Back().Value.(events.SocketDataBuffer)
 }
 
 // DetectNotSendingLastPosition detect the buffer contains not sending data: the BPF limited socket data count
-func (r *Buffer) DetectNotSendingLastPosition() *BufferPosition {
+func (r *Buffer) DetectNotSendingLastPosition() *Position {
 	if r.dataEvents.Len() == 0 {
 		return nil
 	}
 
 	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
-		buf := e.Value.(SocketDataBuffer)
+		buf := e.Value.(events.SocketDataBuffer)
 		// the buffer is sent finished but still have reduced data not send
 		if buf.IsFinished() && buf.HaveReduceDataAfterChunk() {
-			return &BufferPosition{element: e, bufIndex: buf.BufferLen()}
+			return &Position{element: e, bufIndex: buf.BufferLen()}
 		}
 	}
 	return nil
@@ -186,8 +187,9 @@ func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
 	detailEvents := list.New()
 	for _, b := range buffers {
 		if b.head.bufIndex > 0 {
-			headBuffer := b.dataEvents.Front().Value.(SocketDataBuffer)
-			dataEvents.PushBack(&SocketDataEventLimited{headBuffer, b.head.bufIndex, headBuffer.BufferLen()})
+			headBuffer := b.dataEvents.Front().Value.(events.SocketDataBuffer)
+			dataEvents.PushBack(&events.SocketDataEventLimited{SocketDataBuffer: headBuffer,
+				From: b.head.bufIndex, Size: headBuffer.BufferLen()})
 			for next := b.dataEvents.Front().Next(); next != nil; next = next.Next() {
 				dataEvents.PushBack(next.Value)
 			}
@@ -201,8 +203,8 @@ func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
 		dataEvents:   dataEvents,
 		detailEvents: detailEvents,
 		validated:    validated,
-		head:         &BufferPosition{element: dataEvents.Front(), bufIndex: 0},
-		current:      &BufferPosition{element: dataEvents.Front(), bufIndex: 0},
+		head:         &Position{element: dataEvents.Front(), bufIndex: 0},
+		current:      &Position{element: dataEvents.Front(), bufIndex: 0},
 	}
 }
 
@@ -224,7 +226,7 @@ func (r *Buffer) Peek(p []byte) (n int, err error) {
 	return readIndex, nil
 }
 
-func (r *Buffer) OffsetPosition(offset int) *BufferPosition {
+func (r *Buffer) OffsetPosition(offset int) *Position {
 	var nextElement func(e *list.Element) *list.Element
 	if offset == 0 {
 		return r.current.Clone()
@@ -242,7 +244,7 @@ func (r *Buffer) OffsetPosition(offset int) *BufferPosition {
 	var curIndex = r.current.bufIndex
 	for ; curEle != nil; curEle = nextElement(curEle) {
 		nextOffset := curIndex + offset
-		bufferLen := curEle.Value.(SocketDataBuffer).BufferLen()
+		bufferLen := curEle.Value.(events.SocketDataBuffer).BufferLen()
 		if nextOffset >= 0 && nextOffset < bufferLen {
 			curIndex += offset
 			break
@@ -258,14 +260,14 @@ func (r *Buffer) OffsetPosition(offset int) *BufferPosition {
 				curEle = next
 				break
 			}
-			curIndex = curEle.Value.(SocketDataBuffer).BufferLen()
+			curIndex = curEle.Value.(events.SocketDataBuffer).BufferLen()
 		}
 	}
 
 	if curEle == nil {
 		return nil
 	}
-	return &BufferPosition{element: curEle, bufIndex: curIndex}
+	return &Position{element: curEle, bufIndex: curIndex}
 }
 
 func (r *Buffer) Read(p []byte) (n int, err error) {
@@ -275,17 +277,17 @@ func (r *Buffer) Read(p []byte) (n int, err error) {
 	if r.current == nil || r.current.element == nil {
 		return 0, io.EOF
 	}
-	element, n := r.readFromCurrent(p)
+	element, n := r.ReadFromCurrent(p)
 	if n > 0 {
 		return n, nil
 	}
 
-	curEvent := element.Value.(SocketDataBuffer)
+	curEvent := element.Value.(events.SocketDataBuffer)
 	next := r.nextElement(element)
 	if next == nil {
 		return 0, io.EOF
 	}
-	nextEvent := next.Value.(SocketDataBuffer)
+	nextEvent := next.Value.(events.SocketDataBuffer)
 
 	var shouldRead = false
 	if r.validated {
@@ -307,9 +309,9 @@ func (r *Buffer) Read(p []byte) (n int, err error) {
 	return r.read0(next, nextEvent, p)
 }
 
-func (r *Buffer) readFromCurrent(p []byte) (element *list.Element, n int) {
+func (r *Buffer) ReadFromCurrent(p []byte) (element *list.Element, n int) {
 	element = r.current.element
-	curEvent := element.Value.(SocketDataBuffer)
+	curEvent := element.Value.(events.SocketDataBuffer)
 	residueSize := curEvent.BufferLen() - r.current.bufIndex
 	if residueSize > 0 {
 		readLen := len(p)
@@ -324,7 +326,7 @@ func (r *Buffer) readFromCurrent(p []byte) (element *list.Element, n int) {
 	return element, 0
 }
 
-func (r *Buffer) read0(currentElement *list.Element, currentBuffer SocketDataBuffer, p []byte) (n int, err error) {
+func (r *Buffer) read0(currentElement *list.Element, currentBuffer events.SocketDataBuffer, p []byte) (n int, err error) {
 	readLen := len(p)
 	if currentBuffer.BufferLen() < readLen {
 		readLen = currentBuffer.BufferLen()
@@ -338,15 +340,15 @@ func (r *Buffer) read0(currentElement *list.Element, currentBuffer SocketDataBuf
 
 // IsCurrentPacketReadFinished means to validate the current reading package is reading finished
 func (r *Buffer) IsCurrentPacketReadFinished() bool {
-	return r.current.bufIndex == r.current.element.Value.(SocketDataBuffer).BufferLen()
+	return r.current.bufIndex == r.current.element.Value.(events.SocketDataBuffer).BufferLen()
 }
 
-func (r *Buffer) resetForLoopReading() {
+func (r *Buffer) ResetForLoopReading() {
 	r.head = nil
 	r.current = nil
 }
 
-func (r *Buffer) prepareForReading() bool {
+func (r *Buffer) PrepareForReading() bool {
 	if r.dataEvents.Len() == 0 {
 		return false
 	}
@@ -354,7 +356,7 @@ func (r *Buffer) prepareForReading() bool {
 		// read in the first element
 		r.eventLocker.RLock()
 		defer r.eventLocker.RUnlock()
-		r.head = &BufferPosition{element: r.dataEvents.Front(), bufIndex: 0}
+		r.head = &Position{element: r.dataEvents.Front(), bufIndex: 0}
 		r.current = r.head.Clone()
 	} else {
 		// make sure we can read from head
@@ -364,17 +366,17 @@ func (r *Buffer) prepareForReading() bool {
 	return true
 }
 
-func (r *Buffer) removeReadElements() bool {
+func (r *Buffer) RemoveReadElements() bool {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
 	// delete until the last data id
 	if r.head.element != nil && r.current.element != nil {
-		firstDataID := r.head.element.Value.(SocketDataBuffer).DataID()
-		lastDataID := r.current.element.Value.(SocketDataBuffer).DataID()
+		firstDataID := r.head.element.Value.(events.SocketDataBuffer).DataID()
+		lastDataID := r.current.element.Value.(events.SocketDataBuffer).DataID()
 		startDelete := false
 		for e := r.detailEvents.Front(); e != nil; {
-			event := e.Value.(*SocketDetailEvent)
+			event := e.Value.(*events.SocketDetailEvent)
 			if !startDelete && event.DataID >= firstDataID && event.DataID <= lastDataID {
 				startDelete = true
 			} else if startDelete && event.DataID > lastDataID {
@@ -396,7 +398,7 @@ func (r *Buffer) removeReadElements() bool {
 	next := r.head.element
 	for ; next != nil && next != r.current.element; next = r.removeElement0(next) {
 	}
-	if next != nil && next.Value.(SocketDataBuffer).BufferLen() == r.current.bufIndex {
+	if next != nil && next.Value.(events.SocketDataBuffer).BufferLen() == r.current.bufIndex {
 		// the last event already read finished, then delete it
 		r.head.element = r.removeElement0(next)
 		r.head.bufIndex = 0
@@ -409,8 +411,8 @@ func (r *Buffer) removeReadElements() bool {
 	return false
 }
 
-// skipCurrentElement skip current element in reader, if return true means have read finished
-func (r *Buffer) skipCurrentElement() bool {
+// SkipCurrentElement skip current element in reader, if return true means have read finished
+func (r *Buffer) SkipCurrentElement() bool {
 	r.head.element = r.nextElement(r.current.element)
 	r.current.bufIndex = 0
 
@@ -426,7 +428,7 @@ func (r *Buffer) removeElement0(element *list.Element) *list.Element {
 	return result
 }
 
-func (r *Buffer) appendDetailEvent(event *SocketDetailEvent) {
+func (r *Buffer) AppendDetailEvent(event *events.SocketDetailEvent) {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
@@ -434,13 +436,13 @@ func (r *Buffer) appendDetailEvent(event *SocketDetailEvent) {
 		r.detailEvents.PushFront(event)
 		return
 	}
-	if r.detailEvents.Back().Value.(*SocketDetailEvent).DataID < event.DataID {
+	if r.detailEvents.Back().Value.(*events.SocketDetailEvent).DataID < event.DataID {
 		r.detailEvents.PushBack(event)
 		return
 	}
 	beenAdded := false
 	for element := r.detailEvents.Front(); element != nil; element = element.Next() {
-		existEvent := element.Value.(*SocketDetailEvent)
+		existEvent := element.Value.(*events.SocketDetailEvent)
 		if existEvent.DataID > event.DataID {
 			// data id needs order
 			beenAdded = true
@@ -455,8 +457,8 @@ func (r *Buffer) appendDetailEvent(event *SocketDetailEvent) {
 	}
 }
 
-// appendDataEvent insert the event to the event list following the order
-func (r *Buffer) appendDataEvent(event *SocketDataUploadEvent) {
+// AppendDataEvent insert the event to the event list following the order
+func (r *Buffer) AppendDataEvent(event *events.SocketDataUploadEvent) {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
@@ -464,13 +466,13 @@ func (r *Buffer) appendDataEvent(event *SocketDataUploadEvent) {
 		r.dataEvents.PushFront(event)
 		return
 	}
-	if r.dataEvents.Back().Value.(SocketDataBuffer).DataID() < event.DataID() {
+	if r.dataEvents.Back().Value.(events.SocketDataBuffer).DataID() < event.DataID() {
 		r.dataEvents.PushBack(event)
 		return
 	}
 	beenAdded := false
 	for element := r.dataEvents.Front(); element != nil; element = element.Next() {
-		existEvent := element.Value.(SocketDataBuffer)
+		existEvent := element.Value.(events.SocketDataBuffer)
 		if existEvent.DataID() > event.DataID() {
 			// data id needs order
 			beenAdded = true
@@ -488,14 +490,14 @@ func (r *Buffer) appendDataEvent(event *SocketDataUploadEvent) {
 	}
 }
 
-func (r *Buffer) deleteExpireEvents(expireDuration time.Duration) int {
+func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
 	expireTime := time.Now().Add(-expireDuration)
 	// data event queue
 	count := r.deleteEventsWithJudgement(r.dataEvents, func(element *list.Element) bool {
-		buffer := element.Value.(SocketDataBuffer)
+		buffer := element.Value.(events.SocketDataBuffer)
 		startTime := host.Time(buffer.StartTime())
 		if expireTime.After(startTime) {
 			r.latestExpiredDataID = buffer.DataID()
@@ -506,9 +508,17 @@ func (r *Buffer) deleteExpireEvents(expireDuration time.Duration) int {
 
 	// detail event queue
 	count += r.deleteEventsWithJudgement(r.detailEvents, func(element *list.Element) bool {
-		return r.latestExpiredDataID > 0 && element.Value.(*SocketDetailEvent).DataID <= r.latestExpiredDataID
+		return r.latestExpiredDataID > 0 && element.Value.(*events.SocketDetailEvent).DataID <= r.latestExpiredDataID
 	})
 	return count
+}
+
+func (r *Buffer) DataLength() int {
+	return r.dataEvents.Len()
+}
+
+func (r *Buffer) DetailLength() int {
+	return r.detailEvents.Len()
 }
 
 func (r *Buffer) deleteEventsWithJudgement(l *list.List, checker func(element *list.Element) bool) int {
@@ -535,6 +545,6 @@ func (r *Buffer) nextElement(e *list.Element) *list.Element {
 	return e.Next()
 }
 
-func (p *BufferPosition) Clone() *BufferPosition {
-	return &BufferPosition{element: p.element, bufIndex: p.bufIndex}
+func (p *Position) Clone() *Position {
+	return &Position{element: p.element, bufIndex: p.bufIndex}
 }

@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package buffer
 
 import (
 	"container/list"
 	"testing"
+
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 func TestOffsetPosition(t *testing.T) {
@@ -66,11 +68,11 @@ func TestOffsetPosition(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		events := list.New()
-		buffer := Buffer{dataEvents: events}
+		eventList := list.New()
+		buffer := Buffer{dataEvents: eventList}
 		var curElement *list.Element
 		for i, e := range test.events {
-			element := events.PushBack(&SocketDataUploadEvent{
+			element := eventList.PushBack(&events.SocketDataUploadEvent{
 				DataID0: uint64(i),
 				DataLen: uint16(e),
 			})
@@ -79,16 +81,16 @@ func TestOffsetPosition(t *testing.T) {
 			}
 		}
 
-		buffer.prepareForReading()
-		buffer.current = &BufferPosition{element: curElement, bufIndex: test.current.bufferIndex}
+		buffer.PrepareForReading()
+		buffer.current = &Position{element: curElement, bufIndex: test.current.bufferIndex}
 		offsetPosition := buffer.OffsetPosition(test.offset)
 		if offsetPosition == nil && test.result == nil {
 			continue
 		}
-		if int(offsetPosition.element.Value.(*SocketDataUploadEvent).DataID()) != test.result.eventIndex ||
+		if int(offsetPosition.element.Value.(*events.SocketDataUploadEvent).DataID()) != test.result.eventIndex ||
 			offsetPosition.bufIndex != test.result.bufferIndex {
 			t.Fatalf("excepted: %d,%d, actual: %d,%d", test.result.eventIndex, test.result.bufferIndex,
-				offsetPosition.element.Value.(*SocketDataUploadEvent).DataID(), offsetPosition.bufIndex)
+				offsetPosition.element.Value.(*events.SocketDataUploadEvent).DataID(), offsetPosition.bufIndex)
 		}
 	}
 }

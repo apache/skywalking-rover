@@ -29,6 +29,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	"github.com/cilium/ebpf"
@@ -45,10 +46,10 @@ type AnalyzerContext struct {
 	processes map[int32][]api.ProcessInterface
 
 	// connection handler
-	activeConnections cmap.ConcurrentMap      // current activeConnections connections
-	closedConnections []*ConnectionContext    // closed connections'
-	flushClosedEvents chan *SocketCloseEvent  // connection have been closed, it is a queue to cache unknown active connections
-	sockParseQueue    chan *ConnectionContext // socket address parse queue
+	activeConnections cmap.ConcurrentMap            // current activeConnections connections
+	closedConnections []*ConnectionContext          // closed connections'
+	flushClosedEvents chan *events.SocketCloseEvent // connection have been closed, it is a queue to cache unknown active connections
+	sockParseQueue    chan *ConnectionContext       // socket address parse queue
 
 	// analyze listener list
 	listeners []AnalyzeListener
@@ -62,7 +63,7 @@ func NewAnalyzerContext(processes map[int32][]api.ProcessInterface) *AnalyzerCon
 		processes:         processes,
 		activeConnections: cmap.New(),
 		closedConnections: make([]*ConnectionContext, 0),
-		flushClosedEvents: make(chan *SocketCloseEvent, 5000),
+		flushClosedEvents: make(chan *events.SocketCloseEvent, 5000),
 		sockParseQueue:    make(chan *ConnectionContext, 5000),
 		listeners:         make([]AnalyzeListener, 0),
 	}
@@ -93,11 +94,11 @@ func (c *AnalyzerContext) GetAllConnectionWithContext() []*ConnectionContext {
 func (c *AnalyzerContext) RegisterAllHandlers(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket connect
 	bpfLoader.ReadEventAsync(bpfLoader.SocketConnectionEventQueue, c.handleSocketConnectEvent, func() interface{} {
-		return &SocketConnectEvent{}
+		return &events.SocketConnectEvent{}
 	})
 	// socket close
 	bpfLoader.ReadEventAsync(bpfLoader.SocketCloseEventQueue, c.handleSocketCloseEvent, func() interface{} {
-		return &SocketCloseEvent{}
+		return &events.SocketCloseEvent{}
 	})
 	for _, l := range c.listeners {
 		l.RegisterBPFEvents(ctx, bpfLoader)
@@ -147,7 +148,7 @@ func (c *AnalyzerContext) handleSocketParseQueue(ctx context.Context) {
 }
 
 func (c *AnalyzerContext) handleSocketConnectEvent(data interface{}) {
-	event := data.(*SocketConnectEvent)
+	event := data.(*events.SocketConnectEvent)
 
 	if log.Enable(logrus.DebugLevel) {
 		marshal, _ := json.Marshal(event)
@@ -196,7 +197,7 @@ func (c *AnalyzerContext) handleSocketConnectEvent(data interface{}) {
 }
 
 func (c *AnalyzerContext) handleSocketCloseEvent(data interface{}) {
-	event := data.(*SocketCloseEvent)
+	event := data.(*events.SocketCloseEvent)
 
 	if log.Enable(logrus.DebugLevel) {
 		marshal, _ := json.Marshal(event)
@@ -302,10 +303,10 @@ func (c *AnalyzerContext) lookupTheActiveConnectionInBPf(connection *ConnectionC
 			log.Debugf("found the active connection, conid: %d, data: %s", connection.ConnectionID, string(marshal))
 		}
 
-		if connection.Role == ConnectionRoleUnknown && activeConnection.Role != ConnectionRoleUnknown {
+		if connection.Role == events.ConnectionRoleUnknown && activeConnection.Role != events.ConnectionRoleUnknown {
 			connection.Role = activeConnection.Role
 		}
-		if connection.Protocol == ConnectionProtocolUnknown && activeConnection.Protocol != ConnectionProtocolUnknown {
+		if connection.Protocol == events.ConnectionProtocolUnknown && activeConnection.Protocol != events.ConnectionProtocolUnknown {
 			connection.Protocol = activeConnection.Protocol
 		}
 		if !connection.IsSSL && activeConnection.IsSSL == 1 {
@@ -352,7 +353,7 @@ func (c *AnalyzerContext) generateConnectionKey(conID, randomID uint64) string {
 	return fmt.Sprintf("%d_%d", conID, randomID)
 }
 
-func (c *AnalyzerContext) socketClosedEvent0(event *SocketCloseEvent) bool {
+func (c *AnalyzerContext) socketClosedEvent0(event *events.SocketCloseEvent) bool {
 	activeCon := c.foundAndDeleteConnection(event)
 	if activeCon == nil {
 		return false
@@ -363,7 +364,7 @@ func (c *AnalyzerContext) socketClosedEvent0(event *SocketCloseEvent) bool {
 	return true
 }
 
-func (c *AnalyzerContext) foundAndDeleteConnection(event *SocketCloseEvent) *ConnectionContext {
+func (c *AnalyzerContext) foundAndDeleteConnection(event *events.SocketCloseEvent) *ConnectionContext {
 	conKey := c.generateConnectionKey(event.ConID, event.RandomID)
 	val, exists := c.activeConnections.Pop(conKey)
 	if !exists {
@@ -372,13 +373,13 @@ func (c *AnalyzerContext) foundAndDeleteConnection(event *SocketCloseEvent) *Con
 	return val.(*ConnectionContext)
 }
 
-func (c *AnalyzerContext) combineClosedConnection(active *ConnectionContext, closed *SocketCloseEvent) *ConnectionContext {
+func (c *AnalyzerContext) combineClosedConnection(active *ConnectionContext, closed *events.SocketCloseEvent) *ConnectionContext {
 	active.ConnectionClosed = true
 
-	if active.Role == ConnectionRoleUnknown && closed.Role != ConnectionRoleUnknown {
+	if active.Role == events.ConnectionRoleUnknown && closed.Role != events.ConnectionRoleUnknown {
 		active.Role = closed.Role
 	}
-	if active.Protocol == ConnectionProtocolUnknown && closed.Protocol != ConnectionProtocolUnknown {
+	if active.Protocol == events.ConnectionProtocolUnknown && closed.Protocol != events.ConnectionProtocolUnknown {
 		active.Protocol = closed.Protocol
 	}
 	if !active.IsSSL && closed.IsSSL == 1 {

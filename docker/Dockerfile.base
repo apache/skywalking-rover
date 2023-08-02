@@ -21,6 +21,9 @@ RUN apt update && \
     mkdir -p /usr/include/bpf && cp libbpf/src/*.h /usr/include/bpf && \
     apt install -y lsb-release wget software-properties-common "$([ $(uname -m) = "x86_64" ] && echo "libc6-dev-i386" || echo "libc6-dev-armhf-cross")" && \
     ([ $(uname -m) = "x86_64" ] && cp -rf /usr/include/asm-generic/* /usr/include/asm || cp -rf /usr/include/$(uname -m)*/* /usr/include/) && \
+    apt-get -y install build-essential libelf-dev libz-dev libcap-dev binutils-dev pkg-config libelf1 && \
+    git clone --depth 1 --recurse-submodules --branch v7.2.0 https://github.com/libbpf/bpftool.git && \
+    cd bpftool && make -C src install && cp $(which bpftool) /usr/sbin/bpftool && \
     wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 13

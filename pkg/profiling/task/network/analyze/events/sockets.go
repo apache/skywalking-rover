@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package events
 
 // SocketConnectEvent Socket have been connection/accept event
 type SocketConnectEvent struct {

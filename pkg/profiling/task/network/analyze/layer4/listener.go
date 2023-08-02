@@ -30,6 +30,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
@@ -69,12 +70,12 @@ func (l *Listener) RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader)
 	})
 }
 
-func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *base.SocketConnectEvent) {
+func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *events.SocketConnectEvent) {
 	// update the connection execute time
 	l.getMetrics(ctx.Metrics).ConnectExecuteTime = event.ExeTime
 }
 
-func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *base.SocketCloseEvent) {
+func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *events.SocketCloseEvent) {
 	layer4 := l.getMetrics(ctx.Metrics)
 	// data transmit counters
 	layer4.WriteCounter.UpdateToCurrent(event.WriteBytes, event.WriteCount, event.WriteExeTime)
@@ -128,13 +129,13 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 
 		// add the histogram data
 		var histogram *SocketDataHistogramWithHistory
-		if key.DataDirection == base.SocketDataDirectionEgress {
-			if key.DataType == base.SocketDataStaticsTypeExeTime {
+		if key.DataDirection == events.SocketDataDirectionEgress {
+			if key.DataType == events.SocketDataStaticsTypeExeTime {
 				histogram = layer4.WriteExeTimeHistogram
-			} else if key.DataType == base.SocketDataStaticsTypeRTT {
+			} else if key.DataType == events.SocketDataStaticsTypeRTT {
 				histogram = layer4.WriteRTTHistogram
 			}
-		} else if key.DataDirection == base.SocketDataDirectionIngress {
+		} else if key.DataDirection == events.SocketDataDirectionIngress {
 			histogram = layer4.ReadExeTimeHistogram
 		}
 		if histogram == nil {
@@ -354,8 +355,8 @@ type HistogramDataKey struct {
 	ConnectionID  uint64
 	RandomID      uint64
 	Bucket        uint64
-	DataDirection base.SocketDataDirection
-	DataType      base.SocketDataStaticsType
+	DataDirection events.SocketDataDirection
+	DataType      events.SocketDataStaticsType
 	Fix           [6]byte
 }
 

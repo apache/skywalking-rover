@@ -21,6 +21,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
 
@@ -45,11 +46,11 @@ func init() {
 
 type Analyzer struct {
 	ctx       protocol.Context
-	protocols map[base.ConnectionProtocol]*protocol.ProtocolAnalyzer
+	protocols map[events.ConnectionProtocol]*protocol.ProtocolAnalyzer
 }
 
 func NewAnalyzer(ctx protocol.Context, config *profiling.TaskConfig) *Analyzer {
-	protocols := make(map[base.ConnectionProtocol]*protocol.ProtocolAnalyzer)
+	protocols := make(map[events.ConnectionProtocol]*protocol.ProtocolAnalyzer)
 	for _, r := range registerProtocols {
 		p := r()
 		p.Init(config)
@@ -68,7 +69,7 @@ func (a *Analyzer) Start(ctx context.Context) {
 	}
 }
 
-func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent) {
+func (a *Analyzer) ReceiveSocketDataEvent(event *events.SocketDataUploadEvent) {
 	analyzer := a.protocols[event.Protocol]
 	if analyzer == nil {
 		log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d)",
@@ -78,7 +79,7 @@ func (a *Analyzer) ReceiveSocketDataEvent(event *protocol.SocketDataUploadEvent)
 	analyzer.ReceiveSocketData(a.ctx, event)
 }
 
-func (a *Analyzer) ReceiveSocketDetail(event *protocol.SocketDetailEvent) {
+func (a *Analyzer) ReceiveSocketDetail(event *events.SocketDetailEvent) {
 	analyzer := a.protocols[event.Protocol]
 	if analyzer == nil {
 		log.Warnf("could not found any protocol to handle socket detail, connection id: %s, protocol: %s(%d)",
@@ -94,25 +95,25 @@ func (a *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 	}
 }
 
-func (a *Analyzer) ReceiveSocketClose(event *base.SocketCloseEvent) {
+func (a *Analyzer) ReceiveSocketClose(event *events.SocketCloseEvent) {
 	for _, p := range a.protocols {
 		p.ReceiveSocketCloseEvent(event)
 	}
 }
 
 type ProtocolMetrics struct {
-	data map[base.ConnectionProtocol]protocol.Metrics
+	data map[events.ConnectionProtocol]protocol.Metrics
 }
 
 func NewProtocolMetrics() *ProtocolMetrics {
-	metrics := make(map[base.ConnectionProtocol]protocol.Metrics)
+	metrics := make(map[events.ConnectionProtocol]protocol.Metrics)
 	for _, p := range defaultInstances {
 		metrics[p.Protocol()] = p.GenerateMetrics()
 	}
 	return &ProtocolMetrics{data: metrics}
 }
 
-func (m *ProtocolMetrics) GetProtocolMetrics(p base.ConnectionProtocol) protocol.Metrics {
+func (m *ProtocolMetrics) GetProtocolMetrics(p events.ConnectionProtocol) protocol.Metrics {
 	return m.data[p]
 }
 

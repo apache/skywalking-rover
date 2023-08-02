@@ -27,7 +27,9 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 const (
@@ -90,15 +92,15 @@ func (a *ProtocolAnalyzer) Start(ctx context.Context) {
 	}
 }
 
-func (a *ProtocolAnalyzer) ReceiveSocketDetail(ctx Context, event *SocketDetailEvent) {
+func (a *ProtocolAnalyzer) ReceiveSocketDetail(ctx Context, event *events.SocketDetailEvent) {
 	connectionID := event.GenerateConnectionID()
 	connection := a.getConnection(ctx, event.ConnectionID, event.RandomID)
 
 	log.Debugf("receive detail from connection: %s, dataid: %d", connectionID, event.DataID)
-	connection.buffer.appendDetailEvent(event)
+	connection.buffer.AppendDetailEvent(event)
 }
 
-func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *SocketDataUploadEvent) {
+func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *events.SocketDataUploadEvent) {
 	connectionID := event.GenerateConnectionID()
 	connection := a.getConnection(ctx, event.ConnectionID, event.RandomID)
 
@@ -108,7 +110,7 @@ func (a *ProtocolAnalyzer) ReceiveSocketData(ctx Context, event *SocketDataUploa
 		event.Direction().String(), event.DataLen, event.TotalSize0)
 
 	// insert to the event list
-	connection.buffer.appendDataEvent(event)
+	connection.buffer.AppendDataEvent(event)
 
 	// process the events if reach the receiver counter
 	a.receiveEventCount++
@@ -145,7 +147,7 @@ func (a *ProtocolAnalyzer) processEvents() {
 		a.processConnectionEvents(info)
 
 		// if the connection already closed and not contains any buffer data, then delete the connection
-		if info.closed && info.buffer.dataEvents.Len() == 0 {
+		if info.closed && info.buffer.DataLength() == 0 {
 			closedConnections = append(closedConnections, conKey)
 		}
 	})
@@ -168,36 +170,35 @@ func (a *ProtocolAnalyzer) processExpireEvents(expireDuration time.Duration) {
 
 func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 	// reset the status for prepare reading
-	buffer := connection.buffer
 	metrics := connection.metrics
 	connectionID := connection.connectionID
-	buffer.resetForLoopReading()
+	connection.buffer.ResetForLoopReading()
 	// loop to read the protocol data
 	for {
 		// reset the status of reading
-		if !buffer.prepareForReading() {
-			log.Debugf("prepare finsihed: reduce data event size: %d", buffer.dataEvents.Len())
+		if !connection.buffer.PrepareForReading() {
+			log.Debugf("prepare finsihed: reduce data event size: %d", connection.buffer.DataLength())
 			return
 		}
 
-		result := a.protocol.ParseProtocol(connectionID, metrics, buffer)
+		result := a.protocol.ParseProtocol(connectionID, metrics, connection.buffer)
 		finishReading := false
 		switch result {
-		case ParseResultSuccess:
-			finishReading = buffer.removeReadElements()
-		case ParseResultSkipPackage:
-			finishReading = buffer.skipCurrentElement()
+		case enums.ParseResultSuccess:
+			finishReading = connection.buffer.RemoveReadElements()
+		case enums.ParseResultSkipPackage:
+			finishReading = connection.buffer.SkipCurrentElement()
 		}
 
 		if finishReading {
-			log.Debugf("reading finsihed: reduce data event size: %d", buffer.dataEvents.Len())
+			log.Debugf("reading finsihed: reduce data event size: %d", connection.buffer.DataLength())
 			break
 		}
 	}
 }
 
 func (a *ProtocolAnalyzer) processConnectionExpireEvents(connection *connectionInfo, expireDuration time.Duration) {
-	if c := connection.buffer.deleteExpireEvents(expireDuration); c > 0 {
+	if c := connection.buffer.DeleteExpireEvents(expireDuration); c > 0 {
 		log.Debugf("total removed %d expired events for %s protocol", c, a.protocol.Protocol().String())
 	}
 }
@@ -206,7 +207,7 @@ func (a *ProtocolAnalyzer) UpdateExtensionConfig(config *profiling.ExtensionConf
 	a.protocol.UpdateExtensionConfig(config)
 }
 
-func (a *ProtocolAnalyzer) ReceiveSocketCloseEvent(event *base.SocketCloseEvent) {
+func (a *ProtocolAnalyzer) ReceiveSocketCloseEvent(event *events.SocketCloseEvent) {
 	con, _ := a.connections.Get(a.generateConnectionInfoKey(event.ConID, event.RandomID))
 	if con == nil {
 		return
@@ -220,8 +221,8 @@ func (a *ProtocolAnalyzer) generateConnectionInfoKey(connectionID, randomID uint
 
 type connectionInfo struct {
 	connectionID, randomID uint64
-	connectionProtocol     base.ConnectionProtocol
-	buffer                 *Buffer
+	connectionProtocol     events.ConnectionProtocol
+	buffer                 *buffer.Buffer
 	metrics                Metrics
 	metricsFromConnection  bool
 	closed                 bool
@@ -243,7 +244,7 @@ func newConnectionInfo(p Protocol, connectionContext Context, connectionID, rand
 		connectionID:          connectionID,
 		randomID:              randomID,
 		connectionProtocol:    p.Protocol(),
-		buffer:                newBuffer(),
+		buffer:                buffer.NewBuffer(),
 		metrics:               connectionMetrics,
 		metricsFromConnection: fromConnection,
 	}
