@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package layer7
+package btf
 
 import (
 	"context"
 	"hash/fnv"
 	"sync"
-
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 
 	"github.com/cilium/ebpf"
 )
@@ -65,9 +63,9 @@ func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize int, data
 	})
 }
 
-func (e *EventQueue) Start(ctx context.Context, bpfLoader *bpf.Loader) {
+func (e *EventQueue) Start(ctx context.Context, linker *Linker) {
 	e.startOnce.Do(func() {
-		e.start0(ctx, bpfLoader)
+		e.start0(ctx, linker)
 	})
 }
 
@@ -81,10 +79,18 @@ func (e *EventQueue) Push(key string, data interface{}) {
 	e.partitions[sum32%e.count].channel <- data
 }
 
-func (e *EventQueue) start0(ctx context.Context, bpfLoader *bpf.Loader) {
+func (e *EventQueue) PartitionContexts() []PartitionContext {
+	result := make([]PartitionContext, 0)
+	for _, p := range e.partitions {
+		result = append(result, p.ctx)
+	}
+	return result
+}
+
+func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 	for _, r := range e.receivers {
 		func(receiver *mapReceiver) {
-			bpfLoader.ReadEventAsyncWithBufferSize(receiver.emap, func(data interface{}) {
+			linker.ReadEventAsyncWithBufferSize(receiver.emap, func(data interface{}) {
 				e.routerTransformer(data, receiver.router)
 			}, receiver.perCPUBuffer, receiver.dataSupplier)
 		}(r)

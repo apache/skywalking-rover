@@ -77,10 +77,11 @@ func NewHTTP1URIMetrics() *URIMetrics {
 
 func (u *URIMetrics) Append(sampleConfig *SamplingConfig, req *reader.Request, resp *reader.Response) {
 	u.RequestCounter.Increase()
-	statusCounter := u.StatusCounter[resp.StatusCode()]
+	statusCode := resp.Original().StatusCode
+	statusCounter := u.StatusCounter[statusCode]
 	if statusCounter == nil {
 		statusCounter = metrics.NewCounter()
-		u.StatusCounter[resp.StatusCode()] = statusCounter
+		u.StatusCounter[statusCode] = statusCounter
 	}
 	statusCounter.Increase()
 
@@ -206,7 +207,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 		SSL:           traffic.IsSSL,
 		URI:           h.RequestURI,
 		Reason:        h.Type,
-		Status:        h.Response.StatusCode(),
+		Status:        h.Response.Original().StatusCode,
 	}
 	if traffic.Role == events.ConnectionRoleClient {
 		body.ClientProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}

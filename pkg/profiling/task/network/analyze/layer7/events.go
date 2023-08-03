@@ -25,10 +25,11 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 )
 
 func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profiling.TaskConfig) {
-	l.socketDataQueue = NewEventQueue(parallels, queueSize, func() PartitionContext {
+	l.socketDataQueue = btf.NewEventQueue(parallels, queueSize, func() btf.PartitionContext {
 		return NewSocketDataPartitionContext(l, config)
 	})
 }
@@ -48,15 +49,15 @@ func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 		return data.(*analyzeBase.SocketDetailEvent).GenerateConnectionID()
 	})
 
-	l.socketDataQueue.Start(ctx, bpfLoader)
+	l.socketDataQueue.Start(ctx, bpfLoader.Linker)
 }
 
 func (l *Listener) handleProfilingExtensionConfig(config *profiling.ExtensionConfig) {
 	if l.socketDataQueue == nil {
 		return
 	}
-	for _, p := range l.socketDataQueue.partitions {
-		ctx := p.ctx.(*SocketDataPartitionContext)
+	for _, p := range l.socketDataQueue.PartitionContexts() {
+		ctx := p.(*SocketDataPartitionContext)
 		ctx.analyzer.UpdateExtensionConfig(config)
 	}
 }
@@ -65,8 +66,8 @@ func (l *Listener) handleConnectionClose(event *analyzeBase.SocketCloseEvent) {
 	if l.socketDataQueue == nil {
 		return
 	}
-	for _, p := range l.socketDataQueue.partitions {
-		ctx := p.ctx.(*SocketDataPartitionContext)
+	for _, p := range l.socketDataQueue.PartitionContexts() {
+		ctx := p.(*SocketDataPartitionContext)
 		ctx.analyzer.ReceiveSocketClose(event)
 	}
 }

@@ -52,8 +52,8 @@ func (r *Request) MinDataID() int {
 	return int(r.headerBuffer.FirstSocketBuffer().DataID())
 }
 
-func (r *Request) RequestURI() string {
-	return r.original.RequestURI
+func (r *Request) Original() *http.Request {
+	return r.original
 }
 
 //nolint
