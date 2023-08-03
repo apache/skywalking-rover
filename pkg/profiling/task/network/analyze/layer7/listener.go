@@ -32,6 +32,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 
 	"github.com/zekroTJA/timedmap"
 )
@@ -48,7 +49,7 @@ type Listener struct {
 	cachedConnections    *timedmap.TimedMap
 	protocolPerCPUBuffer int
 
-	socketDataQueue *EventQueue
+	socketDataQueue *btf.EventQueue
 }
 
 func NewListener(analyzer *base.AnalyzerContext) *Listener {

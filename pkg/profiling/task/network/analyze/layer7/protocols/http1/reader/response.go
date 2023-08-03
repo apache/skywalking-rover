@@ -49,8 +49,8 @@ func (r *Response) BodyBuffer() *buffer.Buffer {
 	return r.bodyBuffer
 }
 
-func (r *Response) StatusCode() int {
-	return r.original.StatusCode
+func (r *Response) Original() *http.Response {
+	return r.original
 }
 
 func ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (*Response, enums.ParseResult, error) {

@@ -70,6 +70,10 @@ func (p *Process) ProfilingStat() *profiling.Info {
 	return p.profiling
 }
 
+func (p *Process) PodContainer() *PodContainer {
+	return p.podContainer
+}
+
 func (p *Process) ExposePorts() []int {
 	result := make([]int, 0)
 	for _, cp := range p.podContainer.ContainerSpec.Ports {

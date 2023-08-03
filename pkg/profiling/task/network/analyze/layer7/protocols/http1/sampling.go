@@ -67,7 +67,7 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration, 
 		return
 	}
 
-	uri := request.RequestURI()
+	uri := request.Original().RequestURI
 	// remove the query parameters
 	if i := strings.Index(uri, "?"); i > 0 {
 		uri = uri[0:i]
@@ -79,12 +79,13 @@ func (s *Sampler) AppendMetrics(config *SamplingConfig, duration time.Duration, 
 		return
 	}
 
+	statusCode := response.Original().StatusCode
 	var traceType string
 	var topN *metrics.TopN
-	if rule.When5XX && response.StatusCode() >= 500 && response.StatusCode() < 600 {
+	if rule.When5XX && statusCode >= 500 && statusCode < 600 {
 		traceType = "status_5xx"
 		topN = s.Error5xxTraces
-	} else if rule.When4XX && response.StatusCode() >= 400 && response.StatusCode() < 500 {
+	} else if rule.When4XX && statusCode >= 400 && statusCode < 500 {
 		traceType = "status_4xx"
 		topN = s.Error4xxTraces
 	} else if rule.MinDuration != nil && int64(*rule.MinDuration) <= duration.Milliseconds() {
