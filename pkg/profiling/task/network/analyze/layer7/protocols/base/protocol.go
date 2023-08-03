@@ -22,28 +22,24 @@ import (
 
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-)
-
-type ParseResult int
-
-const (
-	ParseResultSuccess ParseResult = iota
-	ParseResultSkipPackage
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 type Protocol interface {
-	Protocol() base.ConnectionProtocol
+	Protocol() events.ConnectionProtocol
 	GenerateMetrics() Metrics
 	Init(config *profiling.TaskConfig)
 
-	ParseProtocol(connectionID uint64, metrics Metrics, reader *Buffer) ParseResult
+	ParseProtocol(connectionID uint64, metrics Metrics, reader *buffer.Buffer) enums.ParseResult
 	PackageMaxExpireDuration() time.Duration
 	UpdateExtensionConfig(config *profiling.ExtensionConfig)
 }
 
 type Context interface {
 	QueryConnection(connectionID, randomID uint64) *base.ConnectionContext
-	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocol base.ConnectionProtocol) Metrics
+	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocol events.ConnectionProtocol) Metrics
 }
 
 type Metrics interface {

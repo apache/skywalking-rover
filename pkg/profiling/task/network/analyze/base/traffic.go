@@ -22,6 +22,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/tools"
 )
 
@@ -49,8 +50,8 @@ type ProcessTraffic struct {
 	RemoteProcesses []api.ProcessInterface
 
 	// connection basic information
-	Role     ConnectionRole
-	Protocol ConnectionProtocol
+	Role     events.ConnectionRole
+	Protocol events.ConnectionProtocol
 	IsSSL    bool
 
 	// metrics
@@ -135,12 +136,12 @@ func (t *TrafficAnalyzer) CombineConnectionToTraffics(connections []*ConnectionC
 		pidToRemoteKey.LocalPid = con.LocalPid
 		pidToRemoteKey.RemoteIP = con.RemoteIP
 		// if connection role is not server side, then add the remote port
-		if con.Role != ConnectionRoleServer {
+		if con.Role != events.ConnectionRoleServer {
 			// uniformly identified as a client
-			pidToRemoteKey.Role = ConnectionRoleClient
+			pidToRemoteKey.Role = events.ConnectionRoleClient
 			pidToRemoteKey.RemotePort = con.RemotePort
 		} else {
-			pidToRemoteKey.Role = ConnectionRoleServer
+			pidToRemoteKey.Role = events.ConnectionRoleServer
 		}
 		traffic := pidToRemoteTraffic[pidToRemoteKey]
 		traffic = t.generateOrCombineTraffic(traffic, con, 0)
@@ -186,20 +187,20 @@ func (t *ProcessTraffic) RemoteProcessIsProfiling() bool {
 }
 
 func (t *TrafficAnalyzer) tryingToGenerateTheRoleWhenRemotePidCannotFound(con *ConnectionContext) {
-	if con.Role != ConnectionRoleUnknown {
+	if con.Role != events.ConnectionRoleUnknown {
 		return
 	}
 	// local process address or process could not found, then could analyze the role
 	if con.LocalPort == 0 || len(con.LocalProcesses) == 0 {
 		return
 	}
-	var role ConnectionRole
+	var role events.ConnectionRole
 	// if port is expose, and remote address is not local pid
 	// then the role of connection is server side usually
 	if con.LocalProcesses[0].PortIsExpose(int(con.LocalPort)) {
-		role = ConnectionRoleServer
+		role = events.ConnectionRoleServer
 	} else {
-		role = ConnectionRoleClient
+		role = events.ConnectionRoleClient
 	}
 
 	con.Role = role
@@ -223,10 +224,10 @@ func (t *TrafficAnalyzer) generateOrCombineTraffic(traffic *ProcessTraffic, con 
 	if len(traffic.LocalProcesses) == 0 && len(con.LocalProcesses) > 0 {
 		traffic.LocalProcesses = con.LocalProcesses
 	}
-	if traffic.Role == ConnectionRoleUnknown && con.Role != ConnectionRoleUnknown {
+	if traffic.Role == events.ConnectionRoleUnknown && con.Role != events.ConnectionRoleUnknown {
 		traffic.Role = con.Role
 	}
-	if traffic.Protocol == ConnectionProtocolUnknown && con.Protocol != ConnectionProtocolUnknown {
+	if traffic.Protocol == events.ConnectionProtocolUnknown && con.Protocol != events.ConnectionProtocolUnknown {
 		traffic.Protocol = con.Protocol
 	}
 	if !traffic.IsSSL && con.IsSSL {
@@ -283,7 +284,7 @@ func (t *TrafficAnalyzer) buildCache(connections []*ConnectionContext) {
 			}
 		} else if t.ipNotEmpty(con.RemoteIP, con.RemotePort) {
 			// if server side is envoy
-			if con.Role == ConnectionRoleServer && len(con.LocalProcesses) > 0 {
+			if con.Role == events.ConnectionRoleServer && len(con.LocalProcesses) > 0 {
 				name, err := con.LocalProcesses[0].ExeName()
 				if err != nil {
 					log.Warnf("get process exe name failure, pid: %d, error: %v", con.LocalPid, err)
@@ -311,7 +312,7 @@ func (t *TrafficAnalyzer) buildCache(connections []*ConnectionContext) {
 func (t *TrafficAnalyzer) processExportPortAnalyze(con *ConnectionContext) {
 	// if the process exists, role of connection is server mode and local port is exists1
 	// add the detected port into the processes
-	if len(con.LocalProcesses) > 0 && con.Role == ConnectionRoleServer && con.LocalPort > 0 {
+	if len(con.LocalProcesses) > 0 && con.Role == events.ConnectionRoleServer && con.LocalPort > 0 {
 		for _, p := range con.LocalProcesses {
 			p.DetectNewExposePort(int(con.LocalPort))
 		}
@@ -349,7 +350,7 @@ func (t *TrafficAnalyzer) findRemotePidWhenContainsFullAddress(con *ConnectionCo
 			log.Debugf("found in peer cache: %s:%d->%s:%d, pid: %d", con.RemoteIP, con.RemotePort, con.LocalIP, con.LocalPort, data.Pid)
 			// if current connection is unknown, but peer network has role, then just use the revert role
 			// such as: cur:(a->b) unknown, remote:(b->a) client, then current connection must have the server role
-			if con.Role == ConnectionRoleUnknown && data.Role != ConnectionRoleUnknown {
+			if con.Role == events.ConnectionRoleUnknown && data.Role != events.ConnectionRoleUnknown {
 				con.Role = data.Role.Revert()
 			}
 			return data.Pid
@@ -357,7 +358,7 @@ func (t *TrafficAnalyzer) findRemotePidWhenContainsFullAddress(con *ConnectionCo
 		log.Debugf("not found in peer cache: %s:%d->%s:%d", con.RemoteIP, con.RemotePort, con.LocalIP, con.LocalPort)
 
 		// if current role is client side, and localIP:port match to envoy
-		if con.Role == ConnectionRoleClient {
+		if con.Role == events.ConnectionRoleClient {
 			// need update the remote address to real address
 			addr := t.envoyAcceptClientAddressCache[PeerAddress{
 				RemoteIP:   con.LocalIP,
@@ -472,19 +473,19 @@ type AddressWithPid struct {
 type PidMatchTrafficKey struct {
 	LocalPid  uint32
 	RemotePid uint32
-	Role      ConnectionRole
+	Role      events.ConnectionRole
 }
 
 type PidToRemoteTrafficKey struct {
 	LocalPid   uint32
-	Role       ConnectionRole
+	Role       events.ConnectionRole
 	RemoteIP   string
 	RemotePort uint16
 }
 
 type PidWithRole struct {
 	Pid  uint32
-	Role ConnectionRole
+	Role events.ConnectionRole
 }
 
 func (t *TrafficAnalyzer) ipNotEmpty(ip string, port uint16) bool {

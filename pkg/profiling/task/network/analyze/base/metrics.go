@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/tools"
 
 	agentv3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
@@ -87,19 +88,19 @@ func (m *MetricsBuilder) AppendLogs(service string, log *logv3.LogData) {
 	m.logs[meta] = append(m.logs[meta], log)
 }
 
-func (m *MetricsBuilder) AppendSpanAttachedEvents(events []*agentv3.SpanAttachedEvent) {
-	m.events = append(m.events, events...)
+func (m *MetricsBuilder) AppendSpanAttachedEvents(attachedEvents []*agentv3.SpanAttachedEvent) {
+	m.events = append(m.events, attachedEvents...)
 }
 
 func (m *MetricsBuilder) MetricPrefix() string {
 	return m.prefix
 }
 
-func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (ConnectionRole, []*agentv3.Label) {
+func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (events.ConnectionRole, []*agentv3.Label) {
 	curRole := traffic.Role
 	// add the default role
-	if curRole == ConnectionRoleUnknown {
-		curRole = ConnectionRoleClient
+	if curRole == events.ConnectionRoleUnknown {
+		curRole = events.ConnectionRoleClient
 	}
 	labels := make([]*agentv3.Label, 0)
 

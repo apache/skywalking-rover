@@ -21,7 +21,7 @@ import (
 	"context"
 
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	analyzeBase "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	analyzeBase "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
@@ -36,16 +36,16 @@ func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profili
 func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket buffer data
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDataUploadEventQueue, l.protocolPerCPUBuffer, func() interface{} {
-		return &base.SocketDataUploadEvent{}
+		return &analyzeBase.SocketDataUploadEvent{}
 	}, func(data interface{}) string {
-		return data.(*base.SocketDataUploadEvent).GenerateConnectionID()
+		return data.(*analyzeBase.SocketDataUploadEvent).GenerateConnectionID()
 	})
 
 	// socket detail
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDetailDataQueue, l.protocolPerCPUBuffer, func() interface{} {
-		return &base.SocketDetailEvent{}
+		return &analyzeBase.SocketDetailEvent{}
 	}, func(data interface{}) string {
-		return data.(*base.SocketDetailEvent).GenerateConnectionID()
+		return data.(*analyzeBase.SocketDetailEvent).GenerateConnectionID()
 	})
 
 	l.socketDataQueue.Start(ctx, bpfLoader)
@@ -87,9 +87,9 @@ func (p *SocketDataPartitionContext) Start(ctx context.Context) {
 
 func (p *SocketDataPartitionContext) Consume(data interface{}) {
 	switch v := data.(type) {
-	case *base.SocketDetailEvent:
+	case *analyzeBase.SocketDetailEvent:
 		p.analyzer.ReceiveSocketDetail(v)
-	case *base.SocketDataUploadEvent:
+	case *analyzeBase.SocketDataUploadEvent:
 		p.analyzer.ReceiveSocketDataEvent(v)
 	}
 }

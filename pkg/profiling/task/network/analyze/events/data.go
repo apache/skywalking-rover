@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package events
 
 import (
 	"fmt"
-
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 )
 
 type SocketDataBuffer interface {
@@ -31,7 +29,7 @@ type SocketDataBuffer interface {
 	// TotalSize of socket data, the data may exceed the size of the BufferData()
 	TotalSize() uint64
 	// Direction of the data, send or receive
-	Direction() base.SocketDataDirection
+	Direction() SocketDataDirection
 	// BufferStartPosition the buffer start index
 	BufferStartPosition() int
 	// BufferLen the buffer data length
@@ -54,9 +52,9 @@ type SocketDataBuffer interface {
 }
 
 type SocketDataUploadEvent struct {
-	Protocol     base.ConnectionProtocol
+	Protocol     ConnectionProtocol
 	HaveReduce   uint8
-	Direction0   base.SocketDataDirection
+	Direction0   SocketDataDirection
 	Finished     uint8
 	Sequence0    uint16
 	DataLen      uint16
@@ -89,7 +87,7 @@ func (s *SocketDataUploadEvent) EndTime() uint64 {
 	return s.EndTime0
 }
 
-func (s *SocketDataUploadEvent) Direction() base.SocketDataDirection {
+func (s *SocketDataUploadEvent) Direction() SocketDataDirection {
 	return s.Direction0
 }
 
@@ -123,20 +121,20 @@ func (s *SocketDataUploadEvent) HaveReduceDataAfterChunk() bool {
 
 type SocketDataEventLimited struct {
 	SocketDataBuffer
-	from int
-	size int
+	From int
+	Size int
 }
 
 func (s *SocketDataEventLimited) BufferData() []byte {
-	return s.SocketDataBuffer.BufferData()[s.from:s.size]
+	return s.SocketDataBuffer.BufferData()[s.From:s.Size]
 }
 
 func (s *SocketDataEventLimited) BufferLen() int {
-	return s.size - s.from
+	return s.Size - s.From
 }
 
 func (s *SocketDataEventLimited) BufferStartPosition() int {
-	return s.from
+	return s.From
 }
 
 type SocketDetailEvent struct {
@@ -146,9 +144,9 @@ type SocketDetailEvent struct {
 	TotalPackageSize uint64
 	IfIndex          uint32
 	PackageCount     uint8
-	FuncName         base.SocketFunctionName
+	FuncName         SocketFunctionName
 	RTTCount         uint8
-	Protocol         base.ConnectionProtocol
+	Protocol         ConnectionProtocol
 	RTTTime          uint32
 }
 

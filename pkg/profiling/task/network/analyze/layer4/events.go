@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 
 	"github.com/sirupsen/logrus"
 )
@@ -38,7 +38,7 @@ type SocketExceptionOperationEvent struct {
 	LocalAddrV4    uint32
 	LocalAddrV6    [16]uint8
 	LocalAddrPort  uint32
-	Type           base.SocketExceptionOperationType
+	Type           events.SocketExceptionOperationType
 }
 
 func (l *Listener) handleSocketExceptionOperationEvent(data interface{}) {
@@ -60,9 +60,9 @@ func (l *Listener) handleSocketExceptionOperationEvent(data interface{}) {
 	}
 
 	switch event.Type {
-	case base.SocketExceptionOperationRetransmit:
+	case events.SocketExceptionOperationRetransmit:
 		exceptionValue.RetransmitCount++
-	case base.SocketExceptionOperationDrop:
+	case events.SocketExceptionOperationDrop:
 		exceptionValue.DropCount++
 	default:
 		log.Warnf("unknown socket exception operation type: %d", event.Type)

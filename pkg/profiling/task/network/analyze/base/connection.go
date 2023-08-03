@@ -17,7 +17,10 @@
 
 package base
 
-import "github.com/apache/skywalking-rover/pkg/process/api"
+import (
+	"github.com/apache/skywalking-rover/pkg/process/api"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
+)
 
 type ConnectionContext struct {
 	// basic metadata
@@ -27,11 +30,11 @@ type ConnectionContext struct {
 	SocketFD         uint32
 	LocalProcesses   []api.ProcessInterface
 	ConnectionClosed bool
-	Protocol         ConnectionProtocol
+	Protocol         events.ConnectionProtocol
 	IsSSL            bool
 
 	// socket metadata
-	Role       ConnectionRole
+	Role       events.ConnectionRole
 	LocalIP    string
 	LocalPort  uint16
 	RemoteIP   string
@@ -64,7 +67,7 @@ type ActiveConnectionInBPF struct {
 	RandomID     uint64
 	Pid          uint32
 	SocketFD     uint32
-	Role         ConnectionRole
+	Role         events.ConnectionRole
 	SocketFamily uint32
 
 	RemoteAddrV4   uint32
@@ -88,7 +91,7 @@ type ActiveConnectionInBPF struct {
 	_ uint64
 
 	// protocol of connection
-	Protocol ConnectionProtocol
+	Protocol events.ConnectionProtocol
 	// the connect event is already sent
 	ConnectEventIsSent uint8
 	IsSSL              uint8

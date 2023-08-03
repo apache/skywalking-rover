@@ -25,26 +25,27 @@ import (
 	"strconv"
 	"strings"
 
-	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
 )
 
 type Response struct {
 	*MessageOpt
 	req          *Request
 	original     *http.Response
-	headerBuffer *protocol.Buffer
-	bodyBuffer   *protocol.Buffer
+	headerBuffer *buffer.Buffer
+	bodyBuffer   *buffer.Buffer
 }
 
 func (r *Response) Headers() http.Header {
 	return r.original.Header
 }
 
-func (r *Response) HeaderBuffer() *protocol.Buffer {
+func (r *Response) HeaderBuffer() *buffer.Buffer {
 	return r.headerBuffer
 }
 
-func (r *Response) BodyBuffer() *protocol.Buffer {
+func (r *Response) BodyBuffer() *buffer.Buffer {
 	return r.bodyBuffer
 }
 
@@ -52,7 +53,7 @@ func (r *Response) StatusCode() int {
 	return r.original.StatusCode
 }
 
-func ReadResponse(req *Request, buf *protocol.Buffer) (*Response, protocol.ParseResult, error) {
+func ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (*Response, enums.ParseResult, error) {
 	bufReader := bufio.NewReader(buf)
 	tp := textproto.NewReader(bufReader)
 	resp := &http.Response{}
@@ -62,11 +63,11 @@ func ReadResponse(req *Request, buf *protocol.Buffer) (*Response, protocol.Parse
 	headerStartPosition := buf.Position()
 	line, err := tp.ReadLine()
 	if err != nil {
-		return nil, protocol.ParseResultSkipPackage, fmt.Errorf("read response first line failure: %v", err)
+		return nil, enums.ParseResultSkipPackage, fmt.Errorf("read response first line failure: %v", err)
 	}
 	indexByte := strings.IndexByte(line, ' ')
 	if indexByte == -1 {
-		return nil, protocol.ParseResultSkipPackage, fmt.Errorf("parsing response error: %s", line)
+		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response error: %s", line)
 	}
 	resp.Proto = line[:indexByte]
 	resp.Status = strings.TrimLeft(line[indexByte+1:], " ")
@@ -75,44 +76,47 @@ func ReadResponse(req *Request, buf *protocol.Buffer) (*Response, protocol.Parse
 		statusCode = resp.Status[:i]
 	}
 	if len(statusCode) != 3 {
-		return nil, protocol.ParseResultSkipPackage, fmt.Errorf("parsing response status code failure: %v", statusCode)
+		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response status code failure: %v", statusCode)
 	}
 	resp.StatusCode, err = strconv.Atoi(statusCode)
 	if err != nil || resp.StatusCode < 0 {
-		return nil, protocol.ParseResultSkipPackage, fmt.Errorf("status code not correct: %s", statusCode)
+		return nil, enums.ParseResultSkipPackage, fmt.Errorf("status code not correct: %s", statusCode)
 	}
 	var ok bool
 	if resp.ProtoMajor, resp.ProtoMinor, ok = http.ParseHTTPVersion(resp.Proto); !ok {
-		return nil, protocol.ParseResultSkipPackage, fmt.Errorf("parsing http version failure: %s", resp.Proto)
+		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing http version failure: %s", resp.Proto)
 	}
 
 	mimeHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
 		result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
-		return result, protocol.ParseResultSuccess, nil
+		return result, enums.ParseResultSuccess, nil
 	}
 	resp.Header = http.Header(mimeHeader)
 
 	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
-	if b, r, err := result.readFullResponseBody(bufReader, buf); err != nil {
-		return nil, protocol.ParseResultSkipPackage, err
-	} else if r != protocol.ParseResultSuccess {
-		return nil, r, nil
-	} else {
-		result.bodyBuffer = b
+	if readBody {
+		if b, r, err := result.readFullResponseBody(bufReader, buf); err != nil {
+			return nil, enums.ParseResultSkipPackage, err
+		} else if r != enums.ParseResultSuccess {
+			return nil, r, nil
+		} else {
+			result.bodyBuffer = b
+		}
 	}
-	return result, protocol.ParseResultSuccess, nil
+
+	return result, enums.ParseResultSuccess, nil
 }
 
-func (r *Response) buildHeaderBuffer(start *protocol.BufferPosition, buf *protocol.Buffer, bufReader *bufio.Reader) {
+func (r *Response) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer, bufReader *bufio.Reader) {
 	endPosition := buf.OffsetPosition(-bufReader.Buffered())
 	r.headerBuffer = buf.Slice(true, start, endPosition)
 }
 
-func (r *Response) readFullResponseBody(bodyReader *bufio.Reader, original *protocol.Buffer) (*protocol.Buffer, protocol.ParseResult, error) {
+func (r *Response) readFullResponseBody(bodyReader *bufio.Reader, original *buffer.Buffer) (*buffer.Buffer, enums.ParseResult, error) {
 	length, err := r.appointedLength()
 	if err != nil {
-		return nil, protocol.ParseResultSkipPackage, err
+		return nil, enums.ParseResultSkipPackage, err
 	} else if length > 0 {
 		return r.checkBodyWithSize(original, bodyReader, length, true)
 	}

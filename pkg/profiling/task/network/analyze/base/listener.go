@@ -22,6 +22,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 )
 
@@ -39,9 +40,9 @@ type AnalyzeListener interface {
 
 	// ReceiveNewConnection call this method when receive a new connection event
 	// when return a metrics then It would bind to with the connection
-	ReceiveNewConnection(ctx *ConnectionContext, event *SocketConnectEvent)
+	ReceiveNewConnection(ctx *ConnectionContext, event *events.SocketConnectEvent)
 	// ReceiveCloseConnection call this method when receive the connection close event
-	ReceiveCloseConnection(ctx *ConnectionContext, event *SocketCloseEvent)
+	ReceiveCloseConnection(ctx *ConnectionContext, event *events.SocketCloseEvent)
 
 	// UpdateExtensionConfig for sampling
 	UpdateExtensionConfig(config *base.ExtensionConfig)

@@ -26,6 +26,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
@@ -206,7 +208,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 		Reason:        h.Type,
 		Status:        h.Response.StatusCode(),
 	}
-	if traffic.Role == base.ConnectionRoleClient {
+	if traffic.Role == events.ConnectionRoleClient {
 		body.ClientProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}
 		body.ServerProcess = NewHTTP1SampledTraceLogRemoteProcess(traffic, process)
 	} else {
@@ -228,27 +230,27 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 }
 
 func (h *Trace) AppendHTTPEvents(process api.ProcessInterface, traffic *base.ProcessTraffic, metricsBuilder *base.MetricsBuilder) {
-	events := make([]*v3.SpanAttachedEvent, 0)
+	attaches := make([]*v3.SpanAttachedEvent, 0)
 	if h.Settings != nil && h.Settings.RequireCompleteRequest {
-		events = h.appendHTTPEvent(events, process, traffic, transportRequest, h.Request.MessageOpt, h.TaskConfig.DefaultRequestEncoding,
+		attaches = h.appendHTTPEvent(attaches, process, traffic, transportRequest, h.Request.MessageOpt, h.TaskConfig.DefaultRequestEncoding,
 			h.Settings.MaxRequestSize)
-		events = h.appendSyscallEvents(events, process, traffic, h.Request.MessageOpt)
+		attaches = h.appendSyscallEvents(attaches, process, traffic, h.Request.MessageOpt)
 	}
 	if h.Settings != nil && h.Settings.RequireCompleteResponse {
-		events = h.appendHTTPEvent(events, process, traffic, transportResponse, h.Response.MessageOpt, h.TaskConfig.DefaultResponseEncoding,
+		attaches = h.appendHTTPEvent(attaches, process, traffic, transportResponse, h.Response.MessageOpt, h.TaskConfig.DefaultResponseEncoding,
 			h.Settings.MaxResponseSize)
-		events = h.appendSyscallEvents(events, process, traffic, h.Response.MessageOpt)
+		attaches = h.appendSyscallEvents(attaches, process, traffic, h.Response.MessageOpt)
 	}
 
-	metricsBuilder.AppendSpanAttachedEvents(events)
+	metricsBuilder.AppendSpanAttachedEvents(attaches)
 }
 
-func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
+func (h *Trace) appendHTTPEvent(attaches []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
 	tp string, message *reader.MessageOpt, defaultBodyEncoding string, maxSize int32) []*v3.SpanAttachedEvent {
 	content, err := message.TransformReadableContent(defaultBodyEncoding, int(maxSize))
 	if err != nil {
 		log.Warnf("transform http %s erorr: %v", tp, err)
-		return events
+		return attaches
 	}
 
 	event := &v3.SpanAttachedEvent{}
@@ -277,35 +279,35 @@ func (h *Trace) appendHTTPEvent(events []*v3.SpanAttachedEvent, process api.Proc
 		SpanId:         h.Trace.SpanID(),
 		Type:           h.Trace.Provider().Type,
 	}
-	return append(events, event)
+	return append(attaches, event)
 }
 
-func (h *Trace) appendSyscallEvents(events []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
+func (h *Trace) appendSyscallEvents(attachEvents []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
 	message *reader.MessageOpt) []*v3.SpanAttachedEvent {
 	headerDetails := message.HeaderBuffer().Details()
 	bodyDetails := message.BodyBuffer().Details()
 	dataIDCache := make(map[uint64]bool)
 	for e := headerDetails.Front(); e != nil; e = e.Next() {
-		event := e.Value.(*protocol.SocketDetailEvent)
+		event := e.Value.(*events.SocketDetailEvent)
 		dataIDCache[event.DataID] = true
-		events = h.appendPerDetailEvent(events, process, traffic, event, message.HeaderBuffer())
+		attachEvents = h.appendPerDetailEvent(attachEvents, process, traffic, event, message.HeaderBuffer())
 	}
 	for e := bodyDetails.Front(); e != nil; e = e.Next() {
-		event := e.Value.(*protocol.SocketDetailEvent)
+		event := e.Value.(*events.SocketDetailEvent)
 		if dataIDCache[event.DataID] {
 			continue
 		}
-		events = h.appendPerDetailEvent(events, process, traffic, event, message.BodyBuffer())
+		attachEvents = h.appendPerDetailEvent(attachEvents, process, traffic, event, message.BodyBuffer())
 	}
-	return events
+	return attachEvents
 }
 
-func (h *Trace) appendPerDetailEvent(events []*v3.SpanAttachedEvent, process api.ProcessInterface, _ *base.ProcessTraffic,
-	detail *protocol.SocketDetailEvent, buffer *protocol.Buffer) []*v3.SpanAttachedEvent {
+func (h *Trace) appendPerDetailEvent(attaches []*v3.SpanAttachedEvent, process api.ProcessInterface, _ *base.ProcessTraffic,
+	detail *events.SocketDetailEvent, buf *buffer.Buffer) []*v3.SpanAttachedEvent {
 	event := &v3.SpanAttachedEvent{}
-	dataBuffer := buffer.FindFirstDataBuffer(detail.DataID)
+	dataBuffer := buf.FindFirstDataBuffer(detail.DataID)
 	if dataBuffer == nil {
-		return events
+		return attaches
 	}
 	event.StartTime = host.TimeToInstant(dataBuffer.StartTime())
 	event.EndTime = host.TimeToInstant(dataBuffer.EndTime())
@@ -335,7 +337,7 @@ func (h *Trace) appendPerDetailEvent(events []*v3.SpanAttachedEvent, process api
 		SpanId:         h.Trace.SpanID(),
 		Type:           h.Trace.Provider().Type,
 	}
-	return append(events, event)
+	return append(attaches, event)
 }
 
 type SamplingTraceLogBody struct {

@@ -31,8 +31,9 @@ import (
 
 	"golang.org/x/net/html/charset"
 
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 var (
@@ -54,7 +55,7 @@ const (
 	MessageTypeUnknown
 )
 
-func IdentityMessageType(reader *protocol.Buffer) (MessageType, error) {
+func IdentityMessageType(reader *buffer.Buffer) (MessageType, error) {
 	n, err := reader.Peek(headBuffer)
 	if err != nil {
 		return MessageTypeUnknown, err
@@ -82,8 +83,8 @@ func IdentityMessageType(reader *protocol.Buffer) (MessageType, error) {
 
 type Message interface {
 	Headers() http.Header
-	HeaderBuffer() *protocol.Buffer
-	BodyBuffer() *protocol.Buffer
+	HeaderBuffer() *buffer.Buffer
+	BodyBuffer() *buffer.Buffer
 }
 
 type MessageOpt struct {
@@ -102,7 +103,7 @@ func (m *MessageOpt) EndTime() uint64 {
 	return m.BodyBuffer().LastSocketBuffer().EndTime()
 }
 
-func (m *MessageOpt) Direction() base.SocketDataDirection {
+func (m *MessageOpt) Direction() events.SocketDataDirection {
 	return m.HeaderBuffer().FirstSocketBuffer().Direction()
 }
 
@@ -190,36 +191,36 @@ func (m *MessageOpt) isChunked() bool {
 	return m.Headers().Get("Transfer-Encoding") == "chunked"
 }
 
-func (m *MessageOpt) readBodyUntilCurrentPackageFinished(buf *protocol.Buffer, reader *bufio.Reader) (*protocol.Buffer, protocol.ParseResult, error) {
+func (m *MessageOpt) readBodyUntilCurrentPackageFinished(buf *buffer.Buffer, reader *bufio.Reader) (*buffer.Buffer, enums.ParseResult, error) {
 	startPosition := buf.OffsetPosition(-reader.Buffered())
 	for !buf.IsCurrentPacketReadFinished() {
 		_, err := buf.Read(bodyBuffer)
 		if err != nil {
-			return nil, protocol.ParseResultSkipPackage, err
+			return nil, enums.ParseResultSkipPackage, err
 		}
 	}
 	endPosition := buf.Position()
-	return buf.Slice(true, startPosition, endPosition), protocol.ParseResultSuccess, nil
+	return buf.Slice(true, startPosition, endPosition), enums.ParseResultSuccess, nil
 }
 
-func (m *MessageOpt) checkChunkedBody(buf *protocol.Buffer, bodyReader *bufio.Reader) (*protocol.Buffer, protocol.ParseResult, error) {
-	buffers := make([]*protocol.Buffer, 0)
+func (m *MessageOpt) checkChunkedBody(buf *buffer.Buffer, bodyReader *bufio.Reader) (*buffer.Buffer, enums.ParseResult, error) {
+	buffers := make([]*buffer.Buffer, 0)
 	for {
 		line, _, err := bodyReader.ReadLine()
 		if err != nil {
-			return nil, protocol.ParseResultSkipPackage, err
+			return nil, enums.ParseResultSkipPackage, err
 		}
 		needBytesStr := string(line)
 		needBytes, err := strconv.ParseInt(needBytesStr, 16, 64)
 		if err != nil {
-			return nil, protocol.ParseResultSkipPackage, fmt.Errorf("read chunked size error: %s", needBytesStr)
+			return nil, enums.ParseResultSkipPackage, fmt.Errorf("read chunked size error: %s", needBytesStr)
 		}
 		if needBytes == 0 {
 			break
 		}
 		if b, r, err1 := m.checkBodyWithSize(buf, bodyReader, int(needBytes), false); err1 != nil {
-			return nil, protocol.ParseResultSkipPackage, err1
-		} else if r != protocol.ParseResultSuccess {
+			return nil, enums.ParseResultSkipPackage, err1
+		} else if r != enums.ParseResultSuccess {
 			return nil, r, nil
 		} else {
 			if pos := b.DetectNotSendingLastPosition(); pos != nil {
@@ -232,17 +233,17 @@ func (m *MessageOpt) checkChunkedBody(buf *protocol.Buffer, bodyReader *bufio.Re
 		}
 		d, _, err := bodyReader.ReadLine()
 		if err != nil {
-			return nil, protocol.ParseResultSkipPackage, err
+			return nil, enums.ParseResultSkipPackage, err
 		}
 		if len(d) != 0 {
-			return nil, protocol.ParseResultSkipPackage, fmt.Errorf("the chunk data parding error, should be empty: %s", d)
+			return nil, enums.ParseResultSkipPackage, fmt.Errorf("the chunk data parding error, should be empty: %s", d)
 		}
 	}
-	return protocol.CombineSlices(true, buffers...), protocol.ParseResultSuccess, nil
+	return buffer.CombineSlices(true, buffers...), enums.ParseResultSuccess, nil
 }
 
-func (m *MessageOpt) checkBodyWithSize(buf *protocol.Buffer, reader *bufio.Reader, size int,
-	detectedNotSending bool) (*protocol.Buffer, protocol.ParseResult, error) {
+func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader, size int,
+	detectedNotSending bool) (*buffer.Buffer, enums.ParseResult, error) {
 	reduceSize := size
 	var readSize, lastReadSize int
 	var err error
@@ -254,13 +255,13 @@ func (m *MessageOpt) checkBodyWithSize(buf *protocol.Buffer, reader *bufio.Reade
 		}
 		lastReadSize, err = reader.Read(bodyBuffer[0:readSize])
 		if err != nil {
-			if err == protocol.ErrNotComplete {
-				return nil, protocol.ParseResultSkipPackage, nil
+			if err == buffer.ErrNotComplete {
+				return nil, enums.ParseResultSkipPackage, nil
 			}
 			if err == io.EOF && reduceSize-lastReadSize <= 0 {
-				return nil, protocol.ParseResultSuccess, nil
+				return nil, enums.ParseResultSuccess, nil
 			}
-			return nil, protocol.ParseResultSkipPackage, err
+			return nil, enums.ParseResultSkipPackage, err
 		}
 		reduceSize -= lastReadSize
 	}
@@ -274,7 +275,7 @@ func (m *MessageOpt) checkBodyWithSize(buf *protocol.Buffer, reader *bufio.Reade
 		}
 	}
 
-	return slice, protocol.ParseResultSuccess, nil
+	return slice, enums.ParseResultSuccess, nil
 }
 
 type charsetReadWrapper struct {

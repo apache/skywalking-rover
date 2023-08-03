@@ -28,6 +28,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
@@ -91,10 +92,10 @@ func (l *Listener) RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader)
 	l.startSocketData(ctx, bpfLoader)
 }
 
-func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *base.SocketConnectEvent) {
+func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *events.SocketConnectEvent) {
 }
 
-func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *base.SocketCloseEvent) {
+func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *events.SocketCloseEvent) {
 	// cached the closed connection with TTL
 	l.cachedConnections.Set(l.generateCachedConnectionKey(ctx.ConnectionID, ctx.RandomID), ctx, ConnectionCachedTTL)
 	l.handleConnectionClose(event)
@@ -133,7 +134,7 @@ func (l *Listener) QueryConnection(conID, randomID uint64) *base.ConnectionConte
 	return nil
 }
 
-func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, p base.ConnectionProtocol) protocol.Metrics {
+func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, p events.ConnectionProtocol) protocol.Metrics {
 	metrics := conMetrics.GetMetrics(ListenerName).(*protocols.ProtocolMetrics)
 	return metrics.GetProtocolMetrics(p)
 }

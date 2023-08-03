@@ -26,6 +26,9 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
 
@@ -69,8 +72,8 @@ func NewHTTP1Analyzer() protocol.Protocol {
 	}
 }
 
-func (h *Analyzer) Protocol() base.ConnectionProtocol {
-	return base.ConnectionProtocolHTTP
+func (h *Analyzer) Protocol() events.ConnectionProtocol {
+	return events.ConnectionProtocolHTTP
 }
 
 func (h *Analyzer) GenerateMetrics() protocol.Metrics {
@@ -86,59 +89,59 @@ func (h *Analyzer) Init(config *profiling.TaskConfig) {
 	h.sampleConfig = NewSamplingConfig(config)
 }
 
-func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, buf *protocol.Buffer) protocol.ParseResult {
+func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, buf *buffer.Buffer) enums.ParseResult {
 	connectionMetrics := metrics.(*ConnectionMetrics)
 	messageType, err := reader.IdentityMessageType(buf)
 	if err != nil {
-		return protocol.ParseResultSkipPackage
+		return enums.ParseResultSkipPackage
 	}
 
-	var result protocol.ParseResult
+	var result enums.ParseResult
 	switch messageType {
 	case reader.MessageTypeRequest:
 		result, err = h.handleRequest(connectionMetrics, buf)
 	case reader.MessageTypeResponse:
 		result, err = h.handleResponse(connectionID, connectionMetrics, buf)
 	case reader.MessageTypeUnknown:
-		return protocol.ParseResultSkipPackage
+		return enums.ParseResultSkipPackage
 	}
 
 	if err != nil {
 		log.Warnf("reading %v error: %v", messageType, err)
-		return protocol.ParseResultSkipPackage
-	} else if result != protocol.ParseResultSuccess {
+		return enums.ParseResultSkipPackage
+	} else if result != enums.ParseResultSuccess {
 		return result
 	}
-	return protocol.ParseResultSuccess
+	return enums.ParseResultSuccess
 }
 
-func (h *Analyzer) handleRequest(metrics *ConnectionMetrics, buf *protocol.Buffer) (protocol.ParseResult, error) {
+func (h *Analyzer) handleRequest(metrics *ConnectionMetrics, buf *buffer.Buffer) (enums.ParseResult, error) {
 	// parsing request
-	req, r, err := reader.ReadRequest(buf)
+	req, r, err := reader.ReadRequest(buf, true)
 	if err != nil {
-		return protocol.ParseResultSkipPackage, err
+		return enums.ParseResultSkipPackage, err
 	}
-	if r != protocol.ParseResultSuccess {
+	if r != enums.ParseResultSuccess {
 		return r, nil
 	}
 
 	metrics.AppendRequestToList(req)
-	return protocol.ParseResultSuccess, nil
+	return enums.ParseResultSuccess, nil
 }
 
-func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetrics, buf *protocol.Buffer) (protocol.ParseResult, error) {
+func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetrics, buf *buffer.Buffer) (enums.ParseResult, error) {
 	// find the first request
 	firstElement := metrics.halfData.Front()
 	if firstElement == nil {
-		return protocol.ParseResultSkipPackage, nil
+		return enums.ParseResultSkipPackage, nil
 	}
 	request := metrics.halfData.Remove(firstElement).(*reader.Request)
 
 	// parsing request
-	response, r, err := reader.ReadResponse(request, buf)
+	response, r, err := reader.ReadResponse(request, buf, true)
 	if err != nil {
-		return protocol.ParseResultSkipPackage, err
-	} else if r != protocol.ParseResultSuccess {
+		return enums.ParseResultSkipPackage, err
+	} else if r != enums.ParseResultSuccess {
 		return r, nil
 	}
 
@@ -148,11 +151,11 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 
 	// append metrics
 	data := metrics.clientMetrics
-	side := base.ConnectionRoleClient
-	if request.Direction() == base.SocketDataDirectionIngress {
+	side := events.ConnectionRoleClient
+	if request.Direction() == events.SocketDataDirectionIngress {
 		// if receive the request, that's mean is server side
 		data = metrics.serverMetrics
-		side = base.ConnectionRoleServer
+		side = events.ConnectionRoleServer
 	}
 	data.Append(h.sampleConfig, request, response)
 
@@ -160,7 +163,7 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 		metricsJSON, _ := json.Marshal(data)
 		log.Debugf("generated metrics, connection id: %d, side: %s, metrisc: %s", connectionID, side.String(), string(metricsJSON))
 	}
-	return protocol.ParseResultSuccess, nil
+	return enums.ParseResultSuccess, nil
 }
 
 func (h *Analyzer) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
@@ -223,7 +226,7 @@ func (m *ConnectionMetrics) FlushMetrics(traffic *base.ProcessTraffic, metricsBu
 		// if the remote process is profiling, then used the client side
 		localMetrics := m.clientMetrics
 		remoteMetrics := m.serverMetrics
-		if traffic.Role == base.ConnectionRoleServer {
+		if traffic.Role == events.ConnectionRoleServer {
 			localMetrics = m.serverMetrics
 			remoteMetrics = m.clientMetrics
 		}
