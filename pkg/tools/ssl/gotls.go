@@ -146,9 +146,8 @@ func (r *Register) getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symb
 	// parse versions
 	if ver, err, ok := r.gettingGoVersionFromString(string(buffer)); ok {
 		return ver, err
-	} else {
-		return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
 	}
+	return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
 }
 
 func (r *Register) getGoVersionByStrings(p string) (*version.Version, error) {
