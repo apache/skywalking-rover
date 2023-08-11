@@ -21,7 +21,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"os/exec"
 	"regexp"
+	"strings"
 
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -119,7 +121,13 @@ func (r *Register) GoTLS(symbolAddrMap *ebpf.Map, write, writeRet, read, readRet
 	})
 }
 
-func (r *Register) getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symbol) (*version.Version, error) {
+func (r *Register) getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symbol) (ver *version.Version, err error) {
+	defer func() {
+		// if cannot getting version from symbol, then trying to get from strings command
+		if ver == nil {
+			ver, err = r.getGoVersionByStrings(elfFile.Path)
+		}
+	}()
 	buffer, err := elfFile.ReadSymbolData(".data", versionSymbol.Location, versionSymbol.Size)
 	if err != nil {
 		return nil, fmt.Errorf("reading go version struct info failure: %v", err)
@@ -136,11 +144,33 @@ func (r *Register) getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symb
 	}
 
 	// parse versions
-	submatch := goVersionRegex.FindStringSubmatch(string(buffer))
-	if len(submatch) != 3 {
-		return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
+	if ver, ok, err := r.gettingGoVersionFromString(string(buffer)); ok {
+		return ver, err
 	}
-	return version.Read(submatch[1], submatch[2], "")
+	return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
+}
+
+func (r *Register) getGoVersionByStrings(p string) (*version.Version, error) {
+	result, err := exec.Command("strings", p).Output()
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range strings.Split(string(result), "\n") {
+		if v, ok, err := r.gettingGoVersionFromString(strings.TrimSpace(d)); ok {
+			return v, err
+		}
+	}
+
+	return nil, fmt.Errorf("go version is not found from strings")
+}
+
+func (r *Register) gettingGoVersionFromString(s string) (v *version.Version, success bool, err error) {
+	submatch := goVersionRegex.FindStringSubmatch(s)
+	if len(submatch) != 3 {
+		return nil, false, nil
+	}
+	v, err = version.Read(submatch[1], submatch[2], "")
+	return v, true, err
 }
 
 type goStringInC struct {

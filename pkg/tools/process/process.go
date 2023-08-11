@@ -134,6 +134,10 @@ func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, 
 
 		module, err = context.GetFinder(modulePath).ToModule(pid, moduleName, modulePath, []*profiling.ModuleRange{moduleRange})
 		if err != nil {
+			if err == profiling.ErrNotSupport {
+				log.Warnf("not support the module in process(%d): %s, path: %s", pid, moduleName, modulePath)
+				continue
+			}
 			return nil, fmt.Errorf("could not init the module: %s, error: %v", moduleName, err)
 		}
 		modules[moduleName] = module
