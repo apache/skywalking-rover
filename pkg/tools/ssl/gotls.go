@@ -144,7 +144,7 @@ func (r *Register) getGoVersion(elfFile *elf.File, versionSymbol *profiling.Symb
 	}
 
 	// parse versions
-	if ver, err, ok := r.gettingGoVersionFromString(string(buffer)); ok {
+	if ver, ok, err := r.gettingGoVersionFromString(string(buffer)); ok {
 		return ver, err
 	}
 	return nil, fmt.Errorf("the go version is failure to identify, version: %s", string(buffer))
@@ -156,7 +156,7 @@ func (r *Register) getGoVersionByStrings(p string) (*version.Version, error) {
 		return nil, err
 	}
 	for _, d := range strings.Split(string(result), "\n") {
-		if v, err, ok := r.gettingGoVersionFromString(strings.TrimSpace(d)); ok {
+		if v, ok, err := r.gettingGoVersionFromString(strings.TrimSpace(d)); ok {
 			return v, err
 		}
 	}
@@ -164,13 +164,13 @@ func (r *Register) getGoVersionByStrings(p string) (*version.Version, error) {
 	return nil, fmt.Errorf("go version is not found from strings")
 }
 
-func (r *Register) gettingGoVersionFromString(s string) (*version.Version, error, bool) {
+func (r *Register) gettingGoVersionFromString(s string) (v *version.Version, success bool, err error) {
 	submatch := goVersionRegex.FindStringSubmatch(s)
 	if len(submatch) != 3 {
-		return nil, nil, false
+		return nil, false, nil
 	}
-	v, err := version.Read(submatch[1], submatch[2], "")
-	return v, err, true
+	v, err = version.Read(submatch[1], submatch[2], "")
+	return v, true, err
 }
 
 type goStringInC struct {
