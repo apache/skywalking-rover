@@ -5,6 +5,7 @@ Release Notes.
 0.6.0
 ------------------
 #### Features
+* Enhance compatibility when profiling with SSL.
 
 #### Bug Fixes
 

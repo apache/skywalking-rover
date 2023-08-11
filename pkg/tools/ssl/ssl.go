@@ -59,7 +59,7 @@ func (r *Register) Execute() error {
 	for name, h := range r.handlers {
 		b, err := h()
 		if err != nil {
-			return err
+			return fmt.Errorf("register SSL failure, pid: %d, error: %v", r.pid, err)
 		}
 		if b {
 			count++

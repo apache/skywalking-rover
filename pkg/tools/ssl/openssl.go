@@ -49,14 +49,15 @@ func (r *Register) OpenSSL(symbolAddrMap *ebpf.Map, sslWrite, sslWriteRet, sslRe
 		if len(modules) == 0 {
 			return false, nil
 		}
-		if libcrypto := modules[libcryptoName]; libcrypto != nil {
+		if libcrypto, exist := modules[libcryptoName]; exist && libcrypto != nil {
 			libcryptoPath = libcrypto.Path
 		}
-		if libssl := modules[libsslName]; libssl != nil {
+		if libssl, exist := modules[libsslName]; exist && libssl != nil {
 			libsslPath = libssl.Path
 		}
-		if libcryptoPath == "" || libsslPath == "" {
-			return false, fmt.Errorf("the OpenSSL library not complete, libcrypto: %s, libssl: %s", libcryptoPath, libsslPath)
+		if len(modules) != 2 {
+			log.Warnf("the OpenSSL library not complete, libcrypto: %s, libssl: %s", libcryptoPath, libsslPath)
+			return false, nil
 		}
 
 		addresses, err := r.buildOpenSSLSymAddrConfig(libcryptoPath)

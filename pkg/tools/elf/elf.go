@@ -24,7 +24,7 @@ import (
 )
 
 type File struct {
-	path     string
+	Path     string
 	realFile *elf.File
 }
 
@@ -40,7 +40,7 @@ func NewFile(path string) (*File, error) {
 		return nil, err
 	}
 	return &File{
-		path:     path,
+		Path:     path,
 		realFile: f,
 	}, nil
 }
@@ -75,7 +75,7 @@ func (f *File) ReadSymbolData(section string, offset, size uint64) ([]byte, erro
 	}
 
 	dataOffset := offset - elfSection.Addr + elfSection.Offset
-	realFile, err := os.Open(f.path)
+	realFile, err := os.Open(f.Path)
 	if err != nil {
 		return nil, err
 	}

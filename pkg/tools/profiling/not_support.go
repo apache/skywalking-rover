@@ -21,6 +21,8 @@ import (
 	"fmt"
 )
 
+var ErrNotSupport = fmt.Errorf("not support")
+
 type NotSupport struct {
 }
 
@@ -34,9 +36,9 @@ func (l *NotSupport) IsSupport(filePath string) bool {
 }
 
 func (l *NotSupport) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
-	return nil, fmt.Errorf("not support")
+	return nil, ErrNotSupport
 }
 
 func (l *NotSupport) ToModule(pid int32, modName, modPath string, moduleRange []*ModuleRange) (*Module, error) {
-	return nil, fmt.Errorf("not support")
+	return nil, ErrNotSupport
 }

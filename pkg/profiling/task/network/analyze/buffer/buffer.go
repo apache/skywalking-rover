@@ -326,6 +326,22 @@ func (r *Buffer) ReadFromCurrent(p []byte) (element *list.Element, n int) {
 	return element, 0
 }
 
+func (r *Buffer) Merge(other *Buffer) {
+	if other == nil {
+		return
+	}
+	for e := other.dataEvents.Front(); e != nil; e = e.Next() {
+		if v, ok := e.Value.(*events.SocketDataUploadEvent); ok && v != nil {
+			r.AppendDataEvent(v)
+		}
+	}
+	for e := other.detailEvents.Front(); e != nil; e = e.Next() {
+		if v, ok := e.Value.(*events.SocketDetailEvent); ok && v != nil {
+			r.AppendDetailEvent(v)
+		}
+	}
+}
+
 func (r *Buffer) read0(currentElement *list.Element, currentBuffer events.SocketDataBuffer, p []byte) (n int, err error) {
 	readLen := len(p)
 	if currentBuffer.BufferLen() < readLen {
