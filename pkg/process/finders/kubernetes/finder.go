@@ -63,8 +63,8 @@ type ProcessFinder struct {
 
 	// k8s clients
 	k8sConfig *rest.Config
-	cli       *kubernetes.Clientset
 	registry  *Registry
+	CLI       *kubernetes.Clientset
 
 	// runtime config
 	namespaces []string
@@ -77,11 +77,11 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 	}
 	f.conf = conf.(*Config)
 	f.k8sConfig = k8sConf
-	f.cli = cli
+	f.CLI = cli
 
 	f.ctx, f.cancelCtx = context.WithCancel(ctx)
 	f.stopChan = make(chan struct{}, 1)
-	f.registry = NewRegistry(f.cli, f.namespaces, f.conf.NodeName)
+	f.registry = NewRegistry(f.CLI, f.namespaces, f.conf.NodeName)
 	f.manager = manager
 	cache, err := lru.New(5000)
 	if err != nil {
