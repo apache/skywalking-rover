@@ -75,15 +75,14 @@ Same with the [process context in the scanner](./scanner.md#process).
 
 The information on the current pod.
 
-| Name                  | Argument          | Example                                    | Description                                                                                                                                                                          |
-|-----------------------|-------------------|--------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Name                  | None              | `{{.Pod.Name}}`                            | The name of current pod.                                                                                                                                                             |
-| Namespace             | None              | `{{.Pod.Namespace}}`                       | The name of current pod namespace.                                                                                                                                                   |
-| Node                  | None              | `{{.Pod.Node}}`                            | The name of the node deployed.                                                                                                                                                       |
-| LabelValue            | KeyNames          | `{{.Pod.LavelValue "a,b"}}`                | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values.                                                              |
-| LabelValueWithDefault | KeyNames, Default | `{{.Pod.LavelValueWithDefault "a,b" "v"}}` | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. If all keys don't have value, then return the default value. |
-| ServiceName           | None              | `{{.Pod.ServiceName}}`                     | The service name of the pod. If the pod hasn't matched service, then return an empty string.                                                                                         |
-| FindContainer         | ContainerName     | `{{.Pod.FindContainer "test"}}`            | Find the Container context by container name.                                                                                                                                        |
+| Name          | Argument          | Example                           | Description                                                                                                                                                                          |
+|---------------|-------------------|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Name          | None              | `{{.Pod.Name}}`                   | The name of current pod.                                                                                                                                                             |
+| Namespace     | None              | `{{.Pod.Namespace}}`              | The name of current pod namespace.                                                                                                                                                   |
+| Node          | None              | `{{.Pod.Node}}`                   | The name of the node deployed.                                                                                                                                                       |
+| LabelValue    | KeyNames, Default | `{{.Pod.LabelValue "a,b" "v"}}`   | The label value of the label keys, If provide multiple keys, if any key has value, then don't need to get other values. If all keys don't have value, then return the default value. |
+| ServiceName   | None              | `{{.Pod.ServiceName}}`            | The service name of the pod. If the pod hasn't matched service, then return an empty string.                                                                                         |
+| FindContainer | ContainerName     | `{{.Pod.FindContainer "test"}}`   | Find the Container context by container name.                                                                                                                                        |
 
 #### Container
 

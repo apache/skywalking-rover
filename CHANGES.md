@@ -6,7 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Enhance compatibility when profiling with SSL.
-* Adding `LabelValueWithDefault` function to obtain information from pod.
+* Update `LabelValue` obtain pod information function to add default value parameter.
 
 #### Bug Fixes
 

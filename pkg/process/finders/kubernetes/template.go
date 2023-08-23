@@ -107,22 +107,7 @@ func (p *TemplatePod) FindContainer(name string) (*TemplateContainer, error) {
 	return &TemplateContainer{pc: container}, nil
 }
 
-func (p *TemplatePod) LabelValue(names string) (string, error) {
-	namesArray := strings.Split(names, ",")
-	for _, name := range namesArray {
-		val := p.pc.Pod.Labels[name]
-		if val != "" {
-			return val, nil
-		}
-	}
-	actualNames := make([]string, 0)
-	for k := range p.pc.Pod.Labels {
-		actualNames = append(actualNames, k)
-	}
-	return "", fmt.Errorf("could not found matches label, want names: %v, actual names: %v", namesArray, actualNames)
-}
-
-func (p *TemplatePod) LabelValueWithDefault(names, def string) (string, error) {
+func (p *TemplatePod) LabelValue(names, def string) (string, error) {
 	namesArray := strings.Split(names, ",")
 	for _, name := range namesArray {
 		val := p.pc.Pod.Labels[name]
