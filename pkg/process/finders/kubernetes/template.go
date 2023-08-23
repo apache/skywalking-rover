@@ -122,6 +122,17 @@ func (p *TemplatePod) LabelValue(names string) (string, error) {
 	return "", fmt.Errorf("could not found matches label, want names: %v, actual names: %v", namesArray, actualNames)
 }
 
+func (p *TemplatePod) LabelValueWithDefault(names, def string) (string, error) {
+	namesArray := strings.Split(names, ",")
+	for _, name := range namesArray {
+		val := p.pc.Pod.Labels[name]
+		if val != "" {
+			return val, nil
+		}
+	}
+	return def, nil
+}
+
 func (p *TemplatePod) ServiceName() string {
 	return p.pc.ServiceName()
 }
