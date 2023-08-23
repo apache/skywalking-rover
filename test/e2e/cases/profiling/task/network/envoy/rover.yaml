@@ -90,9 +90,9 @@ spec:
             - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_PROCESS_NAME
               value: "{{.Process.ExeNameInCommandLine}}"
             - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_INSTANCE_NAME
-              value: "{{.Pod.LabelValue \"service.istio.io/canonical-name,app.kubernetes.io/name,app\" }}"
+              value: "{{.Pod.LabelValue \"service.istio.io/canonical-name,app.kubernetes.io/name,app\" \"\"}}"
             - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_INSTANCE_NAME
-              value: "{{.Pod.LabelValue \"service.istio.io/canonical-name,app.kubernetes.io/name,app\" }}"
+              value: "{{.Pod.LabelValue \"service.istio.io/canonical-name,app.kubernetes.io/name,app\" \"\"}}"
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

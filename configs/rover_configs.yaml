@@ -83,7 +83,7 @@ process_discovery:
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_CONTAINER_IS_ENVOY:eq .Container.Name "istio-proxy"}
         layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LAYER:MESH_DP}
-        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" }}}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}}
         instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_INSTANCE_NAME:{{.Pod.Name}}}
         process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_PROCESS_NAME:{{.Process.ExeName}}}
         labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LABELS:mesh-envoy}
@@ -92,7 +92,7 @@ process_discovery:
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_CONTAINER_NOT_ENVOY:ne .Container.Name "istio-proxy"}
         layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LAYER:MESH}
-        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" }}}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}}
         instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_INSTANCE_NAME:{{.Pod.Name}}}
         process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_PROCESS_NAME:{{.Process.ExeName}}}
         labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LABELS:mesh-application}
