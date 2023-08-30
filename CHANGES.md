@@ -7,6 +7,7 @@ Release Notes.
 #### Features
 * Enhance compatibility when profiling with SSL.
 * Update `LabelValue` obtain pod information function to add default value parameter.
+* Add `HasOwnerName` to judgement pod has owner name.
 
 #### Bug Fixes
 
