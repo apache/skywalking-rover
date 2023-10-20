@@ -142,18 +142,31 @@ func (i *Info) FindSymbolAddress(name string) uint64 {
 }
 
 func (i *Info) FindSymbolByRegex(rep string) (string, error) {
-	compile, err := regexp.Compile(rep)
+	vals, err := i.FindMultipleSymbolByRegex(rep)
 	if err != nil {
 		return "", err
 	}
+	return vals[0], nil
+}
+
+func (i *Info) FindMultipleSymbolByRegex(rep string) ([]string, error) {
+	compile, err := regexp.Compile(rep)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0)
 	for _, m := range i.Modules {
 		for _, sym := range m.Symbols {
 			if compile.MatchString(sym.Name) {
-				return sym.Name, nil
+				result = append(result, sym.Name)
 			}
 		}
 	}
-	return "", fmt.Errorf("cannot found any matches symbol: %s", rep)
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("cannot found any matches symbol: %s", rep)
+	}
+	return result, nil
 }
 
 func (m *Module) contains(addr uint64) (uint64, bool) {

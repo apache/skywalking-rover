@@ -7,6 +7,7 @@ Release Notes.
 #### Features
 * Enhance compatibility when profiling with SSL.
 * Update `LabelValue` obtain pod information function to add default value parameter.
+* Improve the stability of Off CPU Profiling.
 
 #### Bug Fixes
 
