@@ -8,6 +8,7 @@ Release Notes.
 * Enhance compatibility when profiling with SSL.
 * Update `LabelValue` obtain pod information function to add default value parameter.
 * Add `HasOwnerName` to judgement pod has owner name.
+* Publish the `latest` Docker image tag.
 
 #### Bug Fixes
 
