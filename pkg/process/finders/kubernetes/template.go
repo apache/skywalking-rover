@@ -166,6 +166,11 @@ func (t *TemplatePodJudgment) HasServiceName() bool {
 	return t.ServiceName() != ""
 }
 
+func (t *TemplatePodJudgment) HasOwnerName(names string) bool {
+	name, err := t.OwnerName(names)
+	return err == nil && name != ""
+}
+
 type TemplateContainer struct {
 	pc *PodContainer
 }
