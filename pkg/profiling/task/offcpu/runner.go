@@ -26,6 +26,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
@@ -65,7 +66,7 @@ type Runner struct {
 	// runtime
 	previousStacks  map[ProcessStack]StackCounter
 	bpf             *bpfObjects
-	kprobe          link.Link
+	kprobe          *btf.Linker
 	stopChan        chan bool
 	flushDataNotify context.CancelFunc
 }
@@ -117,25 +118,32 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	}
 	r.bpf = &objs
 
-	kprobe, err := link.Kprobe(r.findMatchesSymbol(), objs.DoFinishTaskSwitch, nil)
-	if err != nil {
+	symbols := r.findMatchesSymbol()
+	linker := btf.NewLinker()
+	switchers := make(map[string]*ebpf.Program)
+	for _, symbol := range symbols {
+		switchers[symbol] = objs.DoFinishTaskSwitch
+	}
+
+	linker.AddLink(link.Kprobe, switchers)
+	if err := linker.HasError(); err != nil {
 		return fmt.Errorf("link to finish task swtich failure: %v", err)
 	}
-	r.kprobe = kprobe
+	r.kprobe = linker
 
 	notify()
 	<-r.stopChan
 	return nil
 }
 
-func (r *Runner) findMatchesSymbol() string {
+func (r *Runner) findMatchesSymbol() []string {
 	if r.kernelProfiling == nil {
-		return defaultKernelSymbol
+		return []string{defaultKernelSymbol}
 	}
-	res, err := r.kernelProfiling.FindSymbolByRegex(`finish_task_switch(\.\w+\.\d+)?`)
+	res, err := r.kernelProfiling.FindMultipleSymbolByRegex(`finish_task_switch(\.\w+\.\d+)?`)
 	if err != nil {
 		log.Warnf("found symbol error: %v", err)
-		return defaultKernelSymbol
+		return []string{defaultKernelSymbol}
 	}
 	return res
 }
