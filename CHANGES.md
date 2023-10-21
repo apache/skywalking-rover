@@ -9,6 +9,7 @@ Release Notes.
 * Update `LabelValue` obtain pod information function to add default value parameter.
 * Add `HasOwnerName` to judgement pod has owner name.
 * Publish the `latest` Docker image tag.
+* Improve the stability of Off CPU Profiling.
 
 #### Bug Fixes
 
