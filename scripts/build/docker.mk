@@ -32,6 +32,7 @@ define DOCKER_RULE
 	docker buildx build ${PLATFORMS} ${LOAD_OR_PUSH} \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BASE_IMAGE=${BASE_IMAGE_NAME}:${CONTAINER_COMMAND_TAG} \
+		-t $(HUB)/skywalking-rover:latest \
 		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/Dockerfile.build
 	@$(MAKE) build-base-container-with-multi-args-cleanup
 endef
