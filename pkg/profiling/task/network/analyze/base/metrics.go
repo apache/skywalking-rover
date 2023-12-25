@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	agentv3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 	logv3 "skywalking.apache.org/repo/goapi/collect/logging/v3"
@@ -96,11 +96,11 @@ func (m *MetricsBuilder) MetricPrefix() string {
 	return m.prefix
 }
 
-func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (events.ConnectionRole, []*agentv3.Label) {
+func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local api.ProcessInterface) (enums.ConnectionRole, []*agentv3.Label) {
 	curRole := traffic.Role
 	// add the default role
-	if curRole == events.ConnectionRoleUnknown {
-		curRole = events.ConnectionRoleClient
+	if curRole == enums.ConnectionRoleUnknown {
+		curRole = enums.ConnectionRoleClient
 	}
 	labels := make([]*agentv3.Label, 0)
 

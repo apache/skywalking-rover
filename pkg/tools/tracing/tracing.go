@@ -15,17 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package tracing
 
 import (
 	"encoding/base64"
 	"fmt"
 	"strings"
 
-	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
+	accesslogv3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
+	agentv3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
-type TracingContext interface {
+type Provider int
+
+var (
+	ProviderSkyWalking Provider = 1
+	ProviderZipkin              = 2
+)
+
+type Context interface {
 	TraceID() string
 	TraceSegmentID() string
 	SpanID() string
@@ -33,8 +41,9 @@ type TracingContext interface {
 }
 
 type TraceContextProvider struct {
-	Type v3.SpanAttachedEvent_SpanReferenceType
-	Name string
+	SpanAttachType agentv3.SpanAttachedEvent_SpanReferenceType
+	AccessLogType  accesslogv3.AccessLogTraceInfoProvider
+	Name           string
 }
 
 type SkyWalkingTracingContext struct {
@@ -66,12 +75,13 @@ func (w *SkyWalkingTracingContext) SpanID() string {
 
 func (w *SkyWalkingTracingContext) Provider() *TraceContextProvider {
 	return &TraceContextProvider{
-		Type: v3.SpanAttachedEvent_SKYWALKING,
-		Name: "skywalking",
+		SpanAttachType: agentv3.SpanAttachedEvent_SKYWALKING,
+		AccessLogType:  accesslogv3.AccessLogTraceInfoProvider_SkyWalking,
+		Name:           "skywalking",
 	}
 }
 
-func AnalyzeTracingContext(fetcher func(key string) string) (TracingContext, error) {
+func AnalyzeTracingContext(fetcher func(key string) string) (Context, error) {
 	// skywalking v3
 	if sw8Header := fetcher("sw8"); sw8Header != "" {
 		return analyzeSkyWalking8TracingContext(sw8Header)
@@ -138,8 +148,9 @@ func (w *ZipkinTracingContext) SpanID() string {
 
 func (w *ZipkinTracingContext) Provider() *TraceContextProvider {
 	return &TraceContextProvider{
-		Type: v3.SpanAttachedEvent_ZIPKIN,
-		Name: "zipkin",
+		SpanAttachType: agentv3.SpanAttachedEvent_ZIPKIN,
+		AccessLogType:  accesslogv3.AccessLogTraceInfoProvider_Zipkin,
+		Name:           "zipkin",
 	}
 }
 

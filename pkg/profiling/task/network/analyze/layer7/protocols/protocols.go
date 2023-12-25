@@ -24,6 +24,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"golang.org/x/net/context"
 )
@@ -46,11 +47,11 @@ func init() {
 
 type Analyzer struct {
 	ctx       protocol.Context
-	protocols map[events.ConnectionProtocol]*protocol.ProtocolAnalyzer
+	protocols map[enums.ConnectionProtocol]*protocol.ProtocolAnalyzer
 }
 
 func NewAnalyzer(ctx protocol.Context, config *profiling.TaskConfig) *Analyzer {
-	protocols := make(map[events.ConnectionProtocol]*protocol.ProtocolAnalyzer)
+	protocols := make(map[enums.ConnectionProtocol]*protocol.ProtocolAnalyzer)
 	for _, r := range registerProtocols {
 		p := r()
 		p.Init(config)
@@ -102,18 +103,18 @@ func (a *Analyzer) ReceiveSocketClose(event *events.SocketCloseEvent) {
 }
 
 type ProtocolMetrics struct {
-	data map[events.ConnectionProtocol]protocol.Metrics
+	data map[enums.ConnectionProtocol]protocol.Metrics
 }
 
 func NewProtocolMetrics() *ProtocolMetrics {
-	metrics := make(map[events.ConnectionProtocol]protocol.Metrics)
+	metrics := make(map[enums.ConnectionProtocol]protocol.Metrics)
 	for _, p := range defaultInstances {
 		metrics[p.Protocol()] = p.GenerateMetrics()
 	}
 	return &ProtocolMetrics{data: metrics}
 }
 
-func (m *ProtocolMetrics) GetProtocolMetrics(p events.ConnectionProtocol) protocol.Metrics {
+func (m *ProtocolMetrics) GetProtocolMetrics(p enums.ConnectionProtocol) protocol.Metrics {
 	return m.data[p]
 }
 

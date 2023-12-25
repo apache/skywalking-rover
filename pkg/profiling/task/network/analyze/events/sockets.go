@@ -17,6 +17,8 @@
 
 package events
 
+import "github.com/apache/skywalking-rover/pkg/tools/enums"
+
 // SocketConnectEvent Socket have been connection/accept event
 type SocketConnectEvent struct {
 	ConID        uint64
@@ -28,7 +30,7 @@ type SocketConnectEvent struct {
 	FuncName     uint32
 
 	// socket information if exists
-	Role           ConnectionRole
+	Role           enums.ConnectionRole
 	SocketFamily   uint32
 	RemoteAddrV4   uint32
 	RemoteAddrV6   [16]uint8
@@ -44,10 +46,10 @@ type SocketCloseEvent struct {
 	ExeTime  uint64
 	Pid      uint32
 	SocketFD uint32
-	Protocol ConnectionProtocol
+	Protocol enums.ConnectionProtocol
 	IsSSL    uint8
 	Fix      uint16
-	Role     ConnectionRole
+	Role     enums.ConnectionRole
 
 	SocketFamily   uint32
 	RemoteAddrV4   uint32

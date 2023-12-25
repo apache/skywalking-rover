@@ -30,6 +30,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+#include <sys/uio.h>
 #include "network.h"
 #include "protocol_analyzer.h"
 
@@ -85,10 +86,10 @@ static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *ch
 static __always_inline void process_msghdr_data(struct pt_regs *ctx, __u64 id, void *channel_ref, struct msghdr *msg) {
     const struct iovec *iovec;
     iovec = _KERNEL(msg->msg_iter.iov);
-    struct iovec iov;
-    bpf_probe_read(&iov, sizeof(iov), iovec);
-    char* buf = (char *)iov.iov_base;
-    __u64 size = iov.iov_len;
+    struct iovec iov_data;
+    bpf_probe_read(&iov_data, sizeof(iov_data), iovec);
+    char* buf = (char *)iov_data.iov_base;
+    __u64 size = iov_data.iov_len;
 
     return process_data(ctx, id, channel_ref, buf, size, bpf_ktime_get_ns());
 }

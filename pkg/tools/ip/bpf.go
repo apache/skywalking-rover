@@ -15,27 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package base
+package ip
 
 import (
-	"github.com/shirou/gopsutil/process"
-
-	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/tools/profiling"
+	"net"
+	"unsafe"
 )
 
-// DetectedProcess from the finder
-type DetectedProcess interface {
-	// Pid of process in host
-	Pid() int32
-	// OriginalProcess is works for query the process data
-	OriginalProcess() *process.Process
-	// Entity of process, is related with backend entity
-	Entity() *api.ProcessEntity
-	// DetectType define the process find type
-	DetectType() api.ProcessDetectType
-	// ProfilingStat of process
-	ProfilingStat() *profiling.Info
-	// ExposePorts define which ports are exposed
-	ExposePorts() []int
+func ParseIPV4(bpfVal uint32) string {
+	return net.IP((*(*[net.IPv4len]byte)(unsafe.Pointer(&bpfVal)))[:]).String()
+}
+
+func ParseIPV6(bpfVal [16]uint8) string {
+	return net.IP((*(*[net.IPv6len]byte)(unsafe.Pointer(&bpfVal)))[:]).String()
 }

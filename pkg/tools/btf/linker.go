@@ -132,6 +132,9 @@ func (m *Linker) AddSysCall(call string, enter, exit *ebpf.Program) {
 }
 
 func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Program) {
+	if p == nil {
+		return
+	}
 	kprobe, err := linkK(syscallPrefix+call, p, nil)
 
 	if err != nil {

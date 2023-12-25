@@ -10,6 +10,7 @@ Release Notes.
 * Add `HasOwnerName` to judgement pod has owner name.
 * Publish the `latest` Docker image tag.
 * Improve the stability of Off CPU Profiling.
+* Support collecting the access log from Kubernetes.
 
 #### Bug Fixes
 

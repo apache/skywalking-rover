@@ -28,12 +28,10 @@ import (
 	"strings"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"golang.org/x/net/html/charset"
-
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 var (
@@ -103,7 +101,7 @@ func (m *MessageOpt) EndTime() uint64 {
 	return m.BodyBuffer().LastSocketBuffer().EndTime()
 }
 
-func (m *MessageOpt) Direction() events.SocketDataDirection {
+func (m *MessageOpt) Direction() enums.SocketDataDirection {
 	return m.HeaderBuffer().FirstSocketBuffer().Direction()
 }
 

@@ -107,9 +107,6 @@ func localIPAddress0() (ipAddresses map[string]*hostIPAddress, defAddr string, e
 	ipAddresses = make(map[string]*hostIPAddress)
 	var defV4, defV6 string
 	for _, i := range ifaces {
-		if i.Flags&net.FlagLoopback != 0 {
-			continue
-		}
 		addrs, err := i.Addrs()
 		if err != nil {
 			return nil, "", err
@@ -148,9 +145,6 @@ func analyzeIPAddresses(addrs []net.Addr) (ipv4, ipv6 string) {
 			ip = v.IP
 		case *net.IPAddr:
 			ip = v.IP
-		}
-		if ip.IsLoopback() {
-			continue
 		}
 		if ip.To4() != nil {
 			ipv4 = ip.To4().String()

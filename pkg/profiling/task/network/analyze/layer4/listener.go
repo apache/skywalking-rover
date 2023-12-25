@@ -32,6 +32,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 
@@ -129,13 +130,13 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 
 		// add the histogram data
 		var histogram *SocketDataHistogramWithHistory
-		if key.DataDirection == events.SocketDataDirectionEgress {
-			if key.DataType == events.SocketDataStaticsTypeExeTime {
+		if key.DataDirection == enums.SocketDataDirectionEgress {
+			if key.DataType == enums.SocketDataStaticsTypeExeTime {
 				histogram = layer4.WriteExeTimeHistogram
-			} else if key.DataType == events.SocketDataStaticsTypeRTT {
+			} else if key.DataType == enums.SocketDataStaticsTypeRTT {
 				histogram = layer4.WriteRTTHistogram
 			}
-		} else if key.DataDirection == events.SocketDataDirectionIngress {
+		} else if key.DataDirection == enums.SocketDataDirectionIngress {
 			histogram = layer4.ReadExeTimeHistogram
 		}
 		if histogram == nil {
@@ -152,7 +153,7 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 		}
 	}
 
-	// all the exception operations to the context
+	// all the exception operations to the common
 	exceptionContexts := l.cleanAndGetAllExceptionContexts()
 	l.combineExceptionToConnections(keyWithContext, exceptionContexts)
 	return nil
@@ -355,8 +356,8 @@ type HistogramDataKey struct {
 	ConnectionID  uint64
 	RandomID      uint64
 	Bucket        uint64
-	DataDirection events.SocketDataDirection
-	DataType      events.SocketDataStaticsType
+	DataDirection enums.SocketDataDirection
+	DataType      enums.SocketDataStaticsType
 	Fix           [6]byte
 }
 

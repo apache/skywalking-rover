@@ -26,13 +26,14 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
-	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/metrics"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
+	protocol "github.com/apache/skywalking-rover/pkg/tools/tracing"
 
 	"github.com/docker/go-units"
 
@@ -174,7 +175,7 @@ func (u *URIMetrics) String() string {
 }
 
 type Trace struct {
-	Trace      protocol.TracingContext
+	Trace      protocol.Context
 	RequestURI string
 	Request    *reader.Request
 	Response   *reader.Response
@@ -192,7 +193,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 	logData.Tags = &logv3.LogTags{Data: make([]*commonv3.KeyStringValuePair, 0)}
 	logData.Tags.Data = append(logData.Tags.Data, &commonv3.KeyStringValuePair{Key: "LOG_KIND", Value: "NET_PROFILING_SAMPLED_TRACE"})
 
-	// trace context
+	// trace common
 	traceContext := &logv3.TraceContext{}
 	traceContext.TraceId = h.Trace.TraceID()
 	logData.TraceContext = traceContext
@@ -209,7 +210,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 		Reason:        h.Type,
 		Status:        h.Response.Original().StatusCode,
 	}
-	if traffic.Role == events.ConnectionRoleClient {
+	if traffic.Role == enums.ConnectionRoleClient {
 		body.ClientProcess = &SamplingTraceLogProcess{ProcessID: process.ID()}
 		body.ServerProcess = NewHTTP1SampledTraceLogRemoteProcess(traffic, process)
 	} else {
@@ -278,7 +279,7 @@ func (h *Trace) appendHTTPEvent(attaches []*v3.SpanAttachedEvent, process api.Pr
 		TraceId:        h.Trace.TraceID(),
 		TraceSegmentId: h.Trace.TraceSegmentID(),
 		SpanId:         h.Trace.SpanID(),
-		Type:           h.Trace.Provider().Type,
+		Type:           h.Trace.Provider().SpanAttachType,
 	}
 	return append(attaches, event)
 }
@@ -290,12 +291,12 @@ func (h *Trace) appendSyscallEvents(attachEvents []*v3.SpanAttachedEvent, proces
 	dataIDCache := make(map[uint64]bool)
 	for e := headerDetails.Front(); e != nil; e = e.Next() {
 		event := e.Value.(*events.SocketDetailEvent)
-		dataIDCache[event.DataID] = true
+		dataIDCache[event.DataID()] = true
 		attachEvents = h.appendPerDetailEvent(attachEvents, process, traffic, event, message.HeaderBuffer())
 	}
 	for e := bodyDetails.Front(); e != nil; e = e.Next() {
 		event := e.Value.(*events.SocketDetailEvent)
-		if dataIDCache[event.DataID] {
+		if dataIDCache[event.DataID()] {
 			continue
 		}
 		attachEvents = h.appendPerDetailEvent(attachEvents, process, traffic, event, message.BodyBuffer())
@@ -306,7 +307,7 @@ func (h *Trace) appendSyscallEvents(attachEvents []*v3.SpanAttachedEvent, proces
 func (h *Trace) appendPerDetailEvent(attaches []*v3.SpanAttachedEvent, process api.ProcessInterface, _ *base.ProcessTraffic,
 	detail *events.SocketDetailEvent, buf *buffer.Buffer) []*v3.SpanAttachedEvent {
 	event := &v3.SpanAttachedEvent{}
-	dataBuffer := buf.FindFirstDataBuffer(detail.DataID)
+	dataBuffer := buf.FindFirstDataBuffer(detail.DataID())
 	if dataBuffer == nil {
 		return attaches
 	}
@@ -336,7 +337,7 @@ func (h *Trace) appendPerDetailEvent(attaches []*v3.SpanAttachedEvent, process a
 		TraceId:        h.Trace.TraceID(),
 		TraceSegmentId: h.Trace.TraceSegmentID(),
 		SpanId:         h.Trace.SpanID(),
-		Type:           h.Trace.Provider().Type,
+		Type:           h.Trace.Provider().SpanAttachType,
 	}
 	return append(attaches, event)
 }

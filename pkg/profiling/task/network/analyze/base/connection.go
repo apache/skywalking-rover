@@ -19,7 +19,7 @@ package base
 
 import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type ConnectionContext struct {
@@ -30,11 +30,11 @@ type ConnectionContext struct {
 	SocketFD         uint32
 	LocalProcesses   []api.ProcessInterface
 	ConnectionClosed bool
-	Protocol         events.ConnectionProtocol
+	Protocol         enums.ConnectionProtocol
 	IsSSL            bool
 
 	// socket metadata
-	Role       events.ConnectionRole
+	Role       enums.ConnectionRole
 	LocalIP    string
 	LocalPort  uint16
 	RemoteIP   string
@@ -67,7 +67,7 @@ type ActiveConnectionInBPF struct {
 	RandomID     uint64
 	Pid          uint32
 	SocketFD     uint32
-	Role         events.ConnectionRole
+	Role         enums.ConnectionRole
 	SocketFamily uint32
 
 	RemoteAddrV4   uint32
@@ -91,7 +91,7 @@ type ActiveConnectionInBPF struct {
 	_ uint64
 
 	// protocol of connection
-	Protocol events.ConnectionProtocol
+	Protocol enums.ConnectionProtocol
 	// the connect event is already sent
 	ConnectEventIsSent uint8
 	IsSSL              uint8

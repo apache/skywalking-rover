@@ -18,12 +18,12 @@
 package network
 
 import (
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type BufferDirection uint8
 
-var protocolAnalyzers map[events.ConnectionProtocol]ProtocolAnalyzer
+var protocolAnalyzers map[enums.ConnectionProtocol]ProtocolAnalyzer
 
 var (
 	BufferDirectionRequest  BufferDirection = 1
@@ -31,14 +31,14 @@ var (
 )
 
 func init() {
-	protocolAnalyzers = make(map[events.ConnectionProtocol]ProtocolAnalyzer)
-	protocolAnalyzers[events.ConnectionProtocolHTTP] = NewHTTP1Analyzer()
+	protocolAnalyzers = make(map[enums.ConnectionProtocol]ProtocolAnalyzer)
+	protocolAnalyzers[enums.ConnectionProtocolHTTP] = NewHTTP1Analyzer()
 }
 
 type networkBufferInBPF struct {
 	Timestamp  uint64
 	ChannelRef uint64
-	Protocol   events.ConnectionProtocol
+	Protocol   enums.ConnectionProtocol
 	Direction  BufferDirection
 	Size       uint16
 	Pid        uint32

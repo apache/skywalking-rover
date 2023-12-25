@@ -30,4 +30,11 @@ type Operator interface {
 	AddListener(listener api.ProcessListener)
 	// DeleteListener delete the process listener
 	DeleteListener(listener api.ProcessListener)
+	// ShouldMonitor check the process should be monitored
+	ShouldMonitor(pid int32) bool
+}
+
+type K8sOperator interface {
+	// NodeName get the node name
+	NodeName() string
 }

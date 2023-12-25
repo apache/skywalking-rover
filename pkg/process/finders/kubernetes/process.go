@@ -95,3 +95,11 @@ func (p *Process) ExposePorts() []int {
 
 	return result
 }
+
+func (p *Process) ExposeHosts() []string {
+	result := make([]string, 0)
+	for _, ip := range p.podContainer.Pod.Status.PodIPs {
+		result = append(result, ip.IP)
+	}
+	return result
+}

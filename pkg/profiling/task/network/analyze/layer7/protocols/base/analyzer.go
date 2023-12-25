@@ -27,9 +27,9 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 const (
@@ -96,7 +96,7 @@ func (a *ProtocolAnalyzer) ReceiveSocketDetail(ctx Context, event *events.Socket
 	connectionID := event.GenerateConnectionID()
 	connection := a.getConnection(ctx, event.ConnectionID, event.RandomID)
 
-	log.Debugf("receive detail from connection: %s, dataid: %d", connectionID, event.DataID)
+	log.Debugf("receive detail from connection: %s, dataid: %d", connectionID, event.DataID())
 	connection.buffer.AppendDetailEvent(event)
 }
 
@@ -221,7 +221,7 @@ func (a *ProtocolAnalyzer) generateConnectionInfoKey(connectionID, randomID uint
 
 type connectionInfo struct {
 	connectionID, randomID uint64
-	connectionProtocol     events.ConnectionProtocol
+	connectionProtocol     enums.ConnectionProtocol
 	buffer                 *buffer.Buffer
 	metrics                Metrics
 	metricsFromConnection  bool

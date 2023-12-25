@@ -22,13 +22,12 @@ import (
 
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type Protocol interface {
-	Protocol() events.ConnectionProtocol
+	Protocol() enums.ConnectionProtocol
 	GenerateMetrics() Metrics
 	Init(config *profiling.TaskConfig)
 
@@ -39,7 +38,7 @@ type Protocol interface {
 
 type Context interface {
 	QueryConnection(connectionID, randomID uint64) *base.ConnectionContext
-	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocol events.ConnectionProtocol) Metrics
+	QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, protocol enums.ConnectionProtocol) Metrics
 }
 
 type Metrics interface {

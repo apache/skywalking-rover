@@ -83,13 +83,29 @@ func (p *ProcessFinder) DetectType() api.ProcessDetectType {
 	return api.Scanner
 }
 
-func (p *ProcessFinder) ValidateProcessIsSame(p1, p2 base.DetectedProcess) bool {
+func (p *ProcessFinder) ShouldMonitor(pid int32) bool {
+	curProcess, err := process.NewProcess(pid)
+	if err != nil {
+		return false
+	}
+	var buildProcess *Process
+	if p.conf.ScanMode == Regex {
+		buildProcess = p.regexBuildProcess(curProcess)
+	}
+	if buildProcess != nil {
+		p.manager.AddDetectedProcess([]api.DetectedProcess{buildProcess})
+		return true
+	}
+	return false
+}
+
+func (p *ProcessFinder) ValidateProcessIsSame(p1, p2 api.DetectedProcess) bool {
 	vm1 := p1.(*Process)
 	vm2 := p2.(*Process)
 	return p1.Pid() == p2.Pid() && vm1.cmd == vm2.cmd && p1.Entity().SameWith(p2.Entity())
 }
 
-func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps base.DetectedProcess) *v3.EBPFProcessProperties {
+func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps api.DetectedProcess) *v3.EBPFProcessProperties {
 	hostProcess := &v3.EBPFHostProcessMetadata{}
 	hostProcess.Pid = ps.Pid()
 	hostProcess.Entity = &v3.EBPFProcessEntityMetadata{
@@ -120,7 +136,7 @@ func (p *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 	return properties
 }
 
-func (p *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*commonv3.KeyStringValuePair {
+func (p *ProcessFinder) BuildNecessaryProperties(ps api.DetectedProcess) []*commonv3.KeyStringValuePair {
 	return []*commonv3.KeyStringValuePair{
 		{
 			Key:   "support_ebpf_profiling",
@@ -129,7 +145,7 @@ func (p *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*com
 	}
 }
 
-func (p *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.EBPFProcessDownstream) string {
+func (p *ProcessFinder) ParseProcessID(ps api.DetectedProcess, downstream *v3.EBPFProcessDownstream) string {
 	if downstream.GetHostProcess() == nil {
 		return ""
 	}
@@ -156,7 +172,7 @@ func (p *ProcessFinder) startWatch() {
 }
 
 func (p *ProcessFinder) findAndReportProcesses() {
-	var detectFunc func() ([]base.DetectedProcess, error)
+	var detectFunc func() ([]api.DetectedProcess, error)
 	if p.conf.ScanMode == Regex {
 		detectFunc = p.regexFindProcesses
 	} else if p.conf.ScanMode == Agent {
@@ -170,7 +186,7 @@ func (p *ProcessFinder) findAndReportProcesses() {
 	}
 }
 
-func (p *ProcessFinder) regexFindProcesses() ([]base.DetectedProcess, error) {
+func (p *ProcessFinder) regexFindProcesses() ([]api.DetectedProcess, error) {
 	// find all process
 	processes, err := p.regexFindMatchedProcesses()
 	if err != nil {
@@ -178,7 +194,7 @@ func (p *ProcessFinder) regexFindProcesses() ([]base.DetectedProcess, error) {
 	}
 
 	// report to the manager
-	psList := make([]base.DetectedProcess, 0)
+	psList := make([]api.DetectedProcess, 0)
 	for _, ps := range processes {
 		psList = append(psList, ps)
 	}
@@ -208,14 +224,14 @@ func (p *ProcessFinder) getProcessTempDir(pro *process.Process) (string, error) 
 	return "", fmt.Errorf("could not found tmp directory for pid: %d", pro.Pid)
 }
 
-func (p *ProcessFinder) agentFindProcesses() ([]base.DetectedProcess, error) {
+func (p *ProcessFinder) agentFindProcesses() ([]api.DetectedProcess, error) {
 	// all system processes
 	processes, err := process.ProcessesWithContext(p.ctx)
 	if err != nil {
 		return nil, err
 	}
 	// find all matches processes
-	findedProcesses := make([]base.DetectedProcess, 0)
+	findedProcesses := make([]api.DetectedProcess, 0)
 	for _, pro := range processes {
 		// already contains the processes
 		pid := pro.Pid
@@ -323,6 +339,30 @@ func (p *ProcessFinder) buildProcessFromAgentMetadata(pro *process.Process, meta
 	return NewProcessByAgent(pro, cmdline, agent)
 }
 
+func (p *ProcessFinder) regexBuildProcess(pro *process.Process) *Process {
+	finderConfig, cmdline, err := p.findMatchesFinder(pro)
+	if err != nil {
+		log.Warnf("failed to match process %d, reason: %v", pro.Pid, err)
+		return nil
+	}
+	if finderConfig == nil {
+		return nil
+	}
+
+	// build the linux process and add to the list
+	ps := NewProcessByRegex(pro, cmdline, finderConfig)
+	ps.entity.Layer = finderConfig.Layer
+	ps.entity.ServiceName, err = p.buildEntity(err, ps, finderConfig.serviceNameBuilder)
+	ps.entity.InstanceName, err = p.buildEntity(err, ps, finderConfig.instanceNameBuilder)
+	ps.entity.ProcessName, err = p.buildEntity(err, ps, finderConfig.processNameBuilder)
+	ps.entity.Labels = finderConfig.ParsedLabels
+	if err != nil {
+		log.Warnf("failed to build the process data for pid: %d, reason: %v", pro.Pid, err)
+		return nil
+	}
+	return ps
+}
+
 func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
 	// all system processes
 	processes, err := process.ProcessesWithContext(p.ctx)
@@ -332,28 +372,8 @@ func (p *ProcessFinder) regexFindMatchedProcesses() ([]*Process, error) {
 	// find all matches processes
 	findedProcesses := make([]*Process, 0)
 	for _, pro := range processes {
-		// find the matched process finder
-		finderConfig, cmdline, err := p.findMatchesFinder(pro)
-		if err != nil {
-			log.Warnf("failed to match process %d, reason: %v", pro.Pid, err)
-			continue
-		}
-		if finderConfig == nil {
-			continue
-		}
-
-		// build the linux process and add to the list
-		ps := NewProcessByRegex(pro, cmdline, finderConfig)
-		ps.entity.Layer = finderConfig.Layer
-		ps.entity.ServiceName, err = p.buildEntity(err, ps, finderConfig.serviceNameBuilder)
-		ps.entity.InstanceName, err = p.buildEntity(err, ps, finderConfig.instanceNameBuilder)
-		ps.entity.ProcessName, err = p.buildEntity(err, ps, finderConfig.processNameBuilder)
-		ps.entity.Labels = finderConfig.ParsedLabels
-		if err != nil {
-			log.Warnf("failed to build the process data for pid: %d, reason: %v", pro.Pid, err)
-			continue
-		} else {
-			findedProcesses = append(findedProcesses, ps)
+		if curProcess := p.regexBuildProcess(pro); curProcess != nil {
+			findedProcesses = append(findedProcesses, curProcess)
 		}
 	}
 	if len(findedProcesses) == 0 {

@@ -188,15 +188,6 @@ func (r *Register) generateGOTLSSymbolOffsets(register *Register, elfFile *elf.F
 
 	symbolAddresses := &GoTLSSymbolAddress{}
 
-	sym := register.SearchSymbol(func(a, b string) bool {
-		return a == b
-	}, "go.itab.*net.TCPConn,net.Conn")
-	if sym == nil {
-		log.Warnf("could not found the tcp connection symbol: go.itab.*net.TCPConn,net.Conn")
-		return nil, nil
-	}
-	symbolAddresses.TCPConnOffset = sym.Location
-
 	readFunction := reader.GetFunction(goTLSReadSymbol)
 	if readFunction == nil {
 		log.Warnf("could not found the go tls read symbol: %s", goTLSReadSymbol)
@@ -212,6 +203,15 @@ func (r *Register) generateGOTLSSymbolOffsets(register *Register, elfFile *elf.F
 		log.Warnf("could not found the goid status change symbol: %s", goTLSGIDStatusSymbol)
 		return nil, nil
 	}
+
+	sym := register.SearchSymbol(func(a, b string) bool {
+		return a == b
+	}, "go.itab.*net.TCPConn,net.Conn")
+	if sym == nil {
+		log.Warnf("could not found the tcp connection symbol: go.itab.*net.TCPConn,net.Conn")
+		return nil, nil
+	}
+	symbolAddresses.TCPConnOffset = sym.Location
 
 	var retValArg0, retValArg1 = "~r1", "~r2"
 	if v.Minor >= 18 {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package events
+package enums
 
 import "fmt"
 
@@ -23,6 +23,8 @@ const (
 	unknown = "unknown"
 	http    = "http"
 )
+
+var SocketFamilyUnknown = uint8(0xff)
 
 // ConnectionRole represents the role of the current process is the connection
 // whether it's a server or a client, if it's not trigger the connection/accept request, then it's unknown
@@ -205,3 +207,33 @@ func (f SocketFunctionName) String() string {
 		return fmt.Sprintf("Unknown(%d)", f)
 	}
 }
+
+func (f SocketFunctionName) GetSocketOperationType() SocketOperationType {
+	switch f {
+	case SocketFunctionNameConnect:
+		return SocketOperationTypeConnect
+	case SocketFunctionNameAccept:
+		return SocketOperationTypeAccept
+	case SocketFunctionNameClose:
+		return SocketOperationTypeClose
+	case SocketFunctionNameSend, SocketFunctionNameSendto, SocketFunctionNameSendMsg, SocketFunctionNameSendMMSg,
+		SocketFunctionNameSendFile, SocketFunctionNameWrite, SocketFunctionNameWritev, SocketFunctionNameResent,
+		SocketFunctionNameSslWrite, SocketFunctionNameGoTLSWrite:
+		return SocketOperationTypeWrite
+	case SocketFunctionNameRead, SocketFunctionNameReadv, SocketFunctionNameRecv, SocketFunctionNameRecvfrom,
+		SocketFunctionNameRecvMsg, SocketFunctionNameRecvMMsg, SocketFunctionNameSslRead, SocketFunctionNameGoTLSRead:
+		return SocketOperationTypeRead
+	}
+	return SocketOperationTypeUnknown
+}
+
+type SocketOperationType int
+
+var (
+	SocketOperationTypeConnect SocketOperationType = 0
+	SocketOperationTypeAccept  SocketOperationType = 1
+	SocketOperationTypeClose   SocketOperationType = 2
+	SocketOperationTypeWrite   SocketOperationType = 3
+	SocketOperationTypeRead    SocketOperationType = 4
+	SocketOperationTypeUnknown SocketOperationType = 5
+)

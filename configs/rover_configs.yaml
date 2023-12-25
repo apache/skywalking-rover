@@ -152,3 +152,19 @@ profiling:
       execute_duration: ${ROVER_PROFILING_CONTINUOUS_TRIGGER_EXECUTE_DURATION:10m}
       # the minimal duration between the execution of the same profiling task
       silence_duration: ${ROVER_PROFILING_CONTINUOUS_TRIGGER_SILENCE_DURATION:20m}
+
+access_log:
+  # Is active the access log monitoring
+  active: ${ROVER_ACCESS_LOG_ACTIVE:false}
+  flush:
+    # The max count of access log when flush to the backend
+    max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:2000}
+    # The period of flush access log to the backend
+    period: ${ROVER_ACCESS_LOG_FLUSH_PERIOD:5s}
+  protocol_analyze:
+    # The size of socket data buffer on each CPU
+    per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:400KB}
+    # The count of parallel protocol analyzer
+    parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS:2}
+    # The size of per paralleled analyzer queue
+    queue_size: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}

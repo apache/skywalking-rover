@@ -25,8 +25,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type Response struct {

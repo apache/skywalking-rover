@@ -71,6 +71,18 @@ static __inline __u32 infer_http1_message(const char* buf, size_t count) {
     return CONNECTION_MESSAGE_TYPE_UNKNOWN;
 }
 
+static bool is_http2_magic(const char *buf_src, size_t count)
+{
+	static const char magic[] = "PRI * HTTP/2";
+	char buffer[sizeof(magic)] = { 0 };
+	bpf_probe_read(buffer, sizeof(buffer) - 1, buf_src);
+	for (int idx = 0; idx < sizeof(magic); ++idx) {
+		if (magic[idx] == buffer[idx])
+			continue;
+		return false;
+	}
+	return true;
+}
 
 // HTTP 2.x
 // frame format: https://www.rfc-editor.org/rfc/rfc7540.html#section-4.1
@@ -96,6 +108,10 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
     __u32 frameOffset = 0;
     // header info
     __u8 staticInx, headerBlockFragmentOffset;
+
+    if (is_http2_magic(buf, count)) {
+        frameOffset = 24;
+    }
 
     // each all frame
 #pragma unroll

@@ -98,3 +98,11 @@ func (m *Module) AddListener(listener api.ProcessListener) {
 func (m *Module) DeleteListener(listener api.ProcessListener) {
 	m.manager.DeleteListener(listener)
 }
+
+func (m *Module) ShouldMonitor(pid int32) bool {
+	return m.manager.ShouldMonitor(pid)
+}
+
+func (m *Module) NodeName() string {
+	return m.config.Kubernetes.NodeName
+}

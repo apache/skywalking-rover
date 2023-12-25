@@ -48,14 +48,18 @@ func NetworkName(ifindex int) string {
 	return ""
 }
 
+func AllNetworkInterfaces() map[int]*net.Interface {
+	return interfaces
+}
+
 func refreshInterfaces() error {
 	results, err := net.Interfaces()
 	if err != nil {
 		return err
 	}
 	tmp := make(map[int]*net.Interface)
-	for _, interf := range results {
-		tmp[interf.Index] = &interf
+	for inx, interf := range results {
+		tmp[interf.Index] = &results[inx]
 	}
 	interfaces = tmp
 	return nil

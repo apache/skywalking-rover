@@ -15,28 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-struct iovec {
-	void *iov_base;
-	__u64 iov_len;
-} __attribute__((preserve_access_index));
+#include "l24.h"
+#include "../common/data_args.h"
 
-struct iov_iter {
-	__u64 count;
-	union {
-		const struct iovec *iov;
-		const struct kvec *kvec;
-		const struct bio_vec *bvec;
-		struct xarray *xarray;
-		struct pipe_inode_info *pipe;
-	};
-} __attribute__((preserve_access_index));
+struct netif_receive_skb {
+	unsigned long long pad;
+	void * skbaddr;
+};
 
-struct msghdr {
-	struct iov_iter	msg_iter;	/* data */
-	unsigned int	msg_flags;
-} __attribute__((preserve_access_index));
+SEC("tracepoint/net/netif_receive_skb")
+int tracepoint_netif_receive_skb(struct netif_receive_skb *ctx) {
+    struct sk_buff * skb = (struct sk_buff *)ctx->skbaddr;
 
-struct sock {
-	struct socket		*sk_socket;
-	__u32			sk_max_ack_backlog;
-} __attribute__((preserve_access_index));
+    struct net_device *device = _(skb->dev);
+    int ifindex;
+    bpf_probe_read(&ifindex, sizeof(ifindex), &device->ifindex);
+
+    struct skb_receive_detail detail = {
+        .ifindex = ifindex,
+        .netif_receive_time = bpf_ktime_get_ns(),
+    };
+    bpf_map_update_elem(&sk_buff_receive_detail_map, &skb, &detail, 0);
+    return 0;
+}

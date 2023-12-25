@@ -48,6 +48,8 @@ type ProcessManager struct {
 type ProcessManagerWithFinder struct {
 	*ProcessManager
 	finderType api.ProcessDetectType
+
+	lastSync []api.DetectedProcess
 }
 
 func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
@@ -117,8 +119,21 @@ func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 	return p.moduleManager
 }
 
-func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []base.DetectedProcess) {
+func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []api.DetectedProcess) {
 	p.storage.SyncAllProcessInFinder(p.finderType, processes)
+}
+
+func (p *ProcessManagerWithFinder) AddDetectedProcess(processes []api.DetectedProcess) {
+	if len(p.lastSync) == 0 {
+		p.SyncAllProcessInFinder(processes)
+		p.lastSync = processes
+		return
+	}
+	// fetch existing process, add the new processes, finally, re-sync
+	detectedProcesses := make([]api.DetectedProcess, len(processes)+len(p.lastSync))
+	detectedProcesses = append(detectedProcesses, p.lastSync...)
+	detectedProcesses = append(detectedProcesses, processes...)
+	p.SyncAllProcessInFinder(detectedProcesses)
 }
 
 func (m *ProcessManager) GetAllProcesses() []api.ProcessInterface {
@@ -143,4 +158,14 @@ func (m *ProcessManager) AddListener(listener api.ProcessListener) {
 
 func (m *ProcessManager) DeleteListener(listener api.ProcessListener) {
 	m.storage.DeleteListener(listener)
+}
+
+func (m *ProcessManager) ShouldMonitor(pid int32) bool {
+	monitor := false
+	for _, finder := range m.finders {
+		if finder.ShouldMonitor(pid) {
+			monitor = true
+		}
+	}
+	return monitor
 }

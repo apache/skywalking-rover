@@ -26,11 +26,10 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1/reader"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"github.com/sirupsen/logrus"
 )
@@ -72,8 +71,8 @@ func NewHTTP1Analyzer() protocol.Protocol {
 	}
 }
 
-func (h *Analyzer) Protocol() events.ConnectionProtocol {
-	return events.ConnectionProtocolHTTP
+func (h *Analyzer) Protocol() enums.ConnectionProtocol {
+	return enums.ConnectionProtocolHTTP
 }
 
 func (h *Analyzer) GenerateMetrics() protocol.Metrics {
@@ -151,11 +150,11 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 
 	// append metrics
 	data := metrics.clientMetrics
-	side := events.ConnectionRoleClient
-	if request.Direction() == events.SocketDataDirectionIngress {
+	side := enums.ConnectionRoleClient
+	if request.Direction() == enums.SocketDataDirectionIngress {
 		// if receive the request, that's mean is server side
 		data = metrics.serverMetrics
-		side = events.ConnectionRoleServer
+		side = enums.ConnectionRoleServer
 	}
 	data.Append(h.sampleConfig, request, response)
 
@@ -226,7 +225,7 @@ func (m *ConnectionMetrics) FlushMetrics(traffic *base.ProcessTraffic, metricsBu
 		// if the remote process is profiling, then used the client side
 		localMetrics := m.clientMetrics
 		remoteMetrics := m.serverMetrics
-		if traffic.Role == events.ConnectionRoleServer {
+		if traffic.Role == enums.ConnectionRoleServer {
 			localMetrics = m.serverMetrics
 			remoteMetrics = m.clientMetrics
 		}
