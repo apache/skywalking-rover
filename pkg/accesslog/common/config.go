@@ -22,6 +22,7 @@ import "github.com/apache/skywalking-rover/pkg/module"
 type Config struct {
 	module.Config
 
+	Active          bool                  `mapstructure:"active"`
 	Flush           FlushConfig           `mapstructure:"flush"`
 	ProtocolAnalyze ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"`
 }
@@ -38,5 +39,5 @@ type ProtocolAnalyzeConfig struct {
 }
 
 func (c *Config) IsActive() bool {
-	return true
+	return c.Active
 }

@@ -154,6 +154,8 @@ profiling:
       silence_duration: ${ROVER_PROFILING_CONTINUOUS_TRIGGER_SILENCE_DURATION:20m}
 
 access_log:
+  # Is active the access log monitoring
+  active: ${ROVER_ACCESS_LOG_ACTIVE:false}
   flush:
     # The max count of access log when flush to the backend
     max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:2000}
