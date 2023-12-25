@@ -28,6 +28,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 )
 
+var listenStatus = "LISTEN"
+
 type Process struct {
 	// original reference
 	original     *process.Process
@@ -116,11 +118,25 @@ func (p *Process) ExposePorts() []int {
 	}
 	ports := make([]int, 0)
 	for _, con := range connections {
-		if con.Status == "LISTEN" {
+		if con.Status == listenStatus {
 			ports = append(ports, int(con.Laddr.Port))
 		}
 	}
 	return ports
+}
+
+func (p *Process) ExposeHosts() []string {
+	connections, err := p.original.Connections()
+	if err != nil {
+		log.Warnf("error getting the process connections, pid: %d, error: %v", p.pid, err)
+	}
+	hosts := make([]string, 0)
+	for _, con := range connections {
+		if con.Status == listenStatus {
+			hosts = append(hosts, con.Laddr.IP)
+		}
+	}
+	return hosts
 }
 
 func requiredNotNull(err error, key, value string) error {

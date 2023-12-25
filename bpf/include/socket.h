@@ -62,9 +62,21 @@ struct socket {
 	struct sock		*sk;
 } __attribute__((preserve_access_index));
 
+struct iov_iter {
+	__u64 count;
+	union {
+		const struct iovec *iov;
+		const struct kvec *kvec;
+		const struct bio_vec *bvec;
+		struct xarray *xarray;
+		struct pipe_inode_info *pipe;
+	};
+} __attribute__((preserve_access_index));
+
 struct sock {
-	struct sock_common	__sk_common;
+    struct sock_common	__sk_common;
 	struct socket		*sk_socket;
+	__u32			sk_max_ack_backlog;
 } __attribute__((preserve_access_index));
 
 struct tcp_sock {
@@ -95,7 +107,20 @@ struct rb_node {
 	struct rb_node *rb_right;
 	struct rb_node *rb_left;
 } __attribute__((preserve_access_index));
+
 struct sk_buff {
+    union {
+        struct {
+            struct sk_buff *next;
+            struct sk_buff *prev;
+            union {
+                 struct net_device *dev;
+                 long unsigned int dev_scratch;
+            };
+        } __attribute__((preserve_access_index));
+        struct rb_node rbnode;
+        struct list_head list;
+    };
 	struct sock		*sk;
 	union {
         struct {
@@ -111,6 +136,8 @@ struct sk_buff {
     int			skb_iif;
     unsigned int len;
     unsigned int data_len;
+    unsigned char		*head,
+                        *data;
 } __attribute__((preserve_access_index));
 
 struct net {

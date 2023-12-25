@@ -19,7 +19,6 @@ package finders
 
 import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
-	"github.com/apache/skywalking-rover/pkg/process/finders/base"
 	"github.com/apache/skywalking-rover/pkg/tools/profiling"
 
 	"github.com/shirou/gopsutil/process"
@@ -45,7 +44,7 @@ type ProcessContext struct {
 	syncStatus ProcessUploadStatus
 
 	// detectProcess from finder
-	detectProcess base.DetectedProcess
+	detectProcess api.DetectedProcess
 	detectType    api.ProcessDetectType
 
 	// cache
@@ -73,6 +72,10 @@ func (p *ProcessContext) ProfilingStat() *profiling.Info {
 	return p.detectProcess.ProfilingStat()
 }
 
+func (p *ProcessContext) DetectProcess() api.DetectedProcess {
+	return p.detectProcess
+}
+
 func (p *ProcessContext) ExeName() (string, error) {
 	if p.exeName == "" {
 		exe, err := p.detectProcess.OriginalProcess().Name()
@@ -94,4 +97,8 @@ func (p *ProcessContext) PortIsExpose(port int) bool {
 
 func (p *ProcessContext) DetectNewExposePort(port int) {
 	p.exposedPorts[port] = true
+}
+
+func (p *ProcessContext) ExposeHosts() []string {
+	return p.detectProcess.ExposeHosts()
 }

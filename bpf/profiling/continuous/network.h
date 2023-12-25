@@ -16,7 +16,7 @@
 // under the License.
 
 #include "api.h"
-#include "skb.h"
+#include "socket.h"
 
 #define MAX_PROTOCOL_SOCKET_READ_LENGTH 255
 
@@ -64,3 +64,8 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } socket_buffer_send_queue SEC(".maps");
+
+struct msghdr {
+	struct iov_iter	msg_iter;	/* data */
+	unsigned int	msg_flags;
+} __attribute__((preserve_access_index));

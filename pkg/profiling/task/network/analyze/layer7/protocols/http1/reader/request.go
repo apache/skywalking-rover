@@ -25,8 +25,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/buffer"
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/enums"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type Request struct {
@@ -56,7 +56,7 @@ func (r *Request) Original() *http.Request {
 	return r.original
 }
 
-//nolint
+// nolint
 func ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums.ParseResult, error) {
 	bufReader := bufio.NewReader(buf)
 	tp := textproto.NewReader(bufReader)

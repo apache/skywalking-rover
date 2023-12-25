@@ -22,15 +22,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"sync"
-	"unsafe"
 
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
+	"github.com/apache/skywalking-rover/pkg/tools/ip"
 
 	"github.com/cilium/ebpf"
 
@@ -129,7 +129,7 @@ func (c *AnalyzerContext) handleSocketParseQueue(ctx context.Context) {
 	for {
 		select {
 		case cc := <-c.sockParseQueue:
-			socket, err := ParseSocket(cc.LocalPid, cc.SocketFD)
+			socket, err := ip.ParseSocket(cc.LocalPid, cc.SocketFD)
 			if err != nil {
 				// if the remote port of connection is empty, then this connection not available basically
 				if cc.RemotePort == 0 {
@@ -168,20 +168,20 @@ func (c *AnalyzerContext) handleSocketConnectEvent(data interface{}) {
 		con.RemotePort = uint16(event.RemoteAddrPort)
 		con.LocalPort = uint16(event.LocalAddrPort)
 		if event.SocketFamily == unix.AF_INET {
-			con.LocalIP = parseAddressV4(event.LocalAddrV4)
-			con.RemoteIP = parseAddressV4(event.RemoteAddrV4)
+			con.LocalIP = ip.ParseIPV4(event.LocalAddrV4)
+			con.RemoteIP = ip.ParseIPV4(event.RemoteAddrV4)
 		} else {
-			con.LocalIP = parseAddressV6(event.LocalAddrV6)
-			con.RemoteIP = parseAddressV6(event.RemoteAddrV6)
+			con.LocalIP = ip.ParseIPV6(event.LocalAddrV6)
+			con.RemoteIP = ip.ParseIPV6(event.RemoteAddrV6)
 		}
 	} else {
 		// if the remote address exists then setting it
 		if event.RemoteAddrPort != 0 {
 			con.RemotePort = uint16(event.RemoteAddrPort)
 			if event.SocketFamily == unix.AF_INET {
-				con.RemoteIP = parseAddressV4(event.RemoteAddrV4)
+				con.RemoteIP = ip.ParseIPV4(event.RemoteAddrV4)
 			} else {
-				con.RemoteIP = parseAddressV6(event.RemoteAddrV6)
+				con.RemoteIP = ip.ParseIPV6(event.RemoteAddrV6)
 			}
 		}
 		c.sockParseQueue <- con
@@ -192,7 +192,7 @@ func (c *AnalyzerContext) handleSocketConnectEvent(data interface{}) {
 		l.ReceiveNewConnection(con, event)
 	}
 
-	// add to the context
+	// add to the common
 	c.saveActiveConnection(con)
 }
 
@@ -303,10 +303,10 @@ func (c *AnalyzerContext) lookupTheActiveConnectionInBPf(connection *ConnectionC
 			log.Debugf("found the active connection, conid: %d, data: %s", connection.ConnectionID, string(marshal))
 		}
 
-		if connection.Role == events.ConnectionRoleUnknown && activeConnection.Role != events.ConnectionRoleUnknown {
+		if connection.Role == enums.ConnectionRoleUnknown && activeConnection.Role != enums.ConnectionRoleUnknown {
 			connection.Role = activeConnection.Role
 		}
-		if connection.Protocol == events.ConnectionProtocolUnknown && activeConnection.Protocol != events.ConnectionProtocolUnknown {
+		if connection.Protocol == enums.ConnectionProtocolUnknown && activeConnection.Protocol != enums.ConnectionProtocolUnknown {
 			connection.Protocol = activeConnection.Protocol
 		}
 		if !connection.IsSSL && activeConnection.IsSSL == 1 {
@@ -334,11 +334,11 @@ func (c *AnalyzerContext) processCachedCloseEvents() {
 			}
 			cc := c.NewConnectionContext(event.ConID, event.RandomID, event.Pid, event.SocketFD, processes, true)
 			if event.SocketFamily == unix.AF_INET {
-				cc.RemoteIP = parseAddressV4(event.RemoteAddrV4)
-				cc.LocalIP = parseAddressV4(event.LocalAddrV4)
+				cc.RemoteIP = ip.ParseIPV4(event.RemoteAddrV4)
+				cc.LocalIP = ip.ParseIPV4(event.LocalAddrV4)
 			} else if event.SocketFamily == unix.AF_INET6 {
-				cc.RemoteIP = parseAddressV6(event.RemoteAddrV6)
-				cc.LocalIP = parseAddressV6(event.LocalAddrV6)
+				cc.RemoteIP = ip.ParseIPV6(event.RemoteAddrV6)
+				cc.LocalIP = ip.ParseIPV6(event.LocalAddrV6)
 			} else {
 				continue
 			}
@@ -376,10 +376,10 @@ func (c *AnalyzerContext) foundAndDeleteConnection(event *events.SocketCloseEven
 func (c *AnalyzerContext) combineClosedConnection(active *ConnectionContext, closed *events.SocketCloseEvent) *ConnectionContext {
 	active.ConnectionClosed = true
 
-	if active.Role == events.ConnectionRoleUnknown && closed.Role != events.ConnectionRoleUnknown {
+	if active.Role == enums.ConnectionRoleUnknown && closed.Role != enums.ConnectionRoleUnknown {
 		active.Role = closed.Role
 	}
-	if active.Protocol == events.ConnectionProtocolUnknown && closed.Protocol != events.ConnectionProtocolUnknown {
+	if active.Protocol == enums.ConnectionProtocolUnknown && closed.Protocol != enums.ConnectionProtocolUnknown {
 		active.Protocol = closed.Protocol
 	}
 	if !active.IsSSL && closed.IsSSL == 1 {
@@ -411,12 +411,4 @@ func (c *AnalyzerContext) appendClosedConnection(con *ConnectionContext) {
 	defer c.closedConnectionLocker.RUnlock()
 
 	c.closedConnections = append(c.closedConnections, con)
-}
-
-func parseAddressV4(val uint32) string {
-	return net.IP((*(*[net.IPv4len]byte)(unsafe.Pointer(&val)))[:]).String()
-}
-
-func parseAddressV6(val [16]uint8) string {
-	return net.IP((*(*[net.IPv6len]byte)(unsafe.Pointer(&val)))[:]).String()
 }

@@ -19,42 +19,14 @@ package events
 
 import (
 	"fmt"
+
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
-type SocketDataBuffer interface {
-	// GenerateConnectionID for identity the buffer belong which connection
-	GenerateConnectionID() string
-	// BufferData of the buffer
-	BufferData() []byte
-	// TotalSize of socket data, the data may exceed the size of the BufferData()
-	TotalSize() uint64
-	// Direction of the data, send or receive
-	Direction() SocketDataDirection
-	// BufferStartPosition the buffer start index
-	BufferStartPosition() int
-	// BufferLen the buffer data length
-	BufferLen() int
-	// DataID data id of the buffer
-	DataID() uint64
-	// DataSequence the data sequence under same data id
-	DataSequence() int
-	// IsStart this buffer is start of the same data id
-	IsStart() bool
-	// IsFinished this buffer is finish of the same data id
-	IsFinished() bool
-	// HaveReduceDataAfterChunk check have reduced data after current buffer
-	HaveReduceDataAfterChunk() bool
-
-	// StartTime the data start timestamp
-	StartTime() uint64
-	// EndTime the data end timestamp
-	EndTime() uint64
-}
-
 type SocketDataUploadEvent struct {
-	Protocol     ConnectionProtocol
+	Protocol     enums.ConnectionProtocol
 	HaveReduce   uint8
-	Direction0   SocketDataDirection
+	Direction0   enums.SocketDataDirection
 	Finished     uint8
 	Sequence0    uint16
 	DataLen      uint16
@@ -87,7 +59,7 @@ func (s *SocketDataUploadEvent) EndTime() uint64 {
 	return s.EndTime0
 }
 
-func (s *SocketDataUploadEvent) Direction() SocketDataDirection {
+func (s *SocketDataUploadEvent) Direction() enums.SocketDataDirection {
 	return s.Direction0
 }
 
@@ -119,35 +91,21 @@ func (s *SocketDataUploadEvent) HaveReduceDataAfterChunk() bool {
 	return s.HaveReduce == 1
 }
 
-type SocketDataEventLimited struct {
-	SocketDataBuffer
-	From int
-	Size int
-}
-
-func (s *SocketDataEventLimited) BufferData() []byte {
-	return s.SocketDataBuffer.BufferData()[s.From:s.Size]
-}
-
-func (s *SocketDataEventLimited) BufferLen() int {
-	return s.Size - s.From
-}
-
-func (s *SocketDataEventLimited) BufferStartPosition() int {
-	return s.From
-}
-
 type SocketDetailEvent struct {
 	ConnectionID     uint64
 	RandomID         uint64
-	DataID           uint64
+	DataID0          uint64
 	TotalPackageSize uint64
 	IfIndex          uint32
 	PackageCount     uint8
-	FuncName         SocketFunctionName
+	FuncName         enums.SocketFunctionName
 	RTTCount         uint8
-	Protocol         ConnectionProtocol
+	Protocol         enums.ConnectionProtocol
 	RTTTime          uint32
+}
+
+func (s *SocketDetailEvent) DataID() uint64 {
+	return s.DataID0
 }
 
 func (s *SocketDetailEvent) GenerateConnectionID() string {

@@ -17,39 +17,9 @@
 
 #include "api.h"
 #include "socket.h"
+#include "socket_opts.h"
 
 #pragma once
-
-// for protocol analyze need to read
-#define MAX_PROTOCOL_SOCKET_READ_LENGTH 31
-// for transmit to the user space
-#define MAX_TRANSMIT_SOCKET_READ_LENGTH 2047
-
-// unknown the connection type, not trigger the syscall connect,accept
-#define AF_UNKNOWN 0xff
-
-// the socket operation type
-#define SOCKET_OPTS_TYPE_CONNECT    1
-#define SOCKET_OPTS_TYPE_ACCEPT     2
-#define SOCKET_OPTS_TYPE_CLOSE      3
-#define SOCKET_OPTS_TYPE_SEND       4
-#define SOCKET_OPTS_TYPE_SENDTO     5
-#define SOCKET_OPTS_TYPE_SENDMSG    6
-#define SOCKET_OPTS_TYPE_SENDMMSG   7
-#define SOCKET_OPTS_TYPE_SENDFILE   8
-#define SOCKET_OPTS_TYPE_WRITE      9
-#define SOCKET_OPTS_TYPE_WRITEV     10
-#define SOCKET_OPTS_TYPE_READ       11
-#define SOCKET_OPTS_TYPE_READV      12
-#define SOCKET_OPTS_TYPE_RECV       13
-#define SOCKET_OPTS_TYPE_RECVFROM   14
-#define SOCKET_OPTS_TYPE_RECVMSG    15
-#define SOCKET_OPTS_TYPE_RECVMMSG   16
-#define SOCKET_OPTS_TYPE_RESENT     17
-#define SOCKET_OPTS_TYPE_SSL_WRITE  18
-#define SOCKET_OPTS_TYPE_SSL_READ   19
-#define SOCKET_OPTS_TYPE_GOTLS_WRITE 20
-#define SOCKET_OPTS_TYPE_GOTLS_READ  21
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -118,10 +88,6 @@ struct {
 	__type(key, __u64);
 	__type(value, struct accept_args_t);
 } accepting_args SEC(".maps");
-
-// data direction
-#define SOCK_DATA_DIRECTION_INGRESS 1 //receive from
-#define SOCK_DATA_DIRECTION_EGRESS 2  //write to
 
 // syscall: data writing or receive
 struct sock_data_args_t {

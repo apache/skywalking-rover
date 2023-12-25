@@ -18,6 +18,7 @@
 package boot
 
 import (
+	"github.com/apache/skywalking-rover/pkg/accesslog"
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
@@ -31,4 +32,5 @@ func init() {
 	module.Register(core.NewModule())
 	module.Register(process.NewModule())
 	module.Register(profiling.NewModule())
+	module.Register(accesslog.NewModule())
 }

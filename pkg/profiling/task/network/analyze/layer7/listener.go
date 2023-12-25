@@ -33,6 +33,7 @@ import (
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/bpf"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"github.com/zekroTJA/timedmap"
 )
@@ -135,7 +136,7 @@ func (l *Listener) QueryConnection(conID, randomID uint64) *base.ConnectionConte
 	return nil
 }
 
-func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, p events.ConnectionProtocol) protocol.Metrics {
+func (l *Listener) QueryProtocolMetrics(conMetrics *base.ConnectionMetricsContext, p enums.ConnectionProtocol) protocol.Metrics {
 	metrics := conMetrics.GetMetrics(ListenerName).(*protocols.ProtocolMetrics)
 	return metrics.GetProtocolMetrics(p)
 }

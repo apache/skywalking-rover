@@ -237,7 +237,7 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 	return nil
 }
 
-func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, processes []base.DetectedProcess) {
+func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, processes []api.DetectedProcess) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -249,7 +249,11 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 		existingProcessHasFounded[p] = false
 	}
 
+	addProcessBuilder := s.newProcessEventBuilder(ProcessOperateAdd)
 	for _, syncProcess := range processes {
+		if syncProcess == nil {
+			continue
+		}
 		founded := false
 		for _, existingProcess := range existingProcesses {
 			if syncProcess.Pid() == existingProcess.Pid() && syncProcess.Entity().SameWith(existingProcess.Entity()) {
@@ -262,10 +266,13 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 
 		// if not found in existing processes, need to add this process
 		if !founded {
-			newProcesses = append(newProcesses, s.constructNewProcessContext(finder, syncProcess))
+			processContext := s.constructNewProcessContext(finder, syncProcess)
+			newProcesses = append(newProcesses, processContext)
+			addProcessBuilder.AddProcess(syncProcess.Pid(), newProcesses[len(newProcesses)-1])
 			log.Infof("detected new process: pid: %d, entity: %s", syncProcess.Pid(), syncProcess.Entity())
 		}
 	}
+	addProcessBuilder.Send()
 
 	// log the dead processes
 	eventBuilder := s.newProcessEventBuilder(ProcessOperateDelete)
@@ -281,7 +288,7 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 	eventBuilder.Send()
 }
 
-func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType, process base.DetectedProcess) *ProcessContext {
+func (s *ProcessStorage) constructNewProcessContext(finder api.ProcessDetectType, process api.DetectedProcess) *ProcessContext {
 	exporsedPorts := make(map[int]bool)
 	for _, p := range process.ExposePorts() {
 		exporsedPorts[p] = true

@@ -58,11 +58,33 @@ type ProcessInterface interface {
 	ExeName() (string, error)
 	// OriginalProcess from process library
 	OriginalProcess() *process.Process
+	// DetectProcess from finder
+	DetectProcess() DetectedProcess
 
 	// PortIsExpose check the port is exposed
 	PortIsExpose(port int) bool
 	// DetectNewExposePort add a new detected expose port
 	DetectNewExposePort(port int)
+	// ExposeHosts get all exposed hosts
+	ExposeHosts() []string
+}
+
+// DetectedProcess from the finder
+type DetectedProcess interface {
+	// Pid of process in host
+	Pid() int32
+	// OriginalProcess is works for query the process data
+	OriginalProcess() *process.Process
+	// Entity of process, is related with backend entity
+	Entity() *ProcessEntity
+	// DetectType define the process find type
+	DetectType() ProcessDetectType
+	// ProfilingStat of process
+	ProfilingStat() *profiling.Info
+	// ExposePorts define which ports are exposed
+	ExposePorts() []int
+	// ExposeHosts define which hosts are exposed
+	ExposeHosts() []string
 }
 
 // ProcessEntity is related to backend entity concept

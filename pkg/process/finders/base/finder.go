@@ -42,20 +42,25 @@ type ProcessFinder interface {
 	// DetectType of Process is detecting
 	DetectType() api.ProcessDetectType
 
+	// ShouldMonitor validate the process needs to be monitored, if true, then add it into the storage
+	ShouldMonitor(pid int32) bool
+
 	// ValidateProcessIsSame between two same finder process
-	ValidateProcessIsSame(p1, p2 DetectedProcess) bool
+	ValidateProcessIsSame(p1, p2 api.DetectedProcess) bool
 
 	// BuildEBPFProcess is transform the process entity as backend protocol data
-	BuildEBPFProcess(ctx *BuildEBPFProcessContext, process DetectedProcess) *v3.EBPFProcessProperties
+	BuildEBPFProcess(ctx *BuildEBPFProcessContext, process api.DetectedProcess) *v3.EBPFProcessProperties
 	// BuildNecessaryProperties is getting minimize necessary properties when keep alive
-	BuildNecessaryProperties(process DetectedProcess) []*commonv3.KeyStringValuePair
+	BuildNecessaryProperties(process api.DetectedProcess) []*commonv3.KeyStringValuePair
 	// ParseProcessId is means how to read the process id receive from backend
-	ParseProcessID(process DetectedProcess, downstream *v3.EBPFProcessDownstream) string
+	ParseProcessID(process api.DetectedProcess, downstream *v3.EBPFProcessDownstream) string
 }
 
 // ProcessManager is an API work for help ProcessFinder synchronized process with backend
 type ProcessManager interface {
 	GetModuleManager() *module.Manager
 	// SyncAllProcessInFinder is mean synchronized all processes data from current ProcessFinder
-	SyncAllProcessInFinder(processes []DetectedProcess)
+	SyncAllProcessInFinder(processes []api.DetectedProcess)
+	// AddDetectedProcess only add the specific processes
+	AddDetectedProcess(processes []api.DetectedProcess)
 }

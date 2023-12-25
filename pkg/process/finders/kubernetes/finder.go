@@ -155,54 +155,60 @@ func (f *ProcessFinder) analyzeProcesses() error {
 		return err
 	}
 
-	result := make([]base.DetectedProcess, 0)
+	result := make([]api.DetectedProcess, 0)
 	for _, p := range processes {
-		createTime, err := p.CreateTime()
-		if err != nil {
-			continue
-		}
-		processCahceKey := fmt.Sprintf("%d_%d", p.Pid, createTime)
-		cachedProcesses, exist := f.processCache.Get(processCahceKey)
-		if exist {
-			for _, pro := range cachedProcesses.([]*Process) {
-				result = append(result, pro)
-			}
-			continue
-		}
-
-		cgroups, err := f.getProcessCGroup(p.Pid)
-		if err != nil {
-			continue
-		}
-
-		var c *PodContainer
-		for _, cgroup := range cgroups {
-			if cc := containers[cgroup]; cc != nil {
-				c = cc
-				break
-			}
-		}
-		if c == nil {
-			continue
-		}
-
-		// find process builder
-		ps, err := f.buildProcesses(p, c)
-		if err != nil {
-			log.Warnf("find process builder error for pid: %d, err: %v", p.Pid, err)
-			continue
-		}
-
-		for _, pro := range ps {
-			result = append(result, pro)
-		}
-		f.processCache.Add(processCahceKey, ps)
+		result, _ = f.buildProcess(p, result, containers)
 	}
 
 	if len(result) > 0 {
 		f.manager.SyncAllProcessInFinder(result)
 	}
 	return nil
+}
+
+func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api.DetectedProcess,
+	containers map[string]*PodContainer) ([]api.DetectedProcess, bool) {
+	createTime, err := p.CreateTime()
+	if err != nil {
+		return detectedProcesses, false
+	}
+	processCahceKey := fmt.Sprintf("%d_%d", p.Pid, createTime)
+	cachedProcesses, exist := f.processCache.Get(processCahceKey)
+	if exist {
+		for _, pro := range cachedProcesses.([]*Process) {
+			detectedProcesses = append(detectedProcesses, pro)
+		}
+		return detectedProcesses, false
+	}
+
+	cgroups, err := f.getProcessCGroup(p.Pid)
+	if err != nil {
+		return detectedProcesses, false
+	}
+
+	var c *PodContainer
+	for _, cgroup := range cgroups {
+		if cc := containers[cgroup]; cc != nil {
+			c = cc
+			break
+		}
+	}
+	if c == nil {
+		return detectedProcesses, false
+	}
+
+	// find process builder
+	ps, err := f.buildProcesses(p, c)
+	if err != nil {
+		log.Warnf("find process builder error for pid: %d, err: %v", p.Pid, err)
+		return detectedProcesses, false
+	}
+
+	for _, pro := range ps {
+		detectedProcesses = append(detectedProcesses, pro)
+	}
+	f.processCache.Add(processCahceKey, ps)
+	return detectedProcesses, true
 }
 
 func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
@@ -299,13 +305,13 @@ func (f *ProcessFinder) DetectType() api.ProcessDetectType {
 	return api.Kubernetes
 }
 
-func (f *ProcessFinder) ValidateProcessIsSame(p1, p2 base.DetectedProcess) bool {
+func (f *ProcessFinder) ValidateProcessIsSame(p1, p2 api.DetectedProcess) bool {
 	k1 := p1.(*Process)
 	k2 := p2.(*Process)
 	return p1.Pid() == p2.Pid() && k1.cmd == k2.cmd && p1.Entity().SameWith(p2.Entity())
 }
 
-func (f *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*commonv3.KeyStringValuePair {
+func (f *ProcessFinder) BuildNecessaryProperties(ps api.DetectedProcess) []*commonv3.KeyStringValuePair {
 	return []*commonv3.KeyStringValuePair{
 		{
 			Key:   "support_ebpf_profiling",
@@ -314,7 +320,7 @@ func (f *ProcessFinder) BuildNecessaryProperties(ps base.DetectedProcess) []*com
 	}
 }
 
-func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps base.DetectedProcess) *v3.EBPFProcessProperties {
+func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps api.DetectedProcess) *v3.EBPFProcessProperties {
 	k8sProcess := &v3.EBPFKubernetesProcessMetadata{}
 	k8sProcess.Pid = ps.Pid()
 	k8sProcess.Entity = &v3.EBPFProcessEntityMetadata{
@@ -357,7 +363,7 @@ func (f *ProcessFinder) BuildEBPFProcess(ctx *base.BuildEBPFProcessContext, ps b
 	return properties
 }
 
-func (f *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.EBPFProcessDownstream) string {
+func (f *ProcessFinder) ParseProcessID(ps api.DetectedProcess, downstream *v3.EBPFProcessDownstream) string {
 	if downstream.GetK8SProcess() == nil {
 		return ""
 	}
@@ -366,4 +372,18 @@ func (f *ProcessFinder) ParseProcessID(ps base.DetectedProcess, downstream *v3.E
 		return downstream.GetProcessId()
 	}
 	return ""
+}
+
+func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
+	newProcess, err := process.NewProcess(pid)
+	if err != nil {
+		return false
+	}
+	// analyze the process needs to be monitored
+	processes, monitor := f.buildProcess(newProcess, nil, f.registry.BuildPodContainers())
+	if !monitor || len(processes) == 0 {
+		return false
+	}
+	f.manager.AddDetectedProcess(processes)
+	return true
 }
