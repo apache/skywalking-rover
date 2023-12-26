@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Metrics collector and profiler powered by eBPF to diagnose CPU and network performance.
+  description: Monitor and profiler powered by eBPF to monitor network traffic, and diagnose CPU and network performance.
   homepage: https://skywalking.apache.org/
   labels:
     - skywalking
