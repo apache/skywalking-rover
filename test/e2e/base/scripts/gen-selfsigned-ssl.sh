@@ -20,7 +20,7 @@ set -e
 
 HOST=${1:-localhost}
 PASSWORD=test
-TARGET_DIR="$(cd "$(dirname "$0")" && pwd)"
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TARGET_DIR=$2
 
 root_key="$TARGET_DIR/root_${HOST}.key"
@@ -77,5 +77,4 @@ EOF
 openssl x509 -req -days 365 -sha256 -CA $root_crt -CAkey $root_key -CAcreateserial -in $csr -out $crt -passin pass:$PASSWORD -extfile <(printf "subjectAltName=DNS:$HOST,DNS:localhost,IP:127.0.0.1")
 
 # adding trusted root certificates to the server
-sudo cp $root_crt $crt /usr/local/share/ca-certificates/
-sudo update-ca-certificates
+bash $CURRENT_DIR/update-signed-ssl.sh $HOST $TARGET_DIR

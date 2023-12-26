@@ -42,22 +42,19 @@ setup:
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh helm
     - name: Install SkyWalking
       command: |
-        rm -rf skywalking-kubernetes && git clone https://github.com/apache/skywalking-kubernetes.git
-        cd skywalking-kubernetes
-        git reset --hard $SW_KUBERNETES_COMMIT_SHA
-        cd chart
-        helm dep up skywalking
-        helm -n istio-system install skywalking skywalking \
-                       --set fullnameOverride=skywalking \
-                       --set elasticsearch.replicas=1 \
-                       --set elasticsearch.minimumMasterNodes=1 \
-                       --set elasticsearch.imageTag=7.5.1 \
-                       --set oap.replicas=1 \
-                       --set ui.image.repository=ghcr.io/apache/skywalking/ui \
-                       --set ui.image.tag=${SW_OAP_COMMIT} \
-                       --set oap.image.tag=${SW_OAP_COMMIT} \
-                       --set oap.image.repository=ghcr.io/apache/skywalking/oap \
-                       --set oap.storageType=elasticsearch
+        helm -n istio-system install skywalking \
+          oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
+          --set fullnameOverride=skywalking \
+          --set elasticsearch.replicas=1 \
+          --set elasticsearch.minimumMasterNodes=1 \
+          --set oap.replicas=1 \
+          --set ui.image.repository=ghcr.io/apache/skywalking/ui \
+          --set ui.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.repository=ghcr.io/apache/skywalking/oap \
+          --set oap.storageType=elasticsearch \
+          -f test/e2e/base/kubernetes-values.yaml
       wait:
         - namespace: istio-system
           resource: deployments/skywalking-oap

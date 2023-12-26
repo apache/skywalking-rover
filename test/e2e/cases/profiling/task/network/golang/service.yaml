@@ -1,0 +1,103 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service
+  template:
+    metadata:
+      labels:
+        app: service
+    spec:
+      containers:
+        - name: service
+          image: ${IMAGE_NAME}
+          env:
+            - name: OAP_BACKEND_ADDR
+              value: skywalking-oap.istio-system:11800
+            - name: ZIPKIN_BACKEND_ADDR
+              value: http://skywalking-oap.istio-system:9411/api/v2/spans
+          volumeMounts:
+            - name: ssl-volume
+              mountPath: /ssl_data
+      volumes:
+        - name: ssl-volume
+          hostPath:
+            path: /ssl_data
+            type: Directory
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: service
+spec:
+  selector:
+    app: service
+  ports:
+    - name: entry
+      protocol: TCP
+      port: 10443
+      targetPort: 10443
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: test/test-nginx:test
+          volumeMounts:
+            - name: ssl-volume
+              mountPath: /ssl_data
+      volumes:
+        - name: ssl-volume
+          hostPath:
+            path: /ssl_data
+            type: Directory
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+spec:
+  selector:
+    app: nginx
+  ports:
+    - name: proxy-entry
+      protocol: TCP
+      port: 443
+      targetPort: 443

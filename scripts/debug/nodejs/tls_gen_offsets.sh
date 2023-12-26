@@ -36,7 +36,7 @@ tar -xf node.tar.gz --strip 1 && rm node.tar.gz
 NODE_PATH="$WORK_DIR/out/Debug/node"
 
 # generate ssl certs and start https server
-bash $ROVER_DIR/test/e2e/cases/profiling/network/base/ssl/gen-selfsigned-ssl.sh service
+bash $ROVER_DIR/test/e2e/base/scripts/gen-selfsigned-ssl.sh service $ROVER_DIR/test/e2e/cases/profiling/network/base/ssl/
 $NODE_PATH
 
 # run the go program

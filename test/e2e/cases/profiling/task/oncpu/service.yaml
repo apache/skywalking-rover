@@ -13,30 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version: '2.1'
-
-services:
-  oap:
-    extends:
-      file: ../../../../../base/base-compose.yml
-      service: oap
-    ports:
-      - 12800:12800
-
-  rover:
-    extends:
-      file: ../../../../../base/base-compose.yml
-      service: rover
-    depends_on:
-      oap:
-        condition: service_healthy
-
-  sqrt_go:
-    build:
-      context: .
-      dockerfile: Dockerfile.sqrt
-    networks:
-      - e2e
-
-networks:
-  e2e:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqrt-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sqrt
+  template:
+    metadata:
+      labels:
+        app: sqrt
+    spec:
+      containers:
+        - name: sqrt
+          image: ${IMAGE_NAME}

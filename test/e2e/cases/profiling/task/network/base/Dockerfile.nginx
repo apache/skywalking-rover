@@ -18,3 +18,5 @@ FROM nginx
 
 COPY ssl /usr/local/share/ca-certificates/ssl
 RUN update-ca-certificates
+
+ADD nginx.conf /etc/nginx/nginx.conf

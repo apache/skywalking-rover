@@ -17,7 +17,7 @@
 FROM golang:1.17
 
 WORKDIR /
-COPY sqrt.go /sqrt.go
+COPY process_cpu/sqrt.go /sqrt.go
 RUN go build -o sqrt sqrt.go
 
 CMD ["/sqrt"]
