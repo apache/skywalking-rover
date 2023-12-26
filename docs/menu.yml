@@ -49,6 +49,8 @@ catalog:
                   path: /en/setup/configuration/process_discovery/kubernetes
             - name: Profiling Module
               path: /en/setup/configuration/profiling
+            - name: Access Log Module
+              path: /en/setup/configuration/accesslog
         - name: Examples
           catalog:
             - name: Deploy
