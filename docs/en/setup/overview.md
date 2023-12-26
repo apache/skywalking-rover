@@ -15,7 +15,8 @@ The SkyWalking Rover requires specialized protocols to communicate with SkyWalki
 
 | SkyWalking Rover Version | SkyWalking OAP |
 |--------------------------|----------------|
-|0.1.0+                    | \> = 9.1.0     |
+| 0.1.0+                   | \> = 9.1.0     |
+| 0.6.0+                   | \> = 10.0.0    |
 
 ## Startup script
 Startup Script
