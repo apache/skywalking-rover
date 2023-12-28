@@ -24,6 +24,13 @@ and send the snapshot to the backend server.
 | profiling.continuous.trigger.execute_duration                                   | 10m         | ROVER_PROFILING_CONTINUOUS_TRIGGER_EXECUTE_DURATION                                   | The duration of the profiling task.                                                   |
 | profiling.continuous.trigger.silence_duration                                   | 20m         | ROVER_PROFILING_CONTINUOUS_TRIGGER_SILENCE_DURATION                                   | The minimal duration between the execution of the same profiling task.                |
 
+## Prepare service
+
+Before profiling your service, please make sure your service already has the symbol data inside the binary file.
+So we could locate the stack symbol, It could be checked following these ways:
+1. **objdump**: Using `objdump --syms path/to/service`.
+2. **readelf**: Using `readelf --syms path/to/service`.
+
 ## Profiling Type
 
 All the profiling tasks are using the [Linux Official Function](https://man7.org/linux/man-pages/man2/perf_event_open.2.html) and `kprobe` or `uprobe` to open perf event,

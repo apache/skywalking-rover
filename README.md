@@ -3,11 +3,12 @@ Apache SkyWalking Rover
 
 <img src="http://skywalking.apache.org/assets/logo.svg" alt="Sky Walking logo" height="90px" align="right" />
 
-**SkyWalking Rover**: Metrics collector and profiler powered by eBPF to diagnose CPU and network performance.
+**SkyWalking Rover**: Monitor and profiler powered by eBPF to monitor network traffic, and diagnose CPU and network performance.
 
 - CPU On/Off profiling for C, C++, Golang, and Rust.
 - Network profiling for TCP, TCP(TLS), HTTP(s) traffic with topology and metrics.
 - Tracing enhancement. Collect extra information from OS level as attached events for the existing tracing system, such as attach raw data of HTTP request and reponse.
+- Kubernetes network monitoring for generating network access logs. 
 
 [![GitHub stars](https://img.shields.io/github/stars/apache/skywalking.svg?style=for-the-badge&label=Stars&logo=github)](https://github.com/apache/skywalking)
 [![Twitter Follow](https://img.shields.io/twitter/follow/asfskywalking.svg?style=for-the-badge&label=Follow&logo=twitter)](https://twitter.com/AsfSkyWalking)

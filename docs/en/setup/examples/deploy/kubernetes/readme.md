@@ -1,6 +1,6 @@
-# Detect Process by Kubernetes
+# Deploy on Kubernetes
 
-This documentation helps you to set up the rover in the Kubernetes environment and detect the kubernetes process automatically.
+This documentation helps you to set up the rover in the Kubernetes environment.
 
 ## Startup Kubernetes
 
@@ -13,7 +13,7 @@ or [minikube](https://minikube.sigs.k8s.io) to create a cluster.
 
 Please follow the [rover-daemonset.yml](./rover-daemonset.yml) to deploy the rover in your Kubernetes cluster.
 Update the comment in the file, which includes two configs:
-1. **Rover docker image**: You could use `make docker` to build an image and upload it to your private registry.
+1. **Rover docker image**: You could use `make docker` to build an image and upload it to your private registry, or update from the public image.
 2. **OAP address**: Update the OAP address.
 
 Then, you could use `kuberctl apply -f rover-daemonset.yml` to deploy the skywalking-rover into your cluster.

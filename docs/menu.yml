@@ -40,29 +40,17 @@ catalog:
             - name: Core Module
               path: /en/setup/configuration/core
             - name: Process Discovery Module
-              catalog:
-                - name: Overview
-                  path: /en/setup/configuration/process_discovery/overview
-                - name: Linux Process Scanner
-                  path: /en/setup/configuration/process_discovery/scanner
-                - name: Kubernetes Process Detector
-                  path: /en/setup/configuration/process_discovery/kubernetes
+              path: /en/setup/configuration/process-discovery
             - name: Profiling Module
               path: /en/setup/configuration/profiling
+            - name: Access Log Module
+              path: /en/setup/configuration/accesslog
         - name: Examples
           catalog:
             - name: Deploy
               catalog:
-                - name: Deploy on Linux
-                  path: /en/setup/examples/deploy/linux/readme
-            - name: Use Cases
-              catalog:
-                - name: Profiling a Golang/C/C++/Rust service on Linux
-                  path: /en/setup/examples/cases/profiling-process/readme
-                - name: Detect Process by Agent Sensor
-                  path: /en/setup/examples/cases/agent-sensor/readme
-                - name: Detect Process in Kubernetes Environemnt
-                  path: /en/setup/examples/cases/kubernetes-process/readme
+                - name: Deploy on Kubernetes
+                  path: /en/setup/examples/deploy/kubernetes/readme
     - name: Guides
       catalog:
         - name: Contribution
