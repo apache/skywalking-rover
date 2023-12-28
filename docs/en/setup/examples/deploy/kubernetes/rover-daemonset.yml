@@ -82,6 +82,8 @@ spec:
             - name: ROVER_BACKEND_ADDR
               # backend OAP address
               value: oap:11800
+            - name: ROVER_HOST_MAPPING
+              value: /host
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

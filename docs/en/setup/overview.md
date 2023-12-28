@@ -30,7 +30,7 @@ You can quickly build your Rover according to the following examples:
 
 ### Deploy
 
-1. [Deploy on Linux](examples/deploy/linux/readme.md)
+1. [Deploy on Kubernetes](examples/deploy/kubernetes/readme.md)
 
 ### Use Cases
 
@@ -44,9 +44,10 @@ The core concept behind this setting file is, that SkyWalking Rover is based on 
 
 So, in rover_configs.yaml, there contains these parts.
 1. [Logger Module](./configuration/logger.md).
-1. [Core Module](./configuration/core.md).
-2. [Process Discovery Module](./configuration/process_discovery/overview.md).
-3. [Profiling Module](./configuration/profiling.md).
+2. [Core Module](./configuration/core.md).
+3. [Process Discovery Module](configuration/process-discovery.md).
+4. [Profiling Module](./configuration/profiling.md).
+5. [Access Log Module](./configuration/accesslog.md).
 
 Also, You could using [Overriding Setting](./configuration/override-settings.md) feature to setup the configuration.
 
