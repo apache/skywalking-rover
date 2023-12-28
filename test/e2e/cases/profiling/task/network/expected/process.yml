@@ -21,7 +21,7 @@
   instanceid: {{ b64enc "service" }}.1_{{ b64enc "test" }}
   instancename: test
   agentid: {{ notEmpty .agentid }}
-  detecttype: VM
+  detecttype: KUBERNETES
   attributes:
     {{- contains .attributes }}
     - name: host_ip
@@ -32,8 +32,5 @@
       value: {{ notEmpty .value }}
     {{- end }}
   labels:
-    {{- contains .labels }}
-    - e2e-label1
-    - e2e-label2
-    {{- end }}
+    - k8s-service
 {{- end }}

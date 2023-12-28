@@ -20,10 +20,7 @@
   serviceinstanceid: null
   serviceinstancename: null
   processlabels:
-    {{- contains .processlabels }}
-    - e2e-label1
-    - e2e-label2
-    {{- end }}
+    - k8s-service
   processid: null
   processname: null
   taskstarttime: {{ gt .taskstarttime 0 }}

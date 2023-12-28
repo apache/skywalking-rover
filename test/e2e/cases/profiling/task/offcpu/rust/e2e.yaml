@@ -14,10 +14,18 @@
 # limitations under the License.
 
 setup:
-  env: compose
-  file: docker-compose.yml
+  env: kind
+  file: ../../../../../base/kind.yaml
   timeout: 20m
   init-system-environment: ../../../../../base/env
+  kind:
+    import-images:
+      - apache/skywalking-rover:latest
+      - test/offcpu-rust:test
+    expose-ports:
+      - namespace: istio-system
+        resource: service/skywalking-ui
+        port: 80
   steps:
     - name: set PATH
       command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
@@ -25,6 +33,35 @@ setup:
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
     - name: install swctl
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh swctl
+    - name: Install SkyWalking
+      command: |
+        kubectl create namespace istio-system
+        helm -n istio-system install skywalking \
+          oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
+          --set fullnameOverride=skywalking \
+          --set elasticsearch.replicas=1 \
+          --set elasticsearch.minimumMasterNodes=1 \
+          --set oap.replicas=1 \
+          --set ui.image.repository=ghcr.io/apache/skywalking/ui \
+          --set ui.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.repository=ghcr.io/apache/skywalking/oap \
+          --set oap.storageType=elasticsearch \
+          -f test/e2e/base/kubernetes-values.yaml
+      wait:
+        - namespace: istio-system
+          resource: deployments/skywalking-oap
+          for: condition=available
+    - name: Deploy services
+      command: |
+        export IMAGE_NAME=test/offcpu-rust:test
+        envsubst < test/e2e/cases/profiling/task/offcpu/service.yaml | kubectl apply -f -
+        envsubst < test/e2e/cases/profiling/task/offcpu/rover.yaml | kubectl apply -f -
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
 
 verify:
   # verify with retry strategy
@@ -37,9 +74,9 @@ verify:
     - includes:
         - ../profiling-cases.yaml
     - query: |
-        taskid=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf list --service-name file |yq e '.[0].taskid' -)
-        scheduleid=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid |yq e '.[0].scheduleid' -);
-        start=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].starttime' -)
-        end=$(swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].endtime' -)
-        swctl --base-url=http://${oap_host}:${oap_12800}/graphql --display yaml profiling ebpf analysis --schedule-id=$scheduleid --time-ranges=$start-$end
+        taskid=$(swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf list --service-name file |yq e '.[0].taskid' -)
+        scheduleid=$(swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf schedules --task-id=$taskid |yq e '.[0].scheduleid' -);
+        start=$(swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].starttime' -)
+        end=$(swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf schedules --task-id=$taskid | yq e '.[0].endtime' -)
+        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf analysis --schedule-id=$scheduleid --time-ranges=$start-$end
       expected: profiling-analysis.yml

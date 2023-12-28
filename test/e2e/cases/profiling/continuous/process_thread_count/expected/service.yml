@@ -19,6 +19,6 @@
   group: ""
   shortname: test-continuous
   layers:
-    - OS_LINUX
+    - K8S_SERVICE
   normal: true
 {{- end }}

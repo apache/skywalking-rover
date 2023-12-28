@@ -14,22 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.17
+FROM golang:1.18
 
 COPY http2/ /service
 
 WORKDIR /
-RUN apt update && apt install -y zip && \
-    mkdir protoc && cd protoc && \
-    curl -sL https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-linux-x86_64.zip -o protoc.zip && \
-    unzip protoc.zip
+RUN apt update && apt install -y protobuf-compiler
 
 WORKDIR /service
 
-RUN go get -u google.golang.org/protobuf/cmd/protoc-gen-go@v1.26.0 && \
-    go get -u google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0 && \
-    go get google.golang.org/grpc/internal/transport@v1.44.0 && \
-    /protoc/bin/protoc --go_out=. --go-grpc_out=. service.proto && \
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2 && \
+    protoc --go_out=. --go-grpc_out=. service.proto && \
+    go mod tidy && \
     go build .
 
 COPY base/ssl /usr/local/share/ca-certificates

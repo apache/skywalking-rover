@@ -13,22 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- contains . }}
-- id: {{ b64enc "go2sky" }}.1_{{ b64enc "go2sky-instance" }}
-  name: go2sky-instance
-  attributes:
-  {{- contains .attributes }}
-  - name: Process No.
-    value: "1"
-  - name: hostname
-    value: {{ notEmpty .value }}
-  - name: OS Name
-    value: linux
-  - name: processLabels
-    value: e2e-label
-  - name: ipv4s
-    value: {{ notEmpty .value }}
-  {{- end }}
-  language: GO
-  instanceuuid: {{ notEmpty .instanceuuid }}
-{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuous-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: continuous
+  template:
+    metadata:
+      labels:
+        app: continuous
+    spec:
+      containers:
+        - name: test-continuous
+          image: ${IMAGE_NAME}
