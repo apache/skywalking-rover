@@ -20,7 +20,6 @@ package process
 import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/finders/kubernetes"
-	"github.com/apache/skywalking-rover/pkg/process/finders/scanner"
 )
 
 type Config struct {
@@ -31,9 +30,6 @@ type Config struct {
 
 	// sends properties to the backend period
 	PropertiesReportPeriod int `mapstructure:"properties_report_period"`
-
-	// Scanner process from Linux
-	Scanner *scanner.Config `mapstructure:"scanner"`
 
 	Kubernetes *kubernetes.Config `mapstructure:"kubernetes"`
 }

@@ -17,7 +17,7 @@
 FROM eclipse-temurin:11-jdk
 
 WORKDIR /
-COPY MultiThread.java /
+COPY process_thread_count/MultiThread.java /
 
 RUN javac /MultiThread.java
 

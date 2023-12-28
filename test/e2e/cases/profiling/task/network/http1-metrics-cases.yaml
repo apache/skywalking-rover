@@ -16,37 +16,37 @@
 # HTTP1 verify
 cases:
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_request_cpm|yq e 'to_entries' -
     expected: expected/metrics-has-value.yml
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_request_package_size|yq e 'to_entries' -
     expected: expected/metrics-has-value.yml
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_response_package_size|yq e 'to_entries' -
     expected: expected/metrics-has-value.yml
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_request_package_size_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_response_package_size_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql metrics linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics linear \
       --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
       --name process_relation_http1_client_duration|yq e 'to_entries' -

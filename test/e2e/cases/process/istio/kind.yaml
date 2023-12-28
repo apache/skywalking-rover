@@ -21,10 +21,22 @@ nodes:
   # the control plane node config
   - role: control-plane
     image: kindest/node:v1.21.1
+    extraMounts:
+      - hostPath: /
+        containerPath: /host
   # the three workers
   - role: worker
     image: kindest/node:v1.21.1
+    extraMounts:
+      - hostPath: /
+        containerPath: /host
   - role: worker
     image: kindest/node:v1.21.1
+    extraMounts:
+      - hostPath: /
+        containerPath: /host
   - role: worker
     image: kindest/node:v1.21.1
+    extraMounts:
+      - hostPath: /
+        containerPath: /host

@@ -13,33 +13,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-version: '2.1'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuous-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: continuous
+  template:
+    metadata:
+      labels:
+        app: continuous
+    spec:
+      containers:
+        - name: test-continuous
+          image: ${IMAGE_NAME}
+          volumeMounts:
+            - name: ssl-volume
+              mountPath: /ssl_data
+      volumes:
+        - name: ssl-volume
+          hostPath:
+            path: /ssl_data
+            type: Directory
 
-services:
-  oap:
-    extends:
-      file: ../../../../../base/base-compose.yml
-      service: oap
-    ports:
-      - 12800:12800
+---
 
-  rover:
-    extends:
-      file: ../../../../../base/base-compose.yml
-      service: rover
-    environment:
-      ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_MATCH_CMD: /file
-      ROVER_PROCESS_DISCOVERY_REGEX_SCANNER_SERVICE_NAME: file
-    depends_on:
-      oap:
-        condition: service_healthy
-
-  file_go:
-    build:
-      context: .
-      dockerfile: Dockerfile.file
-    networks:
-      - e2e
-
-networks:
-  e2e:
+apiVersion: v1
+kind: Service
+metadata:
+  name: service
+spec:
+  selector:
+    app: continuous
+  ports:
+    - protocol: TCP
+      port: 10443
+      targetPort: 10443

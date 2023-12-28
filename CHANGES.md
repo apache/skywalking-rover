@@ -11,6 +11,7 @@ Release Notes.
 * Publish the `latest` Docker image tag.
 * Improve the stability of Off CPU Profiling.
 * Support collecting the access log from Kubernetes.
+* Remove the scanner mode in the process discovery module.
 
 #### Bug Fixes
 

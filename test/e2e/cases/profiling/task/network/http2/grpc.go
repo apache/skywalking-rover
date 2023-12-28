@@ -49,7 +49,7 @@ func singleCall(w http.ResponseWriter, req *http.Request) {
 			log.Fatalf("credentials.NewClientTLSFromFile err: %v", err)
 		}
 
-		dial, err := grpc.Dial(fmt.Sprintf("proxy:%d", gRPCPort), grpc.WithTransportCredentials(c))
+		dial, err := grpc.Dial(fmt.Sprintf("proxy.default:%d", gRPCPort), grpc.WithTransportCredentials(c))
 		if err != nil {
 			log.Printf("init gRPC client failure: %v", err)
 			_, _ = w.Write([]byte("error"))

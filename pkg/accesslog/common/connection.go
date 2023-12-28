@@ -163,8 +163,11 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 		if ok && remoteAddressInfo != nil {
 			address := remoteAddressInfo.(*addressInfo)
 			remoteAddress = c.buildAddressFromLocalKubernetesProcess(address.pid, socket.DestPort, address.processType)
-		} else {
+		} else if c.isLocalTarget(socket) != addressProcessTypeLocal {
 			remoteAddress = c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
+		}
+		if localAddress == nil || remoteAddress == nil {
+			return nil
 		}
 		connection := c.buildConnection(e, socket, localAddress, remoteAddress)
 		c.connections.Set(connectionKey, connection)

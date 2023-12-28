@@ -17,40 +17,40 @@
 cases:
   # slow traces
   - query: |
-      curl -s -k https://${service_host}:${service_10443}/consumer-zipkin > /dev/null;
+      curl -s -k https://${service_service_host}:${service_service_10443}/consumer-zipkin > /dev/null;
       sleep 5;
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql records list \
         --name=sampled_slow_trace_record --service-name service --instance-name test --process-name service \
         --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 20
     expected: expected/slow-traces.yml
   # zipkin trace
 #  - query: |
-#      curl -s https://${service_host}:${service_10443}/consumer-zipkin > /dev/null;
+#      curl -s https://${service_service_host}:${service_service_10443}/consumer-zipkin > /dev/null;
 #      sleep 3;
-#      traceid=$(swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+#      traceid=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql records list \
 #          --name=sampled_slow_trace_record --service-name service --instance-name test --process-name service \
 #          --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 100 | yq e '. | map(select(.name == "zipkin-/provider-zipkin")).[0].id' -);
-#      curl http://${oap_host}:${oap_9412}/zipkin/api/v2/trace/${traceid} | yq e -| yq e 'del(.[].tags)' -
+#      curl http://${service_skywalking_ui_host}:${oap_9412}/zipkin/api/v2/trace/${traceid} | yq e -| yq e 'del(.[].tags)' -
 #    expected: expected/zipkin-trace.yml
   # skywalking trace
   - query: |
-      traceid=$(swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+      traceid=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql records list \
       --name=sampled_slow_trace_record --service-name service --instance-name test --process-name service \
       --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 100 | yq e '. | map(select(.name == "skywalking-/provider")).[0].id' -);
-       swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql trace $traceid
+       swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql trace $traceid
     expected: expected/skywalking-trace.yml
   # not founds
   - query: |
-      curl -s -k https://${service_host}:${service_10443}/consumer?type=notfound > /dev/null;
+      curl -s -k https://${service_service_host}:${service_service_10443}/consumer?type=notfound > /dev/null;
       sleep 5;
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql records list \
         --name=sampled_status_4xx_trace_record --service-name service --instance-name test --process-name service \
         --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 20
     expected: expected/status-4xx-traces.yml
   - query: |
-      curl -s -k https://${service_host}:${service_10443}/consumer?type=error > /dev/null;
+      curl -s -k https://${service_service_host}:${service_service_10443}/consumer?type=error > /dev/null;
       sleep 5;
-      swctl --display yaml --base-url=http://${oap_host}:${oap_12800}/graphql records list \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql records list \
         --name=sampled_status_5xx_trace_record --service-name service --instance-name test --process-name service \
         --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE 20
     expected: expected/status-5xx-traces.yml
