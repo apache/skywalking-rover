@@ -54,7 +54,7 @@ type AnalyzeHelper struct {
 }
 
 type Protocol interface {
-	GenerateConnection(connectionID uint64) ProtocolMetrics
+	GenerateConnection(connectionID, randomID uint64) ProtocolMetrics
 	Analyze(metrics ProtocolMetrics, buffer *buffer.Buffer, helper *AnalyzeHelper) error
 }
 

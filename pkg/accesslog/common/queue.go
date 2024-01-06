@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/logger"
 
@@ -134,8 +136,12 @@ func (q *Queue) Start(ctx context.Context) {
 
 func (q *Queue) consume() {
 	if !q.consumeLock.TryLock() {
+		log.Debugf("consume lock is locked, skip this consume")
 		return
 	}
 	defer q.consumeLock.Unlock()
+	if log.Enable(logrus.DebugLevel) {
+		log.Debugf("start to consume kernel logs: %d, protocol logs: %d", len(q.kernelLogs), len(q.protocolLogs))
+	}
 	q.consumer.Consume(q.kernelLogs, q.protocolLogs)
 }

@@ -64,6 +64,9 @@ func (r *Register) OpenSSL(symbolAddrMap *ebpf.Map, sslWrite, sslWriteRet, sslRe
 		if err != nil {
 			return false, err
 		}
+		if addresses == nil {
+			return false, fmt.Errorf("could not found the symbol address config")
+		}
 
 		if err := symbolAddrMap.Put(uint32(r.pid), addresses); err != nil {
 			return false, err

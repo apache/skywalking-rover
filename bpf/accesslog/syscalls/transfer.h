@@ -321,6 +321,12 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
         conn->ssl = true;
     }
 
+    // if the cannot getting the package size and count, then try to get it from the data args
+    if (args->total_package_size == 0 && args->package_count == 0) {
+        args->total_package_size = bytes_count;
+        args->package_count = 1;
+    }
+
     // if the protocol or role is unknown in the connection and the current data content is plaintext
     // then try to use protocol analyzer to analyze request or response and protocol type
     __u32 msg_type = 0;

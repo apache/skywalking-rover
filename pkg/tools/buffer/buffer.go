@@ -240,7 +240,7 @@ func (r *Buffer) DataSize() int64 {
 }
 
 func (r *Buffer) FirstSocketBuffer() SocketDataBuffer {
-	if r.dataEvents.Len() == 0 {
+	if r.dataEvents == nil || r.dataEvents.Len() == 0 {
 		return nil
 	}
 	return r.dataEvents.Front().Value.(SocketDataBuffer)
@@ -654,10 +654,16 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 }
 
 func (r *Buffer) DataLength() int {
+	if r.dataEvents == nil {
+		return 0
+	}
 	return r.dataEvents.Len()
 }
 
 func (r *Buffer) DetailLength() int {
+	if r.detailEvents == nil {
+		return 0
+	}
 	return r.detailEvents.Len()
 }
 

@@ -72,6 +72,9 @@ spec:
             - name: host
               mountPath: /host
               readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
           env:
             - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ACTIVE
               value: "true"
@@ -91,4 +94,8 @@ spec:
         - name: host
           hostPath:
             path: /
+            type: Directory
+        - name: sys
+          hostPath:
+            path: /sys
             type: Directory

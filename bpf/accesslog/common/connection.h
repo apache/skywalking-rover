@@ -95,16 +95,16 @@ struct socket_connect_event_t {
 
     // upstream
     __u32 remote_addr_v4;
-    __u8 remote_addr_v6[16];
     __u32 remote_port;
+    __u8 remote_addr_v6[16];
     // downstream
     __u32 local_addr_v4;
-    __u8 local_addr_v6[16];
     __u32 local_port;
+    __u8 local_addr_v6[16];
 
-    __u32 conntrack_upstream_port;
-    __u64 conntrack_upstream_iph;
     __u64 conntrack_upstream_ipl;
+    __u64 conntrack_upstream_iph;
+    __u32 conntrack_upstream_port;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
@@ -209,8 +209,8 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
     event->conntrack_upstream_ipl = 0;
     event->conntrack_upstream_port = 0;
     if (conntrack != NULL) {
-        event->conntrack_upstream_iph = conntrack->iph;
-        event->conntrack_upstream_ipl = conntrack->ipl;
+        event->conntrack_upstream_iph = (__u64)conntrack->iph;
+        event->conntrack_upstream_ipl = (__u64)conntrack->ipl;
         event->conntrack_upstream_port = conntrack->port;
     }
     event->success = success;

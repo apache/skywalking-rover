@@ -14,9 +14,9 @@
 # limitations under the License.
 
 {{- contains . }}
-- id: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+- id: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
   name: productpage
   attributes: []
   language: UNKNOWN
-  instanceuuid: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+  instanceuuid: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
 {{- end }}

@@ -91,6 +91,8 @@ spec:
               value: "false"
             - name: ROVER_HOST_MAPPING
               value: /host
+            - name: ROVER_CORE_CLUSTER_NAME
+              value: e2e
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

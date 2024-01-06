@@ -12,6 +12,8 @@ Release Notes.
 * Improve the stability of Off CPU Profiling.
 * Support collecting the access log from Kubernetes.
 * Remove the scanner mode in the process discovery module.
+* Upgrade Go library to `1.20`.
+* Support using `make docker.debug` to building the debug docker image.
 
 #### Bug Fixes
 

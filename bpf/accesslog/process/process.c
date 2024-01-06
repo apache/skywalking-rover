@@ -27,11 +27,14 @@ struct process_execute_event {
 };
 
 struct sched_comm_fork_ctx {
-	__u64 __pad_0;
+    unsigned short common_type;
+    unsigned char common_flags;
+    unsigned char common_preempt_count;
+    int common_pid;
 	char parent_comm[16];
-	__u32 parent_pid;
+	pid_t parent_pid;
 	char child_comm[16];
-	__u32 child_pid;
+	pid_t child_pid;
 };
 
 SEC("tracepoint/sched/sched_process_fork")

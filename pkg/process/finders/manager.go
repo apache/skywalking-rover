@@ -121,6 +121,7 @@ func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 
 func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []api.DetectedProcess) {
 	p.storage.SyncAllProcessInFinder(p.finderType, processes)
+	p.lastSync = processes
 }
 
 func (p *ProcessManagerWithFinder) AddDetectedProcess(processes []api.DetectedProcess) {
@@ -130,7 +131,7 @@ func (p *ProcessManagerWithFinder) AddDetectedProcess(processes []api.DetectedPr
 		return
 	}
 	// fetch existing process, add the new processes, finally, re-sync
-	detectedProcesses := make([]api.DetectedProcess, len(processes)+len(p.lastSync))
+	detectedProcesses := make([]api.DetectedProcess, 0, len(processes)+len(p.lastSync))
 	detectedProcesses = append(detectedProcesses, p.lastSync...)
 	detectedProcesses = append(detectedProcesses, processes...)
 	p.SyncAllProcessInFinder(detectedProcesses)

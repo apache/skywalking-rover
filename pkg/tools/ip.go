@@ -61,7 +61,7 @@ func IsLocalHostAddress(address string) bool {
 			return true
 		}
 	}
-	return false
+	return address == "0.0.0.0"
 }
 
 // Hostname of machine

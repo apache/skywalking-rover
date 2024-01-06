@@ -15,7 +15,7 @@
 
 {{- define "genProcessId" }}
 {{- with $processName := . }}
-{{- with $serviceId := "default::productpage" | b64enc | printf "%s.1" }}
+{{- with $serviceId := "productpage.default" | b64enc | printf "%s.1" }}
 {{- with $instanceId := "productpage" | b64enc | printf "%s_%s" $serviceId }}
 {{- printf "%s" (sha256enc (printf "%s_%s" $processName $instanceId)) }}
 {{- end }}
@@ -35,30 +35,30 @@ nodes:
 {{- contains .nodes }}
 - id: {{template "genProcessId" "/usr/local/bin/python"}}
   name: /usr/local/bin/python
-  serviceid: {{ b64enc "default::productpage" }}.1
-  servicename: default::productpage
-  serviceinstanceid: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+  serviceid: {{ b64enc "productpage.default" }}.1
+  servicename: productpage.default
+  serviceinstanceid: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
   serviceinstancename: productpage
   isreal: true
 - id: {{template "genProcessId" "envoy"}}
   name: envoy
-  serviceid: {{ b64enc "default::productpage" }}.1
-  servicename: default::productpage
-  serviceinstanceid: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+  serviceid: {{ b64enc "productpage.default" }}.1
+  servicename: productpage.default
+  serviceinstanceid: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
   serviceinstancename: productpage
   isreal: true
 - id: {{template "genProcessId" $ingressProcessName }}
   name: {{$ingressProcessName}}
-  serviceid: {{ b64enc "default::productpage" }}.1
-  servicename: default::productpage
-  serviceinstanceid: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+  serviceid: {{ b64enc "productpage.default" }}.1
+  servicename: productpage.default
+  serviceinstanceid: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
   serviceinstancename: productpage
   isreal: false
 - id: {{template "genProcessId" "kube-dns.kube-system" }}
   name: kube-dns.kube-system
-  serviceid: {{ b64enc "default::productpage" }}.1
-  servicename: default::productpage
-  serviceinstanceid: {{ b64enc "default::productpage" }}.1_{{ b64enc "productpage" }}
+  serviceid: {{ b64enc "productpage.default" }}.1
+  servicename: productpage.default
+  serviceinstanceid: {{ b64enc "productpage.default" }}.1_{{ b64enc "productpage" }}
   serviceinstancename: productpage
   isreal: false
 {{- end }}

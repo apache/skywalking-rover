@@ -45,16 +45,24 @@ type HTTP1Protocol struct {
 }
 
 type HTTP1Metrics struct {
+	connectionID uint64
+	randomID     uint64
+
 	halfRequests *list.List
 }
 
-func (p *HTTP1Protocol) GenerateConnection(connectionID uint64) ProtocolMetrics {
+func (p *HTTP1Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
 	return &HTTP1Metrics{
+		connectionID: connectionID,
+		randomID:     randomID,
 		halfRequests: list.New(),
 	}
 }
 
 func (p *HTTP1Protocol) Analyze(metrics ProtocolMetrics, buf *buffer.Buffer, _ *AnalyzeHelper) error {
+	http1Metrics := metrics.(*HTTP1Metrics)
+	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d",
+		http1Metrics.connectionID, http1Metrics.randomID)
 	buf.ResetForLoopReading()
 	for {
 		if !buf.PrepareForReading() {
@@ -130,11 +138,11 @@ func (p *HTTP1Protocol) handleResponse(metrics ProtocolMetrics, b *buffer.Buffer
 	}
 
 	// getting the request and response, then send to the forwarder
-	p.handleHTTPData(request, response)
+	p.handleHTTPData(http1Metrics, request, response)
 	return enums.ParseResultSuccess, nil
 }
 
-func (p *HTTP1Protocol) handleHTTPData(request *reader.Request, response *reader.Response) {
+func (p *HTTP1Protocol) handleHTTPData(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) {
 	detailEvents := make([]*events.SocketDetailEvent, 0)
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, request.HeaderBuffer())
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, request.BodyBuffer())
@@ -146,6 +154,8 @@ func (p *HTTP1Protocol) handleHTTPData(request *reader.Request, response *reader
 			request.MinDataID(), response.BodyBuffer().LastSocketBuffer().DataID())
 		return
 	}
+	http1Log.Debugf("found fully HTTP1 request and response, contains %d detail events , connection ID: %d, random ID: %d",
+		len(detailEvents), metrics.connectionID, metrics.randomID)
 	originalRequest := request.Original()
 	originalResponse := response.Original()
 

@@ -20,12 +20,19 @@ docker: PLATFORMS =
 docker: LOAD_OR_PUSH = --load
 docker: build-base-container
 docker: BASE_IMAGE_NAME = ${CONTAINER_COMMAND_IMAGE}
+docker: DOCKERFILE_NAME = Dockerfile.build
 docker.push: PLATFORMS = ${CONTAINER_PLATFORMS}
 docker.push: LOAD_OR_PUSH = --push
 docker.push: build-base-container-with-multi-args
 docker.push: BASE_IMAGE_NAME = localhost:5000/skywalking-rover-base
+docker.push: DOCKERFILE_NAME = Dockerfile.build
+docker.debug: PLATFORMS =
+docker.debug: LOAD_OR_PUSH = --load
+docker.debug: build-base-container
+docker.debug: BASE_IMAGE_NAME = ${CONTAINER_COMMAND_IMAGE}
+docker.debug: DOCKERFILE_NAME = Dockerfile.debug
 
-docker docker.push:
+docker docker.push docker.debug:
 	$(DOCKER_RULE)
 
 define DOCKER_RULE
@@ -33,6 +40,6 @@ define DOCKER_RULE
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BASE_IMAGE=${BASE_IMAGE_NAME}:${CONTAINER_COMMAND_TAG} \
 		-t $(HUB)/skywalking-rover:latest \
-		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/Dockerfile.build
+		-t $(HUB)/skywalking-rover:$(VERSION) --no-cache . -f docker/$(DOCKERFILE_NAME)
 	@$(MAKE) build-base-container-with-multi-args-cleanup
 endef

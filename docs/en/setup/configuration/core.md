@@ -7,6 +7,7 @@ It provides APIs for other modules to establish connections with the backend.
 
 | Name                              | Default         | Environment Key                    | Description                                                                                         |
 |-----------------------------------|-----------------|------------------------------------|-----------------------------------------------------------------------------------------------------|
+| core.cluster_name                 |                 | ROVER_CORE_CLUSTER_NAME            | The name of the cluster.                                                                            |
 | core.backend.addr                 | localhost:11800 | ROVER_BACKEND_ADDR                 | The backend server address.                                                                         |
 | core.backend.enable_TLS           | false           | ROVER_BACKEND_ENABLE_TLS           | The TLS switch.                                                                                     |
 | core.backend.client_pem_path      | client.pem      | ROVER_BACKEND_PEM_PATH             | The file path of client.pem. The config only works when opening the TLS switch.                     |

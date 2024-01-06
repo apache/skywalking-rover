@@ -34,6 +34,7 @@ type Module struct {
 	config *Config
 
 	instanceID    string
+	clusterName   string
 	backendClient *backend.Client
 }
 
@@ -53,9 +54,14 @@ func (m *Module) Config() module.ConfigInterface {
 	return m.config
 }
 
+func (m *Module) ClusterName() string {
+	return m.clusterName
+}
+
 func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 	// generate instance id
 	m.instanceID = uuid.New().String()
+	m.clusterName = m.config.ClusterName
 	// backend client
 	if m.config.BackendConfig != nil {
 		m.backendClient = backend.NewClient(m.config.BackendConfig)

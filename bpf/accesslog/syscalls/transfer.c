@@ -565,12 +565,21 @@ int tracepoint_exit_recvmmsg(struct trace_point_common_exit *ctx) {
 SEC("tracepoint/skb/skb_copy_datagram_iovec")
 int tracepoint_skb_copy_datagram_iovec(struct trace_point_skb_copy_datagram_iovec* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
+    struct sk_buff *buff = ctx->skb;
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args == NULL) {
+        bpf_map_delete_elem(&sk_buff_receive_detail_map, &buff);
         return 0;
     }
 
-    struct sk_buff *buff = ctx->skb;
+    struct sock *sock = _(buff->sk);
+    if (sock != NULL) {
+        data_args->sk_role = get_sock_role(data_args->sk_role, sock);
+    }
+
+    data_args->package_count++;
+    data_args->total_package_size += _(buff->len);
+
     struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &buff);
     if (detail == NULL) {
         return 0;
@@ -596,18 +605,11 @@ int tracepoint_skb_copy_datagram_iovec(struct trace_point_skb_copy_datagram_iove
 
     // l2
     data_args->ifindex = detail->ifindex;
-    data_args->package_count++;
-    data_args->total_package_size += _(buff->len);
     if (detail->netif_receive_time > 0 && detail->ip_local_time > 0) {
         data_args->total_package_to_queue_time += detail->ip_local_time - detail->netif_receive_time;
     }
     if (detail->ip_local_time > 0) {
         data_args->total_package_receive_from_queue_time += bpf_ktime_get_ns() - detail->ip_local_time;
-    }
-
-    struct sock *sock = _(buff->sk);
-    if (sock != NULL) {
-        data_args->sk_role = get_sock_role(data_args->sk_role, sock);
     }
 
     return 0;

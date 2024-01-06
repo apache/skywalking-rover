@@ -54,6 +54,7 @@ type HTTP2Protocol struct {
 
 type HTTP2Metrics struct {
 	connectionID uint64
+	randomID     uint64
 	hpackDecoder *hpack.Decoder
 
 	streams map[uint32]*HTTP2Streaming
@@ -70,17 +71,19 @@ type HTTP2Streaming struct {
 	respBodyBuffer   *buffer.Buffer
 }
 
-func (r *HTTP2Protocol) GenerateConnection(connectionID uint64) ProtocolMetrics {
+func (r *HTTP2Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
 	return &HTTP2Metrics{
 		connectionID: connectionID,
+		randomID:     randomID,
 		hpackDecoder: hpack.NewDecoder(4096, nil),
 		streams:      make(map[uint32]*HTTP2Streaming),
 	}
 }
 
 func (r *HTTP2Protocol) Analyze(metrics ProtocolMetrics, buf *buffer.Buffer, helper *AnalyzeHelper) error {
-	http2Log.Debugf("ready to analyze HTTP/2 protocol data, connection ID: %d", metrics.(*HTTP2Metrics).connectionID)
 	http2Metrics := metrics.(*HTTP2Metrics)
+	http2Log.Debugf("ready to analyze HTTP/2 protocol data, connection ID: %d, random ID: %d",
+		http2Metrics.connectionID, http2Metrics.randomID)
 	buf.ResetForLoopReading()
 	for {
 		if !buf.PrepareForReading() {
@@ -203,7 +206,11 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(metrics *HTTP2Metrics, id ui
 	}
 
 	// is the body sending too long, then split the stream
-	if time.Since(host.Time(streaming.respBodyBuffer.FirstSocketBuffer().StartTime())) > maxHTTP2StreamingTime {
+	socketBuffer := streaming.reqBodyBuffer.FirstSocketBuffer()
+	if socketBuffer == nil {
+		return
+	}
+	if time.Since(host.Time(socketBuffer.StartTime())) > maxHTTP2StreamingTime {
 		http2Log.Infof("detect the HTTP/2 stream is too long, split the stream, connection ID: %d, stream ID: %d, headers: %v",
 			metrics.connectionID, id, streaming.reqHeader)
 

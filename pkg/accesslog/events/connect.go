@@ -36,14 +36,14 @@ type SocketConnectEvent struct {
 	ConnectSuccess        uint8
 	Pad0                  uint32
 	RemoteAddrV4          uint32
-	RemoteAddrV6          [16]uint8
 	RemoteAddrPort        uint32
+	RemoteAddrV6          [16]uint8
 	LocalAddrV4           uint32
-	LocalAddrV6           [16]uint8
 	LocalAddrPort         uint32
-	ConnTrackUpstreamPort uint32
-	ConnTrackUpstreamIPh  uint64
+	LocalAddrV6           [16]uint8
 	ConnTrackUpstreamIPl  uint64
+	ConnTrackUpstreamIPh  uint64
+	ConnTrackUpstreamPort uint32
 }
 
 func (c *SocketConnectEvent) GetConnectionID() uint64 {

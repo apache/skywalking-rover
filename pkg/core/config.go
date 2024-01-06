@@ -26,6 +26,7 @@ type Config struct {
 	// module common config
 	module.Config `mapstructure:",squash"`
 
+	ClusterName string `mapstructure:"cluster_name"`
 	// backend connection
 	BackendConfig *backend.Config `mapstructure:"backend"`
 }
