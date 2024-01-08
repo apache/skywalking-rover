@@ -20,6 +20,8 @@ package ip
 import (
 	"fmt"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	processNet "github.com/shirou/gopsutil/net"
@@ -56,5 +58,17 @@ func ParseSocket(pid, sockfd uint32) (*SocketPair, error) {
 			}, nil
 		}
 	}
+	if log.Enable(logrus.DebugLevel) {
+		existConnections := make([]uint32, 0)
+		for _, conn := range connections {
+			existConnections = append(existConnections, conn.Fd)
+		}
+		log.Debugf("total connection in the pid: %d, exist connections: %v", pid, existConnections)
+	}
 	return nil, fmt.Errorf("cannot found the connection, pid: %d, socket FD: %d", pid, sockfd)
+}
+
+func (s *SocketPair) String() string {
+	return fmt.Sprintf("family: %d, role: %s, srcIP: %s, srcPort: %d, destIP: %s, destPort: %d",
+		s.Family, s.Role.String(), s.SrcIP, s.SrcPort, s.DestIP, s.DestPort)
 }

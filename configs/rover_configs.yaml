@@ -20,6 +20,8 @@ logger:
   level: ${ROVER_LOGGER_LEVEL:INFO}
 
 core:
+  # The name of the cluster.
+  cluster_name: ${ROVER_CORE_CLUSTER_NAME:}
   backend:
     # The backend server address
     addr: ${ROVER_BACKEND_ADDR:localhost:11800}
@@ -56,7 +58,7 @@ process_discovery:
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_CONTAINER_IS_ENVOY:eq .Container.Name "istio-proxy"}
         layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LAYER:MESH_DP}
-        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_SERVICE_NAME:{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}.{{.Pod.Namespace}}}
         instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_INSTANCE_NAME:{{.Pod.Name}}}
         process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_PROCESS_NAME:{{.Process.ExeName}}}
         labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_LABELS:mesh-envoy}
@@ -65,7 +67,7 @@ process_discovery:
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_HAS_ENVOY:.Pod.HasContainer "istio-proxy"}
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_CONTAINER_NOT_ENVOY:ne .Container.Name "istio-proxy"}
         layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LAYER:MESH}
-        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_SERVICE_NAME:{{.Pod.LabelValue "service.istio.io/canonical-name,app.kubernetes.io/name,app" ""}}.{{.Pod.Namespace}}}
         instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_INSTANCE_NAME:{{.Pod.Name}}}
         process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_PROCESS_NAME:{{.Process.ExeName}}}
         labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_LABELS:mesh-application}
@@ -73,7 +75,7 @@ process_discovery:
         filters:
           - ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_HAS_SERVICE:.Pod.HasServiceName}
         layer: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_LAYER:K8S_SERVICE}
-        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_NAME:{{.Pod.Namespace}}::{{.Pod.ServiceName}}}
+        service_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_NAME:{{.Pod.ServiceName}}.{{.Pod.Namespace}}}
         instance_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_INSTANCE_NAME:{{.Pod.Name}}}
         process_name: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_PROCESS_NAME:{{.Process.ExeName}}}
         labels: ${ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_K8S_SERVICE_LABLES:k8s-service}
@@ -129,9 +131,10 @@ profiling:
 access_log:
   # Is active the access log monitoring
   active: ${ROVER_ACCESS_LOG_ACTIVE:false}
+  exclude_namespaces: ${ROVER_ACCESS_LOG_EXCLUDE_NAMESPACES:istio-system,cert-manager,kube-system}
   flush:
     # The max count of access log when flush to the backend
-    max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:2000}
+    max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:10000}
     # The period of flush access log to the backend
     period: ${ROVER_ACCESS_LOG_FLUSH_PERIOD:5s}
   protocol_analyze:

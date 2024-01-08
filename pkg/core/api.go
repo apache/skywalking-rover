@@ -23,6 +23,8 @@ import "github.com/apache/skywalking-rover/pkg/core/backend"
 type Operator interface {
 	// InstanceId of Rover
 	InstanceID() string
+	// ClusterName of Rover
+	ClusterName() string
 	// BackendOperator for operate with backend client
 	BackendOperator() backend.Operator
 }

@@ -20,7 +20,11 @@ package common
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
@@ -42,7 +46,8 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-const localAddressPairCacheTime = time.Hour * 6
+// only using to match the remote IP address
+const localAddressPairCacheTime = time.Second * 15
 
 type addressProcessType int
 
@@ -50,6 +55,11 @@ const (
 	addressProcessTypeUnknown addressProcessType = iota
 	addressProcessTypeLocal
 	addressProcessTypeKubernetes
+)
+
+const (
+	strLocal  = "local"
+	strRemote = "remote"
 )
 
 type ConnectEventWithSocket struct {
@@ -79,15 +89,19 @@ type ConnectionManager struct {
 	connections cmap.ConcurrentMap
 	// addressWithPid cache all local ip+port and pid mapping for match the process on the same host
 	// such as service mesh(process with envoy)
-	addressWithPid *cache.Expiring
+	addressWithPid   *cache.Expiring
+	localPortWithPid *cache.Expiring // in some case, we can only get the 127.0.0.1 from server side, so we only cache the port for this
 	// localIPWithPid cache all local monitoring process bind IP address
 	// for checking the remote address is local or not
 	localIPWithPid map[string]int32
 	// monitoringProcesses management all monitoring processes
-	monitoringProcesses map[int32][]api.ProcessInterface
+	monitoringProcesses   map[int32][]api.ProcessInterface
+	monitoringProcessLock sync.RWMutex
 	// monitoring process map in BPF
 	processMonitorMap   *ebpf.Map
 	activeConnectionMap *ebpf.Map
+
+	excludeNamespaces map[string]bool
 
 	processors       []ConnectionProcessor
 	processListeners []ProcessListener
@@ -105,27 +119,34 @@ func (c *ConnectionManager) AddProcessListener(listener ProcessListener) {
 }
 
 type addressInfo struct {
-	pid         uint32
-	processType addressProcessType
+	pid uint32
 }
 
 type ConnectionInfo struct {
+	ConnectionID  uint64
+	RandomID      uint64
 	RPCConnection *v3.AccessLogConnection
 	MarkDeletable bool
 	PID           uint32
 }
 
-func NewConnectionManager(moduleMgr *module.Manager, bpfLoader *bpf.Loader) *ConnectionManager {
+func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader) *ConnectionManager {
+	excludeNamespaces := make(map[string]bool)
+	for _, ns := range strings.Split(config.ExcludeNamespaces, ",") {
+		excludeNamespaces[ns] = true
+	}
 	mgr := &ConnectionManager{
 		moduleMgr:                moduleMgr,
 		processOP:                moduleMgr.FindModule(process.ModuleName).(process.Operator),
 		connections:              cmap.New(),
 		addressWithPid:           cache.NewExpiring(),
+		localPortWithPid:         cache.NewExpiring(),
 		localIPWithPid:           make(map[string]int32),
 		monitoringProcesses:      make(map[int32][]api.ProcessInterface),
 		processMonitorMap:        bpfLoader.ProcessMonitorControl,
 		activeConnectionMap:      bpfLoader.ActiveConnectionMap,
 		allUnfinishedConnections: make(map[string]*bool),
+		excludeNamespaces:        excludeNamespaces,
 	}
 	return mgr
 }
@@ -157,22 +178,57 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 	if e, socket := getSocketPairFromConnectEvent(event); e != nil && socket != nil {
 		var localAddress, remoteAddress *v3.ConnectionAddress
 		localPID, _ := events.ParseConnectionID(event.GetConnectionID())
-		localAddress = c.buildAddressFromLocalKubernetesProcess(localPID, socket.SrcPort, addressProcessTypeKubernetes)
-		// trying to get the remote process if in the same host
-		remoteAddressInfo, ok := c.addressWithPid.Get(fmt.Sprintf("%s_%d", socket.DestIP, socket.DestPort))
-		if ok && remoteAddressInfo != nil {
-			address := remoteAddressInfo.(*addressInfo)
-			remoteAddress = c.buildAddressFromLocalKubernetesProcess(address.pid, socket.DestPort, address.processType)
-		} else if c.isLocalTarget(socket) != addressProcessTypeLocal {
-			remoteAddress = c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
-		}
+		localAddress = c.buildAddressFromLocalKubernetesProcess(localPID, socket.SrcPort)
+		remoteAddress = c.buildRemoteAddress(e, socket)
 		if localAddress == nil || remoteAddress == nil {
 			return nil
 		}
 		connection := c.buildConnection(e, socket, localAddress, remoteAddress)
 		c.connections.Set(connectionKey, connection)
+		if log.Enable(logrus.DebugLevel) {
+			log.Debugf("building flushing connection, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d, "+
+				"local address: %s, remote address: %s",
+				e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort,
+				localAddress.String(), remoteAddress.String())
+		}
 		return connection
 	}
+	return nil
+}
+
+func (c *ConnectionManager) buildRemoteAddress(e *events.SocketConnectEvent, socket *ip.SocketPair) *v3.ConnectionAddress {
+	tp := c.isLocalTarget(socket)
+	if tp == addressProcessTypeUnknown {
+		log.Debugf("building the remote address to unknown, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
+			e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
+		return c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
+	}
+
+	var addrInfo *addressInfo
+	var fromType string
+	switch socket.Role {
+	case enums.ConnectionRoleClient:
+		addrInfo = c.getAddressPid(socket.SrcIP, socket.SrcPort, false)
+		fromType = strLocal
+	case enums.ConnectionRoleServer:
+		addrInfo = c.getAddressPid(socket.DestIP, socket.DestPort, true)
+		fromType = strRemote
+	}
+
+	if addrInfo != nil {
+		log.Debugf("building the remote address from %s process, pid: %d, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
+			fromType, addrInfo.pid, e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
+		return c.buildAddressFromLocalKubernetesProcess(addrInfo.pid, socket.DestPort)
+	} else if tp == addressProcessTypeKubernetes {
+		if p := c.localIPWithPid[socket.DestIP]; p != 0 {
+			log.Debugf("building the remote address from kubernetes process, connection: %d-%d, role: %s, pid: %d, local: %s:%d, remote: %s:%d",
+				e.GetConnectionID(), e.GetRandomID(), socket.Role, p, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
+			return c.buildAddressFromLocalKubernetesProcess(uint32(p), socket.DestPort)
+		}
+	}
+
+	log.Debugf("cannot found the peer pid for the connection: %d-%d, remote type: %v, role: %s, local: %s:%d, remote: %s:%d",
+		e.GetConnectionID(), e.GetRandomID(), tp, socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
 	return nil
 }
 
@@ -192,10 +248,20 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 		if e.SSL == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
 			connection.RPCConnection.TlsMode = v3.AccessLogConnectionTLSMode_TLS
 		}
+		if e.Protocol != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
+			switch e.Protocol {
+			case enums.ConnectionProtocolHTTP:
+				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_1
+			case enums.ConnectionProtocolHTTP2:
+				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_2
+			}
+		}
 	}
 }
 
 func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
 	return len(c.monitoringProcesses[int32(pid)]) > 0
 }
 
@@ -209,18 +275,23 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		role = v32.DetectPoint_server
 	}
 	connection := &v3.AccessLogConnection{
-		Local:   local,
-		Remote:  remote,
-		Role:    role,
-		TlsMode: v3.AccessLogConnectionTLSMode_Plain,
+		Local:    local,
+		Remote:   remote,
+		Role:     role,
+		TlsMode:  v3.AccessLogConnectionTLSMode_Plain,
+		Protocol: v3.AccessLogProtocolType_TCP,
 	}
 	return &ConnectionInfo{
+		ConnectionID:  event.ConID,
+		RandomID:      event.RandomID,
 		RPCConnection: connection,
 		PID:           event.PID,
 	}
 }
 
-func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, port uint16, _ addressProcessType) *v3.ConnectionAddress {
+func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, port uint16) *v3.ConnectionAddress {
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
 	for _, pi := range c.monitoringProcesses[int32(pid)] {
 		if pi.DetectType() == api.Kubernetes {
 			entity := pi.Entity()
@@ -270,13 +341,56 @@ func (c *ConnectionManager) OnConnectionClose(event *events.SocketCloseEvent) *C
 	return result
 }
 
+func (c *ConnectionManager) savingTheAddress(host string, port uint16, localPid bool, pid uint32) {
+	localAddrInfo := &addressInfo{
+		pid: pid,
+	}
+	c.addressWithPid.Set(fmt.Sprintf("%s_%d_%t", host, port, localPid), localAddrInfo, localAddressPairCacheTime)
+	localStr := strRemote
+	if localPid {
+		localStr = strLocal
+	}
+	log.Debugf("saving the %s address with pid cache, address: %s:%d, pid: %d", localStr, host, port, pid)
+}
+
+func (c *ConnectionManager) getAddressPid(host string, port uint16, localPid bool) *addressInfo {
+	addrInfo, ok := c.addressWithPid.Get(fmt.Sprintf("%s_%d_%t", host, port, localPid))
+	if ok && addrInfo != nil {
+		return addrInfo.(*addressInfo)
+	}
+	return nil
+}
+
 func (c *ConnectionManager) OnConnectEvent(event *events.SocketConnectEvent, pair *ip.SocketPair) {
 	// only adding the local ip port when remote is local address
-	if tp := c.isLocalTarget(pair); tp != addressProcessTypeUnknown {
-		c.addressWithPid.Set(fmt.Sprintf("%s_%d", pair.SrcIP, pair.SrcPort), &addressInfo{
-			pid:         event.PID,
-			processType: tp,
-		}, localAddressPairCacheTime)
+	switch c.isLocalTarget(pair) {
+	case addressProcessTypeUnknown:
+		log.Debugf("the target address is not local, so no needs to save the cache. "+
+			"address: %s:%d, pid: %d", pair.DestIP, pair.DestPort, event.PID)
+	case addressProcessTypeLocal:
+		switch pair.Role {
+		case enums.ConnectionRoleClient:
+			// if current is client, so the local port should be unique
+			c.savingTheAddress(pair.SrcIP, pair.SrcPort, true, event.PID)
+		case enums.ConnectionRoleServer:
+			// if current is server, so the remote port should be unique
+			c.savingTheAddress(pair.DestIP, pair.DestPort, false, event.PID)
+		case enums.ConnectionRoleUnknown:
+			log.Debugf("the target address local but unknown role, so no needs to save the cache. socket: [%s], pid: %d",
+				pair, event.PID)
+		}
+	case addressProcessTypeKubernetes:
+		switch pair.Role {
+		case enums.ConnectionRoleClient:
+			// if current is client, so the local port should be unique
+			c.savingTheAddress(pair.SrcIP, pair.SrcPort, true, event.PID)
+		case enums.ConnectionRoleServer:
+			// if current is server, so the remote port should be unique
+			c.savingTheAddress(pair.DestIP, pair.DestPort, false, event.PID)
+		case enums.ConnectionRoleUnknown:
+			log.Debugf("the target address kubernetes but unknown role, so no needs to save the cache. socket: [%s], pid: %d",
+				pair, event.PID)
+		}
 	}
 }
 
@@ -292,6 +406,15 @@ func (c *ConnectionManager) isLocalTarget(pair *ip.SocketPair) addressProcessTyp
 }
 
 func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInterface) {
+	// filtering the namespace
+	if c.shouldExcludeTheProcess(entities) {
+		c.RemoveProcess(pid, entities)
+		return
+	}
+
+	c.monitoringProcessLock.Lock()
+	defer c.monitoringProcessLock.Unlock()
+
 	// adding monitoring process and IP addresses
 	c.monitoringProcesses[pid] = entities
 	c.updateMonitorStatusForProcess(pid, true)
@@ -300,28 +423,72 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 			c.localIPWithPid[host] = pid
 		}
 	}
+	c.printTotalAddressesWithPid("adding monitoring process")
 	for _, l := range c.processListeners {
 		l.OnNewProcessMonitoring(pid)
 	}
 }
 
+func (c *ConnectionManager) rebuildLocalIPWithPID() {
+	result := make(map[string]int32)
+	for pid, entities := range c.monitoringProcesses {
+		for _, entity := range entities {
+			for _, host := range entity.ExposeHosts() {
+				result[host] = pid
+			}
+		}
+	}
+	c.localIPWithPid = result
+}
+
+func (c *ConnectionManager) printTotalAddressesWithPid(prefix string) {
+	if !log.Enable(logrus.DebugLevel) {
+		return
+	}
+	log.Debugf("%s, print all local address with pid", prefix)
+	log.Debugf("----------------------------")
+	log.Debugf("total local address with pid: %d", len(c.localIPWithPid))
+	for k, v := range c.localIPWithPid {
+		log.Debugf("local address: %s, pid: %d", k, v)
+	}
+	log.Debugf("----------------------------")
+}
+
+func (c *ConnectionManager) shouldExcludeTheProcess(entities []api.ProcessInterface) bool {
+	for _, entity := range entities {
+		if entity.DetectType() == api.Kubernetes {
+			namespace := entity.DetectProcess().(*kubernetes.Process).PodContainer().Pod.Namespace
+			if c.excludeNamespaces[namespace] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
+	c.monitoringProcessLock.Lock()
+	defer c.monitoringProcessLock.Unlock()
 	// delete monitoring process and IP addresses
 	delete(c.monitoringProcesses, pid)
 	c.updateMonitorStatusForProcess(pid, false)
-	for _, entity := range entities {
-		for _, host := range entity.ExposeHosts() {
-			delete(c.localIPWithPid, host)
-		}
-	}
+	c.rebuildLocalIPWithPID()
+	c.printTotalAddressesWithPid("remove monitoring process")
 	for _, l := range c.processListeners {
 		l.OnProcessRemoved(pid)
 	}
 }
 
 func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.ProcessInterface) {
+	shouldMonitoringProcesses := make(map[int32][]api.ProcessInterface)
+	for pid, p := range processes {
+		if c.shouldExcludeTheProcess(p) {
+			continue
+		}
+		shouldMonitoringProcesses[pid] = p
+	}
 	// checking the monitoring process
-	c.monitoringProcesses = processes
+	c.monitoringProcesses = shouldMonitoringProcesses
 	// for-each the existing monitored map, it should not be monitored, then remote it
 	iterate := c.processMonitorMap.Iterate()
 	processInBPF := make(map[int32]bool)
@@ -350,16 +517,7 @@ func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.Proces
 	}
 
 	// update all IP addresses
-	result := make(map[string]int32)
-	for _, p := range processes {
-		for _, entity := range p {
-			for _, host := range entity.ExposeHosts() {
-				result[host] = entity.Pid()
-			}
-		}
-	}
-
-	c.localIPWithPid = result
+	c.rebuildLocalIPWithPID()
 }
 
 func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor bool) {
@@ -374,6 +532,8 @@ func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor boo
 			return
 		}
 		log.Warnf("failed to update the process %d monitor status to %t: %v", pid, monitor, err)
+	} else {
+		log.Debugf("update the process %d monitor status to %t", pid, monitor)
 	}
 }
 

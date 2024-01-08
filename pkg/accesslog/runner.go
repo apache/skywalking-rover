@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
@@ -38,7 +40,7 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-const kernelAccessLogCacheTime = time.Minute * 5
+const kernelAccessLogCacheTime = time.Second * 10
 
 var log = logger.GetLogger("access_log", "runner")
 
@@ -47,6 +49,7 @@ type Runner struct {
 	collectors []collector.Collector
 	mgr        *module.Manager
 	backendOp  backend.Operator
+	cluster    string
 	alsClient  v3.EBPFAccessLogServiceClient
 	ctx        context.Context
 }
@@ -60,16 +63,19 @@ func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse flush period error: %v", err)
 	}
-	backendOP := mgr.FindModule(core.ModuleName).(core.Operator).BackendOperator()
+	coreModule := mgr.FindModule(core.ModuleName).(core.Operator)
+	backendOP := coreModule.BackendOperator()
+	clusterName := coreModule.ClusterName()
 	runner := &Runner{
 		context: &common.AccessLogContext{
 			BPF:           bpfLoader,
 			Config:        config,
-			ConnectionMgr: common.NewConnectionManager(mgr, bpfLoader),
+			ConnectionMgr: common.NewConnectionManager(config, mgr, bpfLoader),
 		},
 		collectors: collector.Collectors(),
 		mgr:        mgr,
 		backendOp:  backendOP,
+		cluster:    clusterName,
 		alsClient:  v3.NewEBPFAccessLogServiceClient(backendOP.GetConnection()),
 	}
 	runner.context.Queue = common.NewQueue(config.Flush.MaxCountOneStream, flushDuration, runner)
@@ -126,6 +132,8 @@ func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, result map[*com
 		select {
 		case kernelLog := <-kernels:
 			connection, curLog, delay := r.buildKernelLog(kernelLog)
+			log.Debugf("building kernel log result, connetaion ID: %d, random ID: %d, exist connection: %t, delay: %t",
+				kernelLog.Event.GetConnectionID(), kernelLog.Event.GetRandomID(), connection != nil, delay)
 			if connection != nil && curLog != nil {
 				logs, exist := result[connection]
 				if !exist {
@@ -139,7 +147,11 @@ func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, result map[*com
 			}
 		default:
 			for _, delayAppend := range delayAppends {
-				kernels <- delayAppend
+				select {
+				case kernels <- delayAppend:
+				default:
+					return
+				}
 			}
 			return
 		}
@@ -152,6 +164,15 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 		select {
 		case protocolLog := <-protocols:
 			connection, kernelLogs, protocolLogs, delay := r.buildProtocolLog(protocolLog)
+			if log.Enable(logrus.DebugLevel) {
+				kernelLogCount := len(protocolLog.KernelLogs)
+				var conID, randomID uint64
+				if kernelLogCount > 0 {
+					conID, randomID = protocolLog.KernelLogs[0].GetConnectionID(), protocolLog.KernelLogs[0].GetRandomID()
+				}
+				log.Debugf("building protocol log result, connetaion ID: %d, random ID: %d, connection exist: %t, delay: %t",
+					conID, randomID, connection != nil, delay)
+			}
 			if connection != nil && len(kernelLogs) > 0 && protocolLogs != nil {
 				logs, exist := result[connection]
 				if !exist {
@@ -167,7 +188,11 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 			}
 		default:
 			for _, delayAppend := range delayAppends {
-				protocols <- delayAppend
+				select {
+				case protocols <- delayAppend:
+				default:
+					return
+				}
 			}
 			return
 		}
@@ -175,7 +200,9 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 }
 
 func (r *Runner) sendLogs(allLogs map[*common.ConnectionInfo]*connectionLogs) error {
-	streaming, err := r.alsClient.Collect(r.ctx)
+	timeout, cancelFunc := context.WithTimeout(r.ctx, time.Second*20)
+	defer cancelFunc()
+	streaming, err := r.alsClient.Collect(timeout)
 	if err != nil {
 		return err
 	}
@@ -212,6 +239,11 @@ func (r *Runner) buildAccessLogMessage(firstLog, firstConnection bool, conn *com
 	var rpcCon *v3.AccessLogConnection
 	if firstConnection {
 		rpcCon = conn.RPCConnection
+		if log.Enable(logrus.DebugLevel) {
+			log.Debugf("ready to sending access log with connection, connection ID: %d, random ID: %d, "+
+				"local: %s, remote: %s, role: %s",
+				conn.ConnectionID, conn.RandomID, rpcCon.Local, rpcCon.Remote, rpcCon.Role)
+		}
 	}
 	return &v3.EBPFAccessLogMessage{
 		Node:        r.BuildNodeInfo(firstLog),
@@ -237,6 +269,7 @@ func (r *Runner) BuildNodeInfo(needs bool) *v3.EBPFAccessLogNodeInfo {
 		Name:          r.mgr.FindModule(process.ModuleName).(process.K8sOperator).NodeName(),
 		NetInterfaces: netInterfaces,
 		BootTime:      r.convertTimeToInstant(host.BootTime),
+		ClusterName:   r.cluster,
 	}
 }
 

@@ -22,9 +22,10 @@ import "github.com/apache/skywalking-rover/pkg/module"
 type Config struct {
 	module.Config
 
-	Active          bool                  `mapstructure:"active"`
-	Flush           FlushConfig           `mapstructure:"flush"`
-	ProtocolAnalyze ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"`
+	Active            bool                  `mapstructure:"active"`
+	ExcludeNamespaces string                `mapstructure:"exclude_namespaces"`
+	Flush             FlushConfig           `mapstructure:"flush"`
+	ProtocolAnalyze   ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"`
 }
 
 type FlushConfig struct {

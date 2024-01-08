@@ -19,9 +19,10 @@
 #include "../common/data_args.h"
 
 static __always_inline void nf_conntrack_read_in6_addr(__u64 *addr_h, __u64 *addr_l, const struct in6_addr *in6) {
-    BPF_CORE_READ_INTO(addr_h, in6, s6_addr32[0]);
-    BPF_CORE_READ_INTO(addr_l, in6, s6_addr32[2]);
+    bpf_probe_read(addr_h, sizeof(*addr_h), &in6->s6_addr32[0]);
+    bpf_probe_read(addr_l, sizeof(*addr_l), &in6->s6_addr32[2]);
 }
+
 static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(conntrack_tuple_t *t, const struct nf_conntrack_tuple *ct) {
     __builtin_memset(t, 0, sizeof(conntrack_tuple_t));
 
@@ -51,13 +52,13 @@ static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(conntrack_tuple
         if (!t->saddr_l || !t->daddr_l) {
             return 0;
         }
-//    } else if (ct->src.l3num == AF_INET6) {
-//        nf_conntrack_read_in6_addr(&t->saddr_h, &t->saddr_l, &ct->src.u3.in6);
-//        nf_conntrack_read_in6_addr(&t->daddr_h, &t->daddr_l, &ct->dst.u3.in6);
-//
-//        if (!t->saddr_h || !t->saddr_l || !t->daddr_h || !t->daddr_l) {
-//            return 0;
-//        }
+    } else if (ct->src.l3num == AF_INET6) {
+        nf_conntrack_read_in6_addr(&t->saddr_h, &t->saddr_l, &ct->src.u3.in6);
+        nf_conntrack_read_in6_addr(&t->daddr_h, &t->daddr_l, &ct->dst.u3.in6);
+
+        if (!t->saddr_h || !t->saddr_l || !t->daddr_h || !t->daddr_l) {
+            return 0;
+        }
     }
     return 1;
 }

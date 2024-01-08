@@ -38,7 +38,7 @@ struct skb_receive_detail {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
+	__uint(max_entries, 100000);
 	__type(key, struct sk_buff *);
 	__type(value, struct skb_receive_detail);
 } sk_buff_receive_detail_map SEC(".maps");

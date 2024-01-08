@@ -102,7 +102,7 @@ func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64
 		dataBuffer:       buffer.NewBuffer(),
 		protocol:         protocol,
 		protocolAnalyzer: analyzer,
-		protocolMetrics:  analyzer.GenerateConnection(conID),
+		protocolMetrics:  analyzer.GenerateConnection(conID, randomID),
 	}
 }
 
@@ -162,8 +162,11 @@ func (p *PartitionContext) Start(ctx context.Context) {
 func (p *PartitionContext) Consume(data interface{}) {
 	switch event := data.(type) {
 	case *events.SocketDetailEvent:
-		log.Debugf("receive the socket detail event, connection ID: %d, random ID: %d, data id: %d, function name: %s",
-			event.ConnectionID, event.RandomID, event.DataID0, event.FunctionName)
+		pid, _ := events.ParseConnectionID(event.ConnectionID)
+		log.Debugf("receive the socket detail event, connection ID: %d, random ID: %d, pid: %d, data id: %d, "+
+			"function name: %s, package count: %d, package size: %d, l4 duration: %d",
+			event.ConnectionID, event.RandomID, pid, event.DataID0, event.FunctionName,
+			event.L4PackageCount, event.L4TotalPackageSize, event.L4Duration)
 		if event.Protocol == enums.ConnectionProtocolUnknown {
 			// if the connection protocol is unknown, we just needs to add this into the kernel log
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
@@ -172,8 +175,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.Protocol)
 		connection.appendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
-		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, data id: %d, sequence: %d, protocol: %d",
-			event.ConnectionID, event.RandomID, event.DataID0, event.Sequence0, event.Protocol)
+		pid, _ := events.ParseConnectionID(event.ConnectionID)
+		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
+			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol)
 		connection.appendData(event)
 	}

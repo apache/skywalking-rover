@@ -41,6 +41,7 @@ import (
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/process/v3"
 
+	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
@@ -55,6 +56,7 @@ type ProcessFinder struct {
 	conf *Config
 
 	// runtime
+	clusterName  string
 	manager      base.ProcessManager
 	ctx          context.Context
 	cancelCtx    context.CancelFunc
@@ -71,6 +73,7 @@ type ProcessFinder struct {
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
+	f.clusterName = manager.GetModuleManager().FindModule(core.ModuleName).(core.Operator).ClusterName()
 	k8sConf, cli, err := f.validateConfig(ctx, conf.(*Config))
 	if err != nil {
 		return err
@@ -178,7 +181,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 		for _, pro := range cachedProcesses.([]*Process) {
 			detectedProcesses = append(detectedProcesses, pro)
 		}
-		return detectedProcesses, false
+		return detectedProcesses, true
 	}
 
 	cgroups, err := f.getProcessCGroup(p.Pid)
@@ -245,6 +248,10 @@ func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]
 		entity.Labels = builder.Labels
 		if err != nil {
 			return nil, err
+		}
+		// adding the cluster name into the service name
+		if f.clusterName != "" {
+			entity.ServiceName = fmt.Sprintf("%s::%s", f.clusterName, entity.ServiceName)
 		}
 		processes = append(processes, NewProcess(p, cmdline, pc, entity))
 	}
@@ -375,6 +382,21 @@ func (f *ProcessFinder) ParseProcessID(ps api.DetectedProcess, downstream *v3.EB
 }
 
 func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
+	pidList, err := process.Pids()
+	if err != nil {
+		return false
+	}
+	pidExist := false
+	for _, p := range pidList {
+		if p == pid {
+			pidExist = true
+			break
+		}
+	}
+	if !pidExist {
+		return false
+	}
+
 	newProcess, err := process.NewProcess(pid)
 	if err != nil {
 		return false

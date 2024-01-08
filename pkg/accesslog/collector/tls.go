@@ -67,7 +67,7 @@ func (c *TLSCollector) OnNewProcessMonitoring(pid int32) {
 	register.OpenSSL(c.context.BPF.OpensslSymaddrMap, c.context.BPF.OpensslWrite, c.context.BPF.OpensslWriteRet,
 		c.context.BPF.OpensslRead, c.context.BPF.OpensslReadRet)
 
-	register.OpenSSL(nil, c.context.BPF.OpensslWrite, c.context.BPF.OpensslWriteRet,
+	register.Envoy(nil, c.context.BPF.OpensslWrite, c.context.BPF.OpensslWriteRet,
 		c.context.BPF.OpensslRead, c.context.BPF.OpensslReadRet)
 
 	register.GoTLS(c.context.BPF.GoTlsArgsSymaddrMap, c.context.BPF.GoTlsWrite, c.context.BPF.GoTlsWriteRet,
