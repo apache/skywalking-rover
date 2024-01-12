@@ -116,7 +116,7 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 
 	pair, err := ip.ParseSocket(event.PID, event.SocketFD)
 	if err != nil {
-		connectLogger.Warnf("cannot found the socket, pid: %d, socket FD: %d", event.PID, event.SocketFD)
+		connectLogger.Debugf("cannot found the socket, pid: %d, socket FD: %d", event.PID, event.SocketFD)
 		return nil
 	}
 	connectLogger.Debugf("found the connection from the socket, connection ID: %d, randomID: %d",
@@ -197,7 +197,7 @@ func (c *ConnectCollector) buildSocketPair(event *events.SocketConnectEvent) *ip
 	return result
 }
 
-func (c *ConnectCollector) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
+func (c *ConnectCollector) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) bool {
 	if socket != nil && socket.IsValid() && c.connTracker != nil && !tools.IsLocalHostAddress(socket.DestIP) {
 		// if no contract and socket data is valid, then trying to get the remote address from the socket
 		// to encase the remote address is not the real remote address
@@ -207,6 +207,8 @@ func (c *ConnectCollector) tryToUpdateSocketFromConntrack(event *events.SocketCo
 			connectLogger.Debugf("update the socket address from conntrack success, "+
 				"connection ID: %d, randomID: %d, original remote: %s:%d, new remote: %s:%d",
 				event.ConID, event.RandomID, originalIP, originalPort, socket.DestIP, socket.DestPort)
+			return true
 		}
 	}
+	return false
 }

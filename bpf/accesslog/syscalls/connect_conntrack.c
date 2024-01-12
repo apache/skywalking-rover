@@ -23,7 +23,7 @@ static __always_inline void nf_conntrack_read_in6_addr(__u64 *addr_h, __u64 *add
     bpf_probe_read(addr_l, sizeof(*addr_l), &in6->s6_addr32[2]);
 }
 
-static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(conntrack_tuple_t *t, const struct nf_conntrack_tuple *ct) {
+static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(struct connect_args_t *connect_args, conntrack_tuple_t *t, const struct nf_conntrack_tuple *ct) {
     __builtin_memset(t, 0, sizeof(conntrack_tuple_t));
 
     switch (ct->dst.protonum) {
@@ -60,6 +60,25 @@ static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(conntrack_tuple
             return 0;
         }
     }
+
+    struct sock *sock = connect_args->sock;
+    struct socket *tmps = _(sock->sk_socket);
+    if (tmps != NULL) {
+        struct sock* s;
+        BPF_CORE_READ_INTO(&s, tmps, sk);
+        short unsigned int skc_family;
+        BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
+        if (skc_family == AF_INET) {
+            __u16 local_port;
+            BPF_CORE_READ_INTO(&local_port, s, __sk_common.skc_num);
+            __u32 local_addr_v4;
+            BPF_CORE_READ_INTO(&local_addr_v4, s, __sk_common.skc_rcv_saddr);
+            // make sure connntrack with the same socket address
+            if (local_addr_v4 != t->daddr_l || local_port != t->dport) {
+                return 0;
+            }
+        }
+    }
     return 1;
 }
 
@@ -70,6 +89,11 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     __u64 id = bpf_get_current_pid_tgid();
     struct connect_args_t *connect_args = bpf_map_lookup_elem(&conecting_args, &id);
     if (!connect_args) {
+        return 0;
+    }
+
+    // already contains the remote address
+    if (&(connect_args->remote) != NULL) {
         return 0;
     }
 
@@ -93,7 +117,7 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     struct nf_conntrack_tuple reply = tuplehash[IP_CT_DIR_REPLY].tuple;
 
     conntrack_tuple_t reply_conn = {};
-    if (!nf_conntrack_tuple_to_conntrack_tuple(&reply_conn, &reply)) {
+    if (!nf_conntrack_tuple_to_conntrack_tuple(connect_args, &reply_conn, &reply)) {
         return 0;
     }
 

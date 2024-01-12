@@ -19,10 +19,13 @@ package protocols
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/cilium/ebpf"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
@@ -212,7 +215,14 @@ func (p *PartitionContext) processEvents() {
 		p.processConnectionEvents(info)
 
 		// if the connection already closed and not contains any buffer data, then delete the connection
-		if info.closed && info.dataBuffer.DataLength() == 0 {
+		bufLen := info.dataBuffer.DataLength()
+		if bufLen > 0 {
+			return
+		}
+		if !info.closed {
+			p.checkTheConnectionIsAlreadyClose(info)
+		}
+		if info.closed {
 			if info.closeCallback != nil {
 				info.closeCallback()
 			}
@@ -222,6 +232,26 @@ func (p *PartitionContext) processEvents() {
 
 	for _, conKey := range closedConnections {
 		p.connections.Remove(conKey)
+	}
+}
+
+func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnection) {
+	if time.Now().Sub(con.lastCheckCloseTime) <= time.Second*30 {
+		return
+	}
+	con.lastCheckCloseTime = time.Now()
+	var activateConn common.ActiveConnection
+	if err := p.context.BPF.ActiveConnectionMap.Lookup(con.connectionID, &activateConn); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			con.closed = true
+			return
+		}
+		log.Warnf("cannot found the active connection: %d-%d, err: %v", con.connectionID, con.randomID, err)
+		return
+	} else if activateConn.RandomID != 0 && activateConn.RandomID != con.randomID {
+		log.Debugf("detect the connection: %d-%d is already closed, so remove from the activate connection",
+			con.connectionID, con.randomID)
+		con.closed = true
 	}
 }
 
@@ -267,6 +297,7 @@ type PartitionConnection struct {
 	closed                 bool
 	closeCallback          common.ConnectionProcessFinishCallback
 	skipAllDataAnalyze     bool
+	lastCheckCloseTime     time.Time
 }
 
 func (p *PartitionConnection) appendDetail(ctx *common.AccessLogContext, detail *events.SocketDetailEvent) {
