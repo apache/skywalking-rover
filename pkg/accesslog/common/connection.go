@@ -574,7 +574,10 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 func (c *ConnectionManager) SkipAllDataAnalyze(conID, ranID uint64) {
 	var activateConn ActiveConnection
 	if err := c.activeConnectionMap.Lookup(conID, &activateConn); err != nil {
-		log.Warnf("cannot found the active connection: %d-%d", conID, ranID)
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return
+		}
+		log.Warnf("cannot found the active connection: %d-%d, err: %v", conID, ranID, err)
 		return
 	}
 	if activateConn.RandomID != ranID {
