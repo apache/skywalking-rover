@@ -116,7 +116,7 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 
 	pair, err := ip.ParseSocket(event.PID, event.SocketFD)
 	if err != nil {
-		connectLogger.Warnf("cannot found the socket, pid: %d, socket FD: %d", event.PID, event.SocketFD)
+		connectLogger.Debugf("cannot found the socket, pid: %d, socket FD: %d", event.PID, event.SocketFD)
 		return nil
 	}
 	connectLogger.Debugf("found the connection from the socket, connection ID: %d, randomID: %d",
