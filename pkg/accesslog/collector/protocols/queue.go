@@ -236,7 +236,7 @@ func (p *PartitionContext) processEvents() {
 }
 
 func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnection) {
-	if time.Now().Sub(con.lastCheckCloseTime) <= time.Second*30 {
+	if time.Since(con.lastCheckCloseTime) <= time.Second*30 {
 		return
 	}
 	con.lastCheckCloseTime = time.Now()
