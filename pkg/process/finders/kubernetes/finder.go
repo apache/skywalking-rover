@@ -250,7 +250,7 @@ func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]
 			return nil, err
 		}
 		// adding the cluster name into the service name
-		if f.clusterName != "" {
+		if f.clusterName != "" && !strings.Contains(entity.ServiceName, "::") {
 			entity.ServiceName = fmt.Sprintf("%s::%s", f.clusterName, entity.ServiceName)
 		}
 		processes = append(processes, NewProcess(p, cmdline, pc, entity))
