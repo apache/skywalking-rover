@@ -319,6 +319,8 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
     if (ssl_data_args != NULL && ssl_data_args->fd == 0) {
         ssl_data_args->fd = args->fd;
         conn->ssl = true;
+    } else if (ssl) {
+        conn->ssl = true;
     }
 
     // if the cannot getting the package size and count, then try to get it from the data args

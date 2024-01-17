@@ -24,6 +24,7 @@ type Config struct {
 
 	Active            bool                  `mapstructure:"active"`
 	ExcludeNamespaces string                `mapstructure:"exclude_namespaces"`
+	ExcludeClusters   string                `mapstructure:"exclude_cluster"`
 	Flush             FlushConfig           `mapstructure:"flush"`
 	ProtocolAnalyze   ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"`
 }

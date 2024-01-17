@@ -167,9 +167,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 	case *events.SocketDetailEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
 		log.Debugf("receive the socket detail event, connection ID: %d, random ID: %d, pid: %d, data id: %d, "+
-			"function name: %s, package count: %d, package size: %d, l4 duration: %d",
+			"function name: %s, package count: %d, package size: %d, l4 duration: %d, ssl: %d",
 			event.ConnectionID, event.RandomID, pid, event.DataID0, event.FunctionName,
-			event.L4PackageCount, event.L4TotalPackageSize, event.L4Duration)
+			event.L4PackageCount, event.L4TotalPackageSize, event.L4Duration, event.SSL)
 		if event.Protocol == enums.ConnectionProtocolUnknown {
 			// if the connection protocol is unknown, we just needs to add this into the kernel log
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
@@ -244,12 +244,14 @@ func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnec
 	if err := p.context.BPF.ActiveConnectionMap.Lookup(con.connectionID, &activateConn); err != nil {
 		if errors.Is(err, ebpf.ErrKeyNotExist) {
 			con.closed = true
+			log.Debugf("detect the connection: %d-%d is already closed(by key not exist), so remove from the activate connection",
+				con.connectionID, con.randomID)
 			return
 		}
 		log.Warnf("cannot found the active connection: %d-%d, err: %v", con.connectionID, con.randomID, err)
 		return
 	} else if activateConn.RandomID != 0 && activateConn.RandomID != con.randomID {
-		log.Debugf("detect the connection: %d-%d is already closed, so remove from the activate connection",
+		log.Debugf("detect the connection: %d-%d is already closed(by difference random ID), so remove from the activate connection",
 			con.connectionID, con.randomID)
 		con.closed = true
 	}
@@ -267,7 +269,8 @@ func (p *PartitionContext) processExpireEvents() {
 
 func (p *PartitionContext) processConnectionExpireEvents(connection *PartitionConnection) {
 	if c := connection.dataBuffer.DeleteExpireEvents(maxBufferExpireDuration); c > 0 {
-		log.Debugf("total removed %d expired socket data events", c)
+		log.Debugf("total removed %d expired socket data events from connection ID: %d, random ID: %d", c,
+			connection.connectionID, connection.randomID)
 	}
 }
 

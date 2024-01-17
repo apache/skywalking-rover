@@ -59,7 +59,7 @@ type Protocol interface {
 }
 
 func appendSocketDetailsFromBuffer(result []*events.SocketDetailEvent, buf *buffer.Buffer) []*events.SocketDetailEvent {
-	if buf.DetailLength() == 0 {
+	if buf == nil || buf.DetailLength() == 0 {
 		return result
 	}
 	for e := buf.Details().Front(); e != nil; e = e.Next() {

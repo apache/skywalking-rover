@@ -54,6 +54,8 @@ func (t *TransferCollector) Start(_ *module.Manager, context *common.AccessLogCo
 	context.BPF.AddTracePoint("syscalls", "sys_exit_write", context.BPF.TracepointExitWrite)
 	context.BPF.AddTracePoint("syscalls", "sys_enter_read", context.BPF.TracepointEnterRead)
 	context.BPF.AddTracePoint("syscalls", "sys_exit_read", context.BPF.TracepointExitRead)
+	context.BPF.AddTracePoint("syscalls", "sys_enter_readv", context.BPF.TracepointEnterReadv)
+	context.BPF.AddTracePoint("syscalls", "sys_exit_readv", context.BPF.TracepointExitReadv)
 	context.BPF.AddTracePoint("syscalls", "sys_enter_sendto", context.BPF.TracepointEnterSendto)
 	context.BPF.AddTracePoint("syscalls", "sys_exit_sendto", context.BPF.TracepointExitSendto)
 	context.BPF.AddTracePoint("syscalls", "sys_enter_writev", context.BPF.TracepointEnterWritev)
