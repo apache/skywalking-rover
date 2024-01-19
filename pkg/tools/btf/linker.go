@@ -231,6 +231,9 @@ func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 	if !u.found {
 		return
 	}
+	if p == nil {
+		return
+	}
 	lk, err := u.addLinkWithType0(symbol, enter, p, 0)
 	if err != nil {
 		u.linker.errors = multierror.Append(u.linker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",

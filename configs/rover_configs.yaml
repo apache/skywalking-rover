@@ -131,7 +131,10 @@ profiling:
 access_log:
   # Is active the access log monitoring
   active: ${ROVER_ACCESS_LOG_ACTIVE:false}
+  # Exclude processes in the specified Kubernetes namespace. Multiple namespaces split by ","
   exclude_namespaces: ${ROVER_ACCESS_LOG_EXCLUDE_NAMESPACES:istio-system,cert-manager,kube-system}
+  # Exclude processes in the specified cluster which defined in the process module. Multiple clusters split by ","
+  exclude_cluster: ${ROVER_ACCESS_LOG_EXCLUDE_CLUSTER:}
   flush:
     # The max count of access log when flush to the backend
     max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:10000}

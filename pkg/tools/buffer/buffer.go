@@ -156,6 +156,9 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	detailEvents := list.New()
 	var firstDetailElement *list.Element
 	for nextElement := start.element; nextElement != end.element; nextElement = nextElement.Next() {
+		if nextElement == nil {
+			break
+		}
 		// found first matches detail event
 		if detailEvents.Len() == 0 || firstDetailElement == nil {
 			for e := r.detailEvents.Front(); e != nil; e = e.Next() {
@@ -215,6 +218,9 @@ func (r *Buffer) Details() *list.List {
 }
 
 func (r *Buffer) DataSize() int64 {
+	if r == nil {
+		return 0
+	}
 	var result int64
 	var headPosition = r.head
 	if headPosition == nil {

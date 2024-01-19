@@ -5,14 +5,16 @@ and send [access logs](https://github.com/apache/skywalking-data-collect-protoco
 
 ## Configuration
 
-| Name                                       | Default | Environment Key                                  | Description                                                |
-|--------------------------------------------|---------|--------------------------------------------------|------------------------------------------------------------|
-| access_log.active                          | false   | ROVER_ACCESS_LOG_ACTIVE                          | Is active the access log monitoring.                       |
-| access_log.flush.max_count                 | 2000    | ROVER_ACCESS_LOG_FLUSH_MAX_COUNT                 | The max count of the access log when flush to the backend. |
-| access_log.flush.period                    | 5s      | ROVER_ACCESS_LOG_FLUSH_PERIOD                    | The period of flush access log to the backend.             |
-| access_log_protocol_analyze.per_cpu_buffer | 400KB   | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER | The size of socket data buffer on each CPU.                |
-| access_log.protocol_analyze.parallels      | 2       | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS      | The count of parallel protocol analyzer.                   |
-| access_log.protocol_analyze.queue_size     | 5000    | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE     | The size of per paralleled analyze queue.                  |
+| Name                                       | Default                               | Environment Key                                  | Description                                                                                                    |
+|--------------------------------------------|---------------------------------------|--------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| access_log.active                          | false                                 | ROVER_ACCESS_LOG_ACTIVE                          | Is active the access log monitoring.                                                                           |
+| access_log.exclude_namespaces              | istio-system,cert-manager,kube-system | ROVER_ACCESS_LOG_EXCLUDE_NAMESPACES              | Exclude processes in the specified Kubernetes namespace. Multiple namespaces split by ","                      |
+| access_log.exclude_cluster                 |                                       | ROVER_ACCESS_LOG_EXCLUDE_CLUSTER                 | Exclude processes in the specified cluster which defined in the process module. Multiple clusters split by "," |
+| access_log.flush.max_count                 | 2000                                  | ROVER_ACCESS_LOG_FLUSH_MAX_COUNT                 | The max count of the access log when flush to the backend.                                                     |
+| access_log.flush.period                    | 5s                                    | ROVER_ACCESS_LOG_FLUSH_PERIOD                    | The period of flush access log to the backend.                                                                 |
+| access_log_protocol_analyze.per_cpu_buffer | 400KB                                 | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER | The size of socket data buffer on each CPU.                                                                    |
+| access_log.protocol_analyze.parallels      | 2                                     | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS      | The count of parallel protocol analyzer.                                                                       |
+| access_log.protocol_analyze.queue_size     | 5000                                  | ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE     | The size of per paralleled analyze queue.                                                                      |
 
 
 ## Collectors

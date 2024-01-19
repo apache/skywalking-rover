@@ -61,8 +61,8 @@ func (p *HTTP1Protocol) GenerateConnection(connectionID, randomID uint64) Protoc
 
 func (p *HTTP1Protocol) Analyze(metrics ProtocolMetrics, buf *buffer.Buffer, _ *AnalyzeHelper) error {
 	http1Metrics := metrics.(*HTTP1Metrics)
-	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d",
-		http1Metrics.connectionID, http1Metrics.randomID)
+	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d, data len: %d",
+		http1Metrics.connectionID, http1Metrics.randomID, buf.DataLength())
 	buf.ResetForLoopReading()
 	for {
 		if !buf.PrepareForReading() {

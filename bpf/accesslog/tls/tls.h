@@ -21,6 +21,9 @@
 #include "socket_opts.h"
 
 static __always_inline void set_conn_as_ssl(struct pt_regs* ctx, __u32 tgid, __u32 fd, __u32 func_name) {
+    if (fd <= 0) {
+        return;
+    }
     struct active_connection_t* conn = get_or_create_active_conn(ctx, tgid, fd, func_name, CONNECTION_ROLE_TYPE_UNKNOWN);
     if (conn == NULL) {
         return;

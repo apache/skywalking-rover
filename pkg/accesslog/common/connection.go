@@ -102,6 +102,7 @@ type ConnectionManager struct {
 	activeConnectionMap *ebpf.Map
 
 	excludeNamespaces map[string]bool
+	excludeClusters   map[string]bool
 
 	processors       []ConnectionProcessor
 	processListeners []ProcessListener
@@ -135,6 +136,10 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 	for _, ns := range strings.Split(config.ExcludeNamespaces, ",") {
 		excludeNamespaces[ns] = true
 	}
+	excludeClusters := make(map[string]bool)
+	for _, cluster := range strings.Split(config.ExcludeClusters, ",") {
+		excludeClusters[cluster] = true
+	}
 	mgr := &ConnectionManager{
 		moduleMgr:                moduleMgr,
 		processOP:                moduleMgr.FindModule(process.ModuleName).(process.Operator),
@@ -147,6 +152,7 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		activeConnectionMap:      bpfLoader.ActiveConnectionMap,
 		allUnfinishedConnections: make(map[string]*bool),
 		excludeNamespaces:        excludeNamespaces,
+		excludeClusters:          excludeClusters,
 	}
 	return mgr
 }
@@ -295,6 +301,9 @@ func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, p
 	for _, pi := range c.monitoringProcesses[int32(pid)] {
 		if pi.DetectType() == api.Kubernetes {
 			entity := pi.Entity()
+			if cluster, _, found := strings.Cut(entity.ServiceName, "::"); found && c.excludeClusters[cluster] {
+				continue
+			}
 			podContainer := pi.DetectProcess().(*kubernetes.Process).PodContainer()
 			return &v3.ConnectionAddress{
 				Address: &v3.ConnectionAddress_Kubernetes{
@@ -455,15 +464,25 @@ func (c *ConnectionManager) printTotalAddressesWithPid(prefix string) {
 }
 
 func (c *ConnectionManager) shouldExcludeTheProcess(entities []api.ProcessInterface) bool {
+	// when the process contains multiple entity, and contains the cluster not exclude, then should not exclude the process
+	containsNotExcludeCluster := false
 	for _, entity := range entities {
-		if entity.DetectType() == api.Kubernetes {
+		if entity.DetectType() == api.Kubernetes { // for now, we only have the kubernetes detected process
 			namespace := entity.DetectProcess().(*kubernetes.Process).PodContainer().Pod.Namespace
 			if c.excludeNamespaces[namespace] {
 				return true
 			}
+			if cluster, _, found := strings.Cut(entity.Entity().ServiceName, "::"); found {
+				if !c.excludeClusters[cluster] {
+					containsNotExcludeCluster = true
+				}
+			} else {
+				containsNotExcludeCluster = true
+				break
+			}
 		}
 	}
-	return false
+	return !containsNotExcludeCluster
 }
 
 func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
