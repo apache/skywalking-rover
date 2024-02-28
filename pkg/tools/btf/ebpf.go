@@ -18,17 +18,17 @@
 package btf
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"path/filepath"
 	"sync"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/operator"
-
-	"github.com/cilium/ebpf"
 )
 
 //go:embed *
@@ -73,9 +73,13 @@ func getKernelBTFAddress() (spec *btf.Spec, err error) {
 
 	path := fmt.Sprintf("files/%s/%s/%s/%s.btf", distributeInfo.Name, distributeInfo.Version,
 		distributeInfo.Architecture, uname.Release)
-	_, err = asset(path)
+	bpfObjBuff, err := asset(path)
 	if err != nil {
 		return nil, fmt.Errorf("could not found customized BTF file: %s", path)
+	}
+	spec, err = btf.LoadSpecFromReader(bytes.NewReader(bpfObjBuff))
+	if err != nil {
+		return nil, fmt.Errorf("could not load customized BTF file: %s", path)
 	}
 	return spec, nil
 }
