@@ -25,12 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Set up Go 1.20
+      - name: Set up Go 1.21
         uses: actions/setup-go@v2
         with:
-          go-version: "1.20"
+          go-version: "1.21"
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: true
       - name: Check License
@@ -42,7 +42,7 @@ jobs:
       - name: BTF Generate
         run: make container-btfgen
       - name: Lint
-        run: make container-lint
+        run: make container-safe-lint
       - name: Make binary
         run: make linux
       - name: Check CI Consistency

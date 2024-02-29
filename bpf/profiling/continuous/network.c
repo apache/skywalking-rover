@@ -23,7 +23,6 @@
 #include <linux/ptrace.h>
 #include <asm/ptrace.h>
 #include <asm/errno.h>
-#include <asm/socket.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/tcp.h>
 #include <bpf/bpf_endian.h>
@@ -33,6 +32,7 @@
 #include <sys/uio.h>
 #include "network.h"
 #include "protocol_analyzer.h"
+#include "socket.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -85,7 +85,13 @@ static __always_inline void process_data(struct pt_regs *ctx, __u64 id, void *ch
 
 static __always_inline void process_msghdr_data(struct pt_regs *ctx, __u64 id, void *channel_ref, struct msghdr *msg) {
     const struct iovec *iovec;
-    iovec = _KERNEL(msg->msg_iter.iov);
+    if (bpf_core_field_exists(msg->msg_iter.iov)) {
+        iovec = _KERNEL(msg->msg_iter.iov);
+    } else if (bpf_core_field_exists(msg->msg_iter.__iov)) {
+        iovec = _KERNEL(msg->msg_iter.__iov);
+    } else {
+        return;
+    }
     struct iovec iov_data;
     bpf_probe_read(&iov_data, sizeof(iov_data), iovec);
     char* buf = (char *)iov_data.iov_base;

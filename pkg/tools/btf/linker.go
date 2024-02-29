@@ -72,7 +72,7 @@ func init() {
 		}
 	}
 	if !found {
-		syscallPrefix = "sys_"
+		syscallPrefix = defaultSymbolPrefix
 	}
 }
 
@@ -138,7 +138,7 @@ func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Progr
 	kprobe, err := linkK(syscallPrefix+call, p, nil)
 
 	if err != nil {
-		m.errors = multierror.Append(m.errors, fmt.Errorf("could not attach syscall with %s: %v", "sys_"+call, err))
+		m.errors = multierror.Append(m.errors, fmt.Errorf("could not attach syscall with %s: %v", defaultSymbolPrefix+call, err))
 	} else {
 		log.Debugf("attach to the syscall: %s", syscallPrefix+call)
 		m.closers = append(m.closers, kprobe)
