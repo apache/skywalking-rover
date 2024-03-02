@@ -65,6 +65,8 @@ struct active_connection_t {
     __u8 connect_event_send;
     // current connection is ssl
     __u8 ssl;
+    __u8 fix1;
+    __u32 fix2;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);

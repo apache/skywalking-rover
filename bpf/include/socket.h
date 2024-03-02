@@ -66,6 +66,7 @@ struct iov_iter {
 	__u64 count;
 	union {
 		const struct iovec *iov;
+		const struct iovec *__iov;
 		const struct kvec *kvec;
 		const struct bio_vec *bvec;
 		struct xarray *xarray;

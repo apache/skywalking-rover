@@ -5,6 +5,7 @@
 .cache/
 bin/
 coverage.txt
+.gitconfig
 
 !/dist/bin/
 
