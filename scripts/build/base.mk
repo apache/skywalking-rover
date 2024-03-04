@@ -21,7 +21,7 @@ VERSION ?= latest
 
 SHELL = /bin/bash
 
-REPODIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))/
+REPODIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 OSNAME := $(if $(findstring Darwin,$(shell uname)),darwin,linux)
 

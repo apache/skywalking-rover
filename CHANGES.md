@@ -12,7 +12,7 @@ Release Notes.
 * Improve the stability of Off CPU Profiling.
 * Support collecting the access log from Kubernetes.
 * Remove the scanner mode in the process discovery module.
-* Upgrade Go library to `1.20`.
+* Upgrade Go library to `1.21`, eBPF library to `0.13.2`.
 * Support using `make docker.debug` to building the debug docker image.
 
 #### Bug Fixes

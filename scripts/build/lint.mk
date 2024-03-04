@@ -19,12 +19,21 @@
 GO_LINT = $(GO_PATH)/bin/golangci-lint
 
 linter:
-	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v1.52.0
+	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v1.54.0
 
 .PHONY: lint
 lint: linter generate
 	$(GO_LINT) run -v --timeout 5m ./...
 
+.PHONY: safe-lint
+safe-lint: linter generate
+	git config --global --add safe.directory ${REPODIR}
+	$(GO_LINT) run -v --timeout 5m ./...
+
 .PHONY: container-lint
 container-lint: COMMAND=lint
 container-lint: container-command
+
+.PHONY: container-safe-lint
+container-safe-lint: COMMAND=safe-lint
+container-safe-lint: container-command

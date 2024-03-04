@@ -95,4 +95,6 @@ type ActiveConnectionInBPF struct {
 	// the connect event is already sent
 	ConnectEventIsSent uint8
 	IsSSL              uint8
+	_                  uint8
+	_                  uint32
 }

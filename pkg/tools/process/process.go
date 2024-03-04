@@ -157,7 +157,7 @@ func parseUInt64InModule(err error, moduleName, key, val string) (uint64, error)
 }
 
 func isIgnoreModuleName(name string) bool {
-	return len(name) > 0 &&
+	return name != "" &&
 		(strings.HasPrefix(name, "//anon") ||
 			strings.HasPrefix(name, "/dev/zero") ||
 			strings.HasPrefix(name, "/anon_hugepage") ||
