@@ -13,10 +13,11 @@ Then, you can use `bin/startup.sh` to start up the rover with their [config](../
 
 The SkyWalking Rover requires specialized protocols to communicate with SkyWalking OAP.
 
-| SkyWalking Rover Version | SkyWalking OAP |
-|--------------------------|----------------|
-| 0.1.0+                   | \> = 9.1.0     |
-| 0.6.0+                   | \> = 10.0.0    |
+| SkyWalking Rover Version | SkyWalking OAP | Notice                   |
+|--------------------------|----------------|--------------------------|
+| 0.6.0+                   | \> = 10.0.0    | Only support Kubernetes. | 
+| 0.1.0+                   | \> = 9.1.0     |                          |
+
 
 ## Startup script
 Startup Script
