@@ -224,19 +224,29 @@ int tracepoint_enter_sendmsg(struct trace_point_common_sendmsg *ctx) {
         return 0;
     }
 
-    struct sockaddr* addr = _(msghdr->msg_name);
-    if (addr != NULL) {
-        struct connect_args_t connect_args = {};
-        connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
-        connect_args.start_nacs = bpf_ktime_get_ns();
-        bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
+    struct connect_args_t connect_args = {};
+    struct sockaddr* addr=NULL;
+    if (bpf_core_field_exists(msghdr->msg_name)) {
+        BPF_CORE_READ_INTO(&addr, msghdr, msg_name);
+        if (addr != NULL) {
+            connect_args.addr = addr;
+        }
+    } else {
+        const char fmt_str[] = "enter_sendmsgnot not found msg_name %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
+    connect_args.fd = ctx->fd;
+    connect_args.start_nacs = bpf_ktime_get_ns();
+    bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
 
     struct sock_data_args_t data_args = {};
     data_args.fd = ctx->fd;
-    data_args.iovec = _(msghdr->msg_iov);
-    data_args.iovlen = _(msghdr->msg_iovlen);
+    if (bpf_core_field_exists(msghdr->msg_iov)) {
+        BPF_CORE_READ_INTO(&data_args.iovec, msghdr, msg_iov);
+    }
+    if (bpf_core_field_exists(msghdr->msg_iovlen)) {
+        BPF_CORE_READ_INTO(&data_args.iovlen, msghdr, msg_iovlen);
+    }
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDMSG, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -276,22 +286,29 @@ int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
         return 0;
     }
 
-    struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
-    if (addr != NULL) {
-        struct connect_args_t connect_args = {};
-        connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
-        connect_args.start_nacs = bpf_ktime_get_ns();
-        bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
+    struct connect_args_t connect_args = {};
+    struct sockaddr* addr=NULL;
+    struct sock_data_args_t data_args = {};
+    if (bpf_core_field_exists(mmsghdr->msg_hdr)) {
+        BPF_CORE_READ_INTO(&addr, mmsghdr, msg_hdr.msg_name);
+        if (addr != NULL) {
+            connect_args.addr = addr;
+        }
+        BPF_CORE_READ_INTO(&data_args.iovec, mmsghdr, msg_hdr.msg_iov);
+        size_t msg_iovlen;
+        BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
+        data_args.iovlen = msg_iovlen;
+        data_args.msg_len = (unsigned int*)(&msg_iovlen);
+    } else {
+        const char fmt_str[] = "enter_sendmmsgnot not found msg_hdr %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
 
-    struct sock_data_args_t data_args = {};
+    connect_args.fd = ctx->fd;
+    connect_args.start_nacs = bpf_ktime_get_ns();
+    bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
+
     data_args.fd = ctx->fd;
-    struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
-    data_args.iovec = msg_iov;
-    size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
-    data_args.iovlen = msg_iovlen;
-    data_args.msg_len = (unsigned int*)(&mmsghdr->msg_hdr.msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDMSG, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -465,19 +482,29 @@ int tracepoint_enter_recvmsg(struct trace_point_common_recvmsg *ctx) {
         return 0;
     }
 
-    struct sockaddr* addr = _(msghdr->msg_name);
-    if (addr != NULL) {
-        struct connect_args_t connect_args = {};
-        connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
-        connect_args.start_nacs = bpf_ktime_get_ns();
-        bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
+    struct connect_args_t connect_args = {};
+    struct sockaddr* addr=NULL;
+    if (bpf_core_field_exists(msghdr->msg_name)) {
+        BPF_CORE_READ_INTO(&addr, msghdr, msg_name);
+        if (addr != NULL) {
+            connect_args.addr = addr;
+        }
+    } else {
+        const char fmt_str[] = "enter_recvmsgnot not found msg_name %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
+    connect_args.fd = ctx->fd;
+    connect_args.start_nacs = bpf_ktime_get_ns();
+    bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
 
     struct sock_data_args_t data_args = {};
     data_args.fd = ctx->fd;
-    data_args.iovec = _(msghdr->msg_iov);
-    data_args.iovlen = _(msghdr->msg_iovlen);
+    if (bpf_core_field_exists(msghdr->msg_iov)) {
+        BPF_CORE_READ_INTO(&data_args.iovec, msghdr, msg_iov);
+    }
+    if (bpf_core_field_exists(msghdr->msg_iovlen)) {
+        BPF_CORE_READ_INTO(&data_args.iovlen, msghdr, msg_iovlen);
+    }
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVMSG, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -517,22 +544,28 @@ int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
         return 0;
     }
 
-    struct sockaddr* addr = _(mmsghdr->msg_hdr.msg_name);
-    if (addr != NULL) {
-        struct connect_args_t connect_args = {};
-        connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
-        connect_args.start_nacs = bpf_ktime_get_ns();
-        bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
-    }
-
+    struct connect_args_t connect_args = {};
+    struct sockaddr* addr=NULL;
     struct sock_data_args_t data_args = {};
+    if (bpf_core_field_exists(mmsghdr->msg_hdr)) {
+        BPF_CORE_READ_INTO(&addr, mmsghdr, msg_hdr.msg_name);
+        if (addr != NULL) {
+            connect_args.addr = addr;
+        }
+        BPF_CORE_READ_INTO(&data_args.iovec, mmsghdr, msg_hdr.msg_iov);
+        size_t msg_iovlen;
+        BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
+        data_args.iovlen = msg_iovlen;
+        data_args.msg_len = (unsigned int*)(&msg_iovlen);
+    } else {
+        const char fmt_str[] = "enter_recvmmsgnot not found msg_hdr %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
+    }
+    connect_args.fd = ctx->fd;
+    connect_args.start_nacs = bpf_ktime_get_ns();
+    bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
+
     data_args.fd = ctx->fd;
-    struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
-    data_args.iovec = msg_iov;
-    size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
-    data_args.iovlen = msg_iovlen;
-    data_args.msg_len = (unsigned int*)(&mmsghdr->msg_hdr.msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVMMSG, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -572,13 +605,18 @@ int tracepoint_skb_copy_datagram_iovec(struct trace_point_skb_copy_datagram_iove
         return 0;
     }
 
-    struct sock *sock = _(buff->sk);
+    struct sock *sock=NULL;
+    if (bpf_core_field_exists(buff->sk)) {
+        BPF_CORE_READ_INTO(&sock, buff, sk);
+    }
     if (sock != NULL) {
         data_args->sk_role = get_sock_role(data_args->sk_role, sock);
     }
 
     data_args->package_count++;
-    data_args->total_package_size += _(buff->len);
+    if (bpf_core_field_exists(buff->len)) {
+        data_args->total_package_size += _(buff->len);
+    }
 
     struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &buff);
     if (detail == NULL) {

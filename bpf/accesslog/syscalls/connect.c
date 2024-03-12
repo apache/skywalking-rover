@@ -59,7 +59,11 @@ static __inline void process_connect(void *ctx, __u64 id, struct connect_args_t 
     }
     __u32 tgid = id >> 32;
     struct sock *sock = connect_args->sock;
-    struct socket *s = _(sock->sk_socket);
+    // struct socket *s = _(sock->sk_socket);
+    struct socket* s=NULL;
+    if (bpf_core_field_exists(sock->sk_socket)) {
+        BPF_CORE_READ_INTO(&s, sock, sk_socket);
+    }
     submit_new_connection(ctx, success, SOCKET_OPTS_TYPE_CONNECT, tgid, connect_args->fd, connect_args->start_nacs, connect_args->addr, s, &connect_args->remote, 0);
 }
 

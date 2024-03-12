@@ -217,28 +217,32 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
 
     __u16 port;
     if (socket != NULL) {
-        // only get from accept function(server side)
-        struct sock* s;
-        BPF_CORE_READ_INTO(&s, socket, sk);
+        if (bpf_core_field_exists(socket->sk)) {
+            // only get from accept function(server side)
+            struct sock* s;
+            BPF_CORE_READ_INTO(&s, socket, sk);
 
-        short unsigned int skc_family;
-        BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
-        event->socket_family = skc_family;
+            short unsigned int skc_family;
+            BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
+            event->socket_family = skc_family;
 
-        if (event->socket_family == AF_INET) {
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
-            event->local_port = port;
-            BPF_CORE_READ_INTO(&event->local_addr_v4, s, __sk_common.skc_rcv_saddr);
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
-            event->remote_port = bpf_ntohs(port);
-            BPF_CORE_READ_INTO(&event->remote_addr_v4, s, __sk_common.skc_daddr);
-        } else if (event->socket_family == AF_INET6) {
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
-            event->local_port = port;
-            BPF_CORE_READ_INTO(&event->local_addr_v6, s, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr8);
-            BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
-            event->remote_port = bpf_ntohs(port);
-            BPF_CORE_READ_INTO(&event->remote_addr_v6, s, __sk_common.skc_v6_daddr.in6_u.u6_addr8);
+            if (event->socket_family == AF_INET) {
+                BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
+                event->local_port = port;
+                BPF_CORE_READ_INTO(&event->local_addr_v4, s, __sk_common.skc_rcv_saddr);
+                BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
+                event->remote_port = bpf_ntohs(port);
+                BPF_CORE_READ_INTO(&event->remote_addr_v4, s, __sk_common.skc_daddr);
+            } else if (event->socket_family == AF_INET6) {
+                BPF_CORE_READ_INTO(&port, s, __sk_common.skc_num);
+                event->local_port = port;
+                BPF_CORE_READ_INTO(&event->local_addr_v6, s, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr8);
+                BPF_CORE_READ_INTO(&port, s, __sk_common.skc_dport);
+                event->remote_port = bpf_ntohs(port);
+                BPF_CORE_READ_INTO(&event->remote_addr_v6, s, __sk_common.skc_v6_daddr.in6_u.u6_addr8);
+            }
+            const char fmt_str[] = "found socket %d\n";
+            bpf_trace_printk(fmt_str, sizeof(fmt_str), tgid);
         }
     } else if (addr != NULL) {
         event->socket_family = _(addr->sa_family);
@@ -253,8 +257,12 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
             bpf_probe_read(&port, sizeof(port), &daddr->sin6_port);
             event->remote_port = bpf_ntohs(port);
         }
+        const char fmt_str[] = "found addr %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), tgid);
     } else {
         event->socket_family = AF_UNKNOWN;
+        const char fmt_str[] = "not found addr & socket %d\n";
+        bpf_trace_printk(fmt_str, sizeof(fmt_str), tgid);
     }
 
     bpf_perf_event_output(ctx, &socket_connection_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
