@@ -231,9 +231,6 @@ int tracepoint_enter_sendmsg(struct trace_point_common_sendmsg *ctx) {
         if (addr != NULL) {
             connect_args.addr = addr;
         }
-    } else {
-        const char fmt_str[] = "enter_sendmsgnot not found msg_name %d\n";
-        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
     connect_args.fd = ctx->fd;
     connect_args.start_nacs = bpf_ktime_get_ns();
@@ -299,9 +296,6 @@ int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
         BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
         data_args.iovlen = msg_iovlen;
         data_args.msg_len = (unsigned int*)(&msg_iovlen);
-    } else {
-        const char fmt_str[] = "enter_sendmmsgnot not found msg_hdr %d\n";
-        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
 
     connect_args.fd = ctx->fd;
@@ -489,9 +483,6 @@ int tracepoint_enter_recvmsg(struct trace_point_common_recvmsg *ctx) {
         if (addr != NULL) {
             connect_args.addr = addr;
         }
-    } else {
-        const char fmt_str[] = "enter_recvmsgnot not found msg_name %d\n";
-        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
     connect_args.fd = ctx->fd;
     connect_args.start_nacs = bpf_ktime_get_ns();
@@ -557,9 +548,6 @@ int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
         BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
         data_args.iovlen = msg_iovlen;
         data_args.msg_len = (unsigned int*)(&msg_iovlen);
-    } else {
-        const char fmt_str[] = "enter_recvmmsgnot not found msg_hdr %d\n";
-        bpf_trace_printk(fmt_str, sizeof(fmt_str), id);
     }
     connect_args.fd = ctx->fd;
     connect_args.start_nacs = bpf_ktime_get_ns();
