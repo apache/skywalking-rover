@@ -18,6 +18,9 @@ Release Notes.
 #### Bug Fixes
 
 #### Documentation
+* Update architecture diagram.
+* Delete module design and project structure document.
+* Adjust configuration modules during setup.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/185?closed=1)

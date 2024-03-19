@@ -1,6 +1,6 @@
-# Process Discovery Module
+# Service Discovery
 
-The process Discovery module is used to discover the existing processes in the current machine and report them to the backend service.
+Service discovery is used to discover all Kubernetes services process in the current node and report them to backend services.
 After the process upload is completed, the other modules could perform more operations with the process, such as process profiling and collecting process metrics.
 
 ## Configuration

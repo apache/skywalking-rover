@@ -1,6 +1,6 @@
-# Profiling Module
+# Profiling
 
-The profiling module is used to profiling the processes from the [Process Discovery Module](../process_discovery/overview.md),
+The profiling is used to profiling the processes from the [Service Discovery](service-discovery.md),
 and send the snapshot to the backend server.
 
 ## Configuration

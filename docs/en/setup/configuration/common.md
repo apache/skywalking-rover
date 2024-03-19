@@ -1,9 +1,17 @@
-# Core Module
+# Common configuration
 
-Core Module is used to communicate with the backend server.
+## Logger
+
+Logger is used to configure the system log.
+
+| Name          | Default | Environment Key     | Description                            |
+|---------------|---------|---------------------|----------------------------------------|
+| logger.level  | INFO    | ROVER_LOGGER_LEVEL  | The lowest level of printing allowed.  |
+
+## Core
+
+Core is used to communicate with the backend server.
 It provides APIs for other modules to establish connections with the backend.
-
-## Configuration
 
 | Name                              | Default         | Environment Key                    | Description                                                                                         |
 |-----------------------------------|-----------------|------------------------------------|-----------------------------------------------------------------------------------------------------|
