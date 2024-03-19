@@ -2,6 +2,8 @@
 
 The first and most important thing is, that SkyWalking Rover startup behaviors are driven by configs/rover_configs.yaml. Understanding the setting file will help you to read this document.
 
+Follow [Deploy on Kubernetes](deployment/kubernetes/readme.md) document to run rover in your cluster.
+
 ## Requirements and default settings
 
 Before you start, you should know that the main purpose of quickstart is to help you obtain a basic configuration for previews/demos.
@@ -9,7 +11,7 @@ Usually, the process to be monitored is first declared.
 
 Then, you can use `bin/startup.sh` to start up the rover with their [config](../../../configs/rover_configs.yaml).
 
-### SkyWalking OAP
+### SkyWalking OAP Compatibility
 
 The SkyWalking Rover requires specialized protocols to communicate with SkyWalking OAP.
 
@@ -19,37 +21,20 @@ The SkyWalking Rover requires specialized protocols to communicate with SkyWalki
 | 0.1.0+                   | \> = 9.1.0     |                          |
 
 
-## Startup script
-Startup Script
-```shell script
-bin/startup.sh 
-```
-
-## Examples
-
-You can quickly build your Rover according to the following examples:
-
-### Deploy
-
-1. [Deploy on Kubernetes](deployment/kubernetes/readme.md)
-
 ## Configuration
 
-The core concept behind this setting file is, that SkyWalking Rover is based on pure modularization design. The end-user can switch or assemble the collector features to their requirements.
+1. [Common configurations](./configuration/common.md) about logs, backend address, cert files, etc.
+2. [Service Discovery](configuration/service-discovery.md) includes advanced setups about the ways of discovering services on your Kubernetes cluster. 
+3. [Access logs](./configuration/traffic.md) reports L2 to L4 network traffic relative information through access logs, to help OAP backend to do topology and metrics analysis.
+4. [Profiling](./configuration/profiling.md) is an on-demand feature to enhance general observability besides access logs. It provides eBPF powered process ON_CPU, OFF_CPU profiling and network advanced profiling to link HTTP traffic with SkyWalking and Zipkin traces. 
 
-So, in rover_configs.yaml, there contains these parts.
-1. [Common](./configuration/common.md).
-2. [Service Discovery](configuration/service-discovery.md).
-3. [Traffic](./configuration/traffic.md).
-4. [Profiling](./configuration/profiling.md).
-
-Also, You could use [Overriding Setting](./configuration/override-settings.md) feature to adjust the configurations.
+To adjust the configurations, refer to [Overriding Setting](./configuration/override-settings.md) document for more details.
 
 ## Prerequisites
 
 Currently, Linux operating systems are supported from version `4.9` and above, except for network profiling which requires version `4.16` or higher. 
 
-The following table are currently support operating systems.
+The following table lists currently supported/tested operating systems.
 
 | System           | Kernel Version | On CPU Profiling | Off CPU Profiling | Network Profiling              |
 |------------------|----------------|------------------|-------------------|--------------------------------|
