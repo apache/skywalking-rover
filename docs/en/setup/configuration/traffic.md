@@ -1,6 +1,6 @@
 # Traffic
 
-The traffic is used to collecting the network access logs from the [Service Discovery](service-discovery.md),
+The traffic is used to collecting the network access logs from services through the [Service Discovery](service-discovery.md),
 and send [access logs](https://github.com/apache/skywalking-data-collect-protocol/blob/master/ebpf/accesslog.proto) to the backend server for analyze.
 
 ## Configuration

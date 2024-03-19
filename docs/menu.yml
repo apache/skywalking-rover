@@ -37,10 +37,10 @@ catalog:
               path: /en/setup/configuration/traffic
             - name: Profiling
               path: /en/setup/configuration/profiling
-        - name: Examples
+        - name: Deployment
           catalog:
             - name: Deploy on K8s
-              path: /en/setup/examples/deploy/kubernetes/readme
+              path: /en/setup/deployment/kubernetes/readme
     - name: Guides
       catalog:
         - name: Contribution

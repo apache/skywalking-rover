@@ -31,7 +31,7 @@ You can quickly build your Rover according to the following examples:
 
 ### Deploy
 
-1. [Deploy on Kubernetes](examples/deploy/kubernetes/readme.md)
+1. [Deploy on Kubernetes](deployment/kubernetes/readme.md)
 
 ## Configuration
 
@@ -43,7 +43,7 @@ So, in rover_configs.yaml, there contains these parts.
 3. [Traffic](./configuration/traffic.md).
 4. [Profiling](./configuration/profiling.md).
 
-Also, You could use [Overriding Setting](./configuration/override-settings.md) feature to setup the configuration.
+Also, You could use [Overriding Setting](./configuration/override-settings.md) feature to adjust the configurations.
 
 ## Prerequisites
 
