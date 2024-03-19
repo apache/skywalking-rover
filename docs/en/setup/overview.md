@@ -33,24 +33,17 @@ You can quickly build your Rover according to the following examples:
 
 1. [Deploy on Kubernetes](examples/deploy/kubernetes/readme.md)
 
-### Use Cases
-
-1. [Profiling a Golang/C/C++/Rust service on Linux](examples/cases/profiling-process/readme.md)
-1. [Detect Process by Agent Sensor](examples/cases/agent-sensor/readme.md)
-1. [Detect Process in Kubernetes Environemnt](examples/cases/kubernetes-process/readme.md)
-
 ## Configuration
 
 The core concept behind this setting file is, that SkyWalking Rover is based on pure modularization design. The end-user can switch or assemble the collector features to their requirements.
 
 So, in rover_configs.yaml, there contains these parts.
-1. [Logger Module](./configuration/logger.md).
-2. [Core Module](./configuration/core.md).
-3. [Process Discovery Module](configuration/process-discovery.md).
-4. [Profiling Module](./configuration/profiling.md).
-5. [Access Log Module](./configuration/accesslog.md).
+1. [Common](./configuration/common.md).
+2. [Service Discovery](configuration/service-discovery.md).
+3. [Traffic](./configuration/traffic.md).
+4. [Profiling](./configuration/profiling.md).
 
-Also, You could using [Overriding Setting](./configuration/override-settings.md) feature to setup the configuration.
+Also, You could use [Overriding Setting](./configuration/override-settings.md) feature to setup the configuration.
 
 ## Prerequisites
 
