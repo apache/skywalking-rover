@@ -27,17 +27,16 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/perf"
+	"github.com/hashicorp/go-multierror"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/x86/x86asm"
 
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/process"
-
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/perf"
-
-	"github.com/hashicorp/go-multierror"
 )
 
 const defaultSymbolPrefix = "sys_"
@@ -47,7 +46,17 @@ type RingBufferReader func(data interface{})
 
 var syscallPrefix string
 
+var lostSamplerCounter prometheus.Counter
+
 func init() {
+	lostSamplerCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "ebpf",
+		Subsystem: "lost_sampler",
+		Name:      "total",
+		Help:      "ebpf丢弃包数量",
+	})
+	_ = prometheus.Register(lostSamplerCounter)
+
 	stat, err := process.KernelFileProfilingStat()
 	if err != nil {
 		syscallPrefix = defaultSymbolPrefix
@@ -178,7 +187,8 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferR
 			}
 
 			if record.LostSamples != 0 {
-				log.Warnf("perf event queue(%s) full, dropped %d samples", emap.String(), record.LostSamples)
+				// log.Warnf("perf event queue(%s) full, dropped %d samples", emap.String(), record.LostSamples)
+				lostSamplerCounter.Add(float64(record.LostSamples))
 				continue
 			}
 
