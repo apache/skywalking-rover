@@ -11,7 +11,7 @@ or [minikube](https://minikube.sigs.k8s.io) to create a cluster.
 
 ## Deploy Rover
 
-Please follow the [rover-daemonset.yml](./rover-daemonset.yml) to deploy the rover in your Kubernetes cluster.
+Please follow the [rover-daemonset.yml](rover-daemonset.yml) to deploy the rover in your Kubernetes cluster.
 Update the comment in the file, which includes two configs:
 1. **Rover docker image**: You could use `make docker` to build an image and upload it to your private registry, or update from the public image.
 2. **OAP address**: Update the OAP address.

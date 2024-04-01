@@ -18,5 +18,5 @@
 
 .PHONY: release
 release:
-	/bin/sh ${REPODIR}scripts/release/create_bin_release.sh
-	/bin/sh ${REPODIR}scripts/release/create_source_release.sh
+	/bin/sh ${REPODIR}/scripts/release/create_bin_release.sh
+	/bin/sh ${REPODIR}/scripts/release/create_source_release.sh

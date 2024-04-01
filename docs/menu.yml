@@ -23,34 +23,22 @@ catalog:
           catalog:
             - name: Overview and Core Concepts
               path: /en/concepts-and-designs/overview
-        - name: Design
-          catalog:
-            - name: Module Design
-              path: /en/concepts-and-designs/module_design
-            - name: Project Structure
-              path: /en/concepts-and-designs/project_structue
     - name: Setup
       catalog:
         - name: Overview
           path: /en/setup/overview
+        - name: Deploy on Kubernetes
+          path: /en/setup/deployment/kubernetes/readme
         - name: Configuration
           catalog:
-            - name: Logger Module
-              path: /en/setup/configuration/logger
-            - name: Core Module
-              path: /en/setup/configuration/core
-            - name: Process Discovery Module
-              path: /en/setup/configuration/process-discovery
-            - name: Profiling Module
+            - name: Common
+              path: /en/setup/configuration/common
+            - name: Service Discovery
+              path: /en/setup/configuration/service-discovery
+            - name: Traffic
+              path: /en/setup/configuration/traffic
+            - name: Profiling
               path: /en/setup/configuration/profiling
-            - name: Access Log Module
-              path: /en/setup/configuration/accesslog
-        - name: Examples
-          catalog:
-            - name: Deploy
-              catalog:
-                - name: Deploy on Kubernetes
-                  path: /en/setup/examples/deploy/kubernetes/readme
     - name: Guides
       catalog:
         - name: Contribution
