@@ -46,14 +46,23 @@ type RingBufferReader func(data interface{})
 
 var syscallPrefix string
 
-var lostSamplerCounter prometheus.Counter
+var (
+	lostSamplerCounter prometheus.Counter
+	dataReadCounter    prometheus.Counter
+)
 
 func init() {
 	lostSamplerCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "ebpf",
 		Subsystem: "lost_sampler",
 		Name:      "total",
-		Help:      "ebpf丢弃包数量",
+		Help:      "lost sampler count",
+	})
+	dataReadCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "ebpf",
+		Subsystem: "data_read",
+		Name:      "total",
+		Help:      "data read count",
 	})
 	_ = prometheus.Register(lostSamplerCounter)
 
@@ -199,6 +208,7 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferR
 			}
 
 			reader(data)
+			dataReadCounter.Inc()
 		}
 	}()
 }
