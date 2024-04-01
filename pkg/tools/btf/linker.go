@@ -65,6 +65,7 @@ func init() {
 		Help:      "data read count",
 	})
 	_ = prometheus.Register(lostSamplerCounter)
+	_ = prometheus.Register(dataReadCounter)
 
 	stat, err := process.KernelFileProfilingStat()
 	if err != nil {
