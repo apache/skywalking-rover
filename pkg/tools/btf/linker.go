@@ -48,7 +48,7 @@ var syscallPrefix string
 
 var (
 	lostSamplerCounter prometheus.Counter
-	dataReadCounter    prometheus.Counter
+	readSamplerCounter prometheus.Counter
 )
 
 func init() {
@@ -58,14 +58,14 @@ func init() {
 		Name:      "total",
 		Help:      "lost sampler count",
 	})
-	dataReadCounter = prometheus.NewCounter(prometheus.CounterOpts{
+	readSamplerCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "ebpf",
-		Subsystem: "data_read",
+		Subsystem: "read_sampler",
 		Name:      "total",
-		Help:      "data read count",
+		Help:      "read sampler count",
 	})
 	_ = prometheus.Register(lostSamplerCounter)
-	_ = prometheus.Register(dataReadCounter)
+	_ = prometheus.Register(readSamplerCounter)
 
 	stat, err := process.KernelFileProfilingStat()
 	if err != nil {
@@ -209,7 +209,7 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferR
 			}
 
 			reader(data)
-			dataReadCounter.Inc()
+			readSamplerCounter.Inc()
 		}
 	}()
 }
