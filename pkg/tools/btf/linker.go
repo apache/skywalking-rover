@@ -54,14 +54,14 @@ var (
 func init() {
 	lostSamplerCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "ebpf",
-		Subsystem: "lost_sampler",
-		Name:      "total",
+		Subsystem: "sampler",
+		Name:      "lost_total",
 		Help:      "lost sampler count",
 	})
 	readSamplerCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "ebpf",
-		Subsystem: "read_sampler",
-		Name:      "total",
+		Subsystem: "sampler",
+		Name:      "read_total",
 		Help:      "read sampler count",
 	})
 	_ = prometheus.Register(lostSamplerCounter)
