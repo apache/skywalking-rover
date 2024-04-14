@@ -22,7 +22,7 @@
 #include "../common/connection.h"
 #include "../common/data_args.h"
 
-#define SOCKET_UPLOAD_CHUNK_LIMIT 12
+#define SOCKET_UPLOAD_CHUNK_LIMIT 2
 
 // openssl read or write
 struct {

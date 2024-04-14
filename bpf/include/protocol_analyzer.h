@@ -105,6 +105,7 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
 
     // frame info
     __u8 frame[21] = { 0 };
+    __u32 data_count = count;
     __u32 frameOffset = 0;
     // header info
     __u8 staticInx, headerBlockFragmentOffset;
@@ -146,7 +147,7 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
 
 #pragma unroll
         for (__u8 j = 0; j <= kStaticTablePath2; j++) {
-            if (headerBlockFragmentOffset > count) {
+            if (headerBlockFragmentOffset > data_count) {
                 return CONNECTION_MESSAGE_TYPE_UNKNOWN;
             }
             staticInx = frame[headerBlockFragmentOffset] & 0x7f;
