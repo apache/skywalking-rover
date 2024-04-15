@@ -292,10 +292,8 @@ int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
             connect_args.addr = addr;
         }
         BPF_CORE_READ_INTO(&data_args.iovec, mmsghdr, msg_hdr.msg_iov);
-        size_t msg_iovlen;
-        BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
-        data_args.iovlen = msg_iovlen;
-        data_args.msg_len = (unsigned int*)(&msg_iovlen);
+        BPF_CORE_READ_INTO(&data_args.iovlen, mmsghdr, msg_hdr.msg_iovlen);
+        BPF_CORE_READ_INTO(&data_args.msg_len, mmsghdr, msg_hdr.msg_iovlen);
     }
 
     connect_args.fd = ctx->fd;
@@ -544,10 +542,8 @@ int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
             connect_args.addr = addr;
         }
         BPF_CORE_READ_INTO(&data_args.iovec, mmsghdr, msg_hdr.msg_iov);
-        size_t msg_iovlen;
-        BPF_CORE_READ_INTO(&msg_iovlen, mmsghdr, msg_hdr.msg_iovlen);
-        data_args.iovlen = msg_iovlen;
-        data_args.msg_len = (unsigned int*)(&msg_iovlen);
+        BPF_CORE_READ_INTO(&data_args.iovlen, mmsghdr, msg_hdr.msg_iovlen);
+        BPF_CORE_READ_INTO(&data_args.msg_len, mmsghdr, msg_hdr.msg_iovlen);
     }
     connect_args.fd = ctx->fd;
     connect_args.start_nacs = bpf_ktime_get_ns();
