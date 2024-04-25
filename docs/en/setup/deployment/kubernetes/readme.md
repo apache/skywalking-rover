@@ -16,5 +16,5 @@ Update the comment in the file, which includes two configs:
 1. **Rover docker image**: You could use `make docker` to build an image and upload it to your private registry, or update from the public image.
 2. **OAP address**: Update the OAP address.
 
-Then, you could use `kuberctl apply -f rover-daemonset.yml` to deploy the skywalking-rover into your cluster.
+Then, you could use `kubectl apply -f rover-daemonset.yml` to deploy the skywalking-rover into your cluster.
 It would deploy in each node as a DaemonSet. 
