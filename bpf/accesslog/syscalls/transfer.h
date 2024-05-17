@@ -102,6 +102,13 @@ struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } socket_data_upload_event_queue SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+} event_send_param_map SEC(".maps");
+
 struct socket_data_sequence_t {
     __u64 data_id;
     __u16 sequence;
@@ -181,11 +188,10 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     event->data_len = size;
     event->finished = is_finished;
     event->have_reduce_after_chunk = have_reduce_after_chunk;
-    if (size <= 0) {
-        return;
+    if (size > 0) {
+        asm volatile("%[size] &= 0x3ff;\n" ::[size] "+r"(size) :);
+        bpf_probe_read(&event->buffer, size & 0x3ff, buf);
     }
-    asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&event->buffer, size & 0x7ff, buf);
 
     bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
 }
@@ -211,7 +217,9 @@ static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t
             is_finished = 0;
             sequence = generate_socket_sequence(event->conid, event->data_id);
         }
+        if (need_send_in_chunk > 0) {
         __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);
+        }
         already_send += need_send_in_chunk;
 
     }
@@ -238,7 +246,9 @@ if (iov_index < iovlen) {                                                   \
         have_reduce_after_chunk = 1;                                        \
     }                                                                       \
     __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;                            \
-    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);      \
+    if (need_send_in_chunk > 0) {                                                                                                                               \
+        __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);  \
+    }                                                                                                                                                           \
     already_send += need_send_in_chunk;                                                                                              \
     loop_count++;                                                                                                                    \
 }
@@ -263,7 +273,7 @@ static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov,
 static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_time, __u64 conid, struct active_connection_t *connection, struct sock_data_args_t *args, ssize_t bytes_count, __u32 existing_msg_type, __u32 data_direction, bool ssl) {
     // must have protocol and ssl must same(plain)
     // if the connection data is needs to skip upload, then skip
-    if (connection->protocol == CONNECTION_PROTOCOL_UNKNOWN || connection->ssl != ssl || connection->skip_data_upload == 1) {
+    if (connection->ssl != ssl || connection->skip_data_upload == 1) {
         return;
     }
     // generate event
@@ -283,7 +293,13 @@ static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_t
     event->total_size = bytes_count;
     event->data_id = args->data_id;
 
-    if (args->buf != NULL) {
+    __u32 send_with_buf_key = 0;
+    __u32 *no_send_with_buf = bpf_map_lookup_elem(&event_send_param_map, &send_with_buf_key);
+
+    // if don't need buffer or buffer is empty, send event directly
+    if ((no_send_with_buf && *no_send_with_buf == 0) || (args->buf != NULL && args->iovec != NULL)) {
+        __upload_socket_data_with_buffer(ctx, 0, NULL, 0, 1, 0, event);
+    } else if (args->buf != NULL) {
         upload_socket_data_buf(ctx, args->buf, bytes_count, event, args->ssl_buffer_force_unfinished);
     } else if (args->iovec != NULL) {
         upload_socket_data_iov(ctx, args->iovec, args->iovlen, bytes_count, event);
