@@ -297,7 +297,7 @@ static __inline void upload_socket_data(void *ctx, __u64 start_time, __u64 end_t
     __u32 *no_send_with_buf = bpf_map_lookup_elem(&event_send_param_map, &send_with_buf_key);
 
     // if don't need buffer or buffer is empty, send event directly
-    if ((no_send_with_buf && *no_send_with_buf == 0) || (args->buf != NULL && args->iovec != NULL)) {
+    if ((no_send_with_buf && *no_send_with_buf == 1) || (args->buf != NULL && args->iovec != NULL)) {
         __upload_socket_data_with_buffer(ctx, 0, NULL, 0, 1, 0, event);
     } else if (args->buf != NULL) {
         upload_socket_data_buf(ctx, args->buf, bytes_count, event, args->ssl_buffer_force_unfinished);
