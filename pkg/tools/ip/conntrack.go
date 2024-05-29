@@ -18,19 +18,27 @@
 package ip
 
 import (
+	"golang.org/x/sys/unix"
 	"net"
 	"syscall"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 
 	"github.com/florianl/go-conntrack"
-
-	"golang.org/x/sys/unix"
 )
 
 var log = logger.GetLogger("tools", "ip")
 
-var numberStrategies = map[string]uint8{"tcp": syscall.IPPROTO_TCP, "udp": syscall.IPPROTO_UDP}
+var numberStrategies = []struct {
+	name  string
+	proto uint8
+}{{
+	name:  "tcp",
+	proto: syscall.IPPROTO_TCP,
+}, {
+	name:  "udp",
+	proto: syscall.IPPROTO_UDP,
+}}
 
 type ConnTrack struct {
 	tracker *conntrack.Nfct
@@ -51,13 +59,15 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 	}
 
 	tuple := c.parseSocketToTuple(addr)
-	for name, strategy := range numberStrategies {
-		tuple.Proto.Number = &strategy
+	for _, info := range numberStrategies {
+		tuple.Proto.Number = &(info.proto)
 
+		// using get to query protocol
 		session, e := c.tracker.Get(conntrack.Conntrack, family, conntrack.Con{Origin: tuple})
 		if e != nil {
-			// try to get the reply session, if the strategy not exists or from accept events, have error is normal
-			log.Debugf("cannot get the conntrack session, strategy: %s, error: %v", name, e)
+			// try to get the reply session, if the info not exists or from accept events, have error is normal
+			log.Debugf("cannot get the conntrack session, type: %s, family: %d, origin src: %s:%d, origin dest: %s:%d, error: %v", info.name,
+				family, tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, e)
 			continue
 		}
 
@@ -67,6 +77,16 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 		}
 	}
 
+	// using dump to query protocol
+	dump, e := c.tracker.Dump(conntrack.Conntrack, family)
+	if e != nil {
+		log.Debug("cannot dump the conntrack session, error: ", e)
+		return false
+	}
+	if res := c.filterValidateReply(dump, tuple); res != nil {
+		addr.DestIP = res.Src.String()
+		return true
+	}
 	return false
 }
 

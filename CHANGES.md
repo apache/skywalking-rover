@@ -2,6 +2,19 @@ Changes by Version
 ==================
 Release Notes.
 
+0.7.0
+------------------
+#### Features
+
+#### Bug Fixes
+* Fixed the issue where `conntrack` could not find the Reply IP in the access log module.
+
+#### Documentation
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/209?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/7?closed=1)
+
 0.6.0
 ------------------
 #### Features

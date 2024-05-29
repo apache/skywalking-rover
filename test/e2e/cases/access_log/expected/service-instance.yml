@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=6b2eb0011e38b630db6af7203db215806bd141ed
-SW_OAP_COMMIT=7a8bbacd20381bc780c48abf5706fd6e529c9872
-SW_KUBERNETES_COMMIT_SHA=a14f386063fffc61ed9b396e1328b76d33239aba
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ notEmpty .id }}
+  name: {{ notEmpty .name }}
+  attributes: []
+  language: UNKNOWN
+  instanceuuid: {{ notEmpty .instanceuuid }}
+{{- end }}

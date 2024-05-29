@@ -241,8 +241,9 @@ func (r *Runner) buildAccessLogMessage(firstLog, firstConnection bool, conn *com
 		rpcCon = conn.RPCConnection
 		if log.Enable(logrus.DebugLevel) {
 			log.Debugf("ready to sending access log with connection, connection ID: %d, random ID: %d, "+
-				"local: %s, remote: %s, role: %s",
-				conn.ConnectionID, conn.RandomID, rpcCon.Local, rpcCon.Remote, rpcCon.Role)
+				"local: %s, remote: %s, role: %s, kernel logs count: %d, contains protocol log: %t",
+				conn.ConnectionID, conn.RandomID, rpcCon.Local, rpcCon.Remote, rpcCon.Role,
+				len(kernelLogs), protocolLog != nil)
 		}
 	}
 	return &v3.EBPFAccessLogMessage{
