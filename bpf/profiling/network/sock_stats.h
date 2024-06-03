@@ -258,28 +258,3 @@ struct {
 	__type(key, __u64);
 	__type(value, struct sock_data_args_t);
 } openssl_sock_data_args SEC(".maps");
-
-struct socket_data_upload_event {
-    __u8 protocol;
-    __u8 have_reduce_after_chunk;
-    __u8 direction;
-    __u8 finished;
-    __u16 sequence;
-    __u16 data_len;
-    __u64 start_time;
-    __u64 end_time;
-    __u64 conid;
-    __u64 randomid;
-    __u64 data_id;
-    __u64 total_size;
-    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH + 1];
-};
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, __u32);
-    __type(value, struct socket_data_upload_event);
-    __uint(max_entries, 1);
-} socket_data_upload_event_per_cpu_map SEC(".maps");
-struct {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-} socket_data_upload_event_queue SEC(".maps");

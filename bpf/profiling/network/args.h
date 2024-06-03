@@ -216,31 +216,3 @@ static __inline struct socket_buffer_reader_t* read_socket_data(struct sock_data
     reader->data_len = size & MAX_PROTOCOL_SOCKET_READ_LENGTH;
     return reader;
 }
-
-struct socket_data_sequence_t {
-    __u64 data_id;
-    __u16 sequence;
-};
-struct {
-	__uint(type, BPF_MAP_TYPE_LRU_HASH);
-	__uint(max_entries, 1000);
-	__type(key, __u64);
-	__type(value, struct socket_data_sequence_t);
-} socket_data_sequence_generator SEC(".maps");
-static __inline __u16 generate_socket_sequence(__u64 conid, __u64 data_id) {
-    struct socket_data_sequence_t *seq = bpf_map_lookup_elem(&socket_data_sequence_generator, &conid);
-    if (seq == NULL) {
-        struct socket_data_sequence_t data = {};
-        data.data_id = data_id;
-        data.sequence = 0;
-        bpf_map_update_elem(&socket_data_sequence_generator, &conid, &data, BPF_NOEXIST);
-        return 0;
-    }
-    if (seq->data_id != data_id) {
-        seq->data_id = data_id;
-        seq->sequence = 0;
-    } else {
-        seq->sequence++;
-    }
-    return seq->sequence;
-}
