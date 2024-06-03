@@ -26,6 +26,6 @@ RUN apt update && \
     cd bpftool && make -C src install && cp $(which bpftool) /usr/sbin/bpftool && \
     wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
-    ./llvm.sh 13
+    ./llvm.sh 18
 
-ENV PATH="${PATH}:/usr/lib/llvm-13/bin"
+ENV PATH="${PATH}:/usr/lib/llvm-18/bin"
