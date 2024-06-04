@@ -8,6 +8,7 @@ Release Notes.
 * Upgrade LLVM to `18`.
 
 #### Bug Fixes
+* Fixed the issue where `conntrack` could not find the Reply IP in the access log module.
 
 #### Documentation
 

@@ -13,8 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=ee371a210afe2dc6e65c2229b6a0519f8a4a2752
-SW_OAP_COMMIT=7a8bbacd20381bc780c48abf5706fd6e529c9872
-SW_KUBERNETES_COMMIT_SHA=a14f386063fffc61ed9b396e1328b76d33239aba
-
-SW_AGENT_GO_COMMIT=216f122d942cb683f48578d3014cc5ea83637582
+{{- contains . }}
+- id: {{ b64enc "details.default" }}.1
+  name: details.default
+  group: ""
+  shortname: details.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+- id: {{ b64enc "reviews.default" }}.1
+  name: reviews.default
+  group: ""
+  shortname: reviews.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+- id: {{ b64enc "productpage.default" }}.1
+  name: productpage.default
+  group: ""
+  shortname: productpage.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+- id: {{ b64enc "ratings.default" }}.1
+  name: ratings.default
+  group: ""
+  shortname: ratings.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+{{- end }}

@@ -63,32 +63,27 @@ cases:
 
   # histogram value of process relation, client side write_rtt/write_exe/read time
   - query: |
-      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=process_relation_client_write_rtt_time_percentile \
       --service-name service --instance-name test --process-name service \
-      --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
-      --name=process_relation_client_write_rtt_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=process_relation_client_write_exe_time_percentile \
       --service-name service --instance-name test --process-name service \
-      --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE \
-      --name=process_relation_client_write_exe_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      --dest-service-name service --dest-instance-name test --dest-process-name UNKNOWN_REMOTE
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=process_relation_server_write_rtt_time_percentile \
       --service-name service --instance-name test --process-name UNKNOWN_REMOTE \
-      --dest-service-name service --dest-instance-name test --dest-process-name service \
-      --name=process_relation_server_write_rtt_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      --dest-service-name service --dest-instance-name test --dest-process-name service
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=process_relation_server_write_exe_time_percentile \
       --service-name service --instance-name test --process-name UNKNOWN_REMOTE \
-      --dest-service-name service --dest-instance-name test --dest-process-name service \
-      --name=process_relation_server_write_exe_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      --dest-service-name service --dest-instance-name test --dest-process-name service
     expected: expected/metrics-has-value-label.yml
   - query: |
-      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics multiple-linear \
+      swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=process_relation_server_write_exe_time_percentile \
       --service-name service --instance-name test --process-name UNKNOWN_REMOTE \
-      --dest-service-name service --dest-instance-name test --dest-process-name service \
-      --name=process_relation_server_write_exe_time_percentile|yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+      --dest-service-name service --dest-instance-name test --dest-process-name service
     expected: expected/metrics-has-value-label.yml

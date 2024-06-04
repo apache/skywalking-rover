@@ -19,6 +19,7 @@ package collector
 
 import (
 	"encoding/binary"
+	"net"
 
 	"github.com/sirupsen/logrus"
 
@@ -99,6 +100,26 @@ func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogCon
 func (c *ConnectCollector) Stop() {
 }
 
+func (c *ConnectCollector) fixSocketFamilyIfNeed(event *events.SocketConnectEvent, result *ip.SocketPair) {
+	if result == nil {
+		return
+	}
+	if parseIP := net.ParseIP(result.SrcIP); parseIP != nil {
+		var actual uint32
+		if parseIP.To4() != nil {
+			actual = unix.AF_INET
+		} else {
+			actual = unix.AF_INET6
+		}
+
+		if result.Family != actual {
+			connectLogger.Debugf("fix the socket family from %d to %d, connection ID: %d, randomID: %d",
+				result.Family, actual, event.ConID, event.RandomID)
+			result.Family = actual
+		}
+	}
+}
+
 func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConnectEvent) *ip.SocketPair {
 	if event.SocketFamily != unix.AF_INET && event.SocketFamily != unix.AF_INET6 && event.SocketFamily != enums.SocketFamilyUnknown {
 		// if not ipv4, ipv6 or unknown, ignore
@@ -122,6 +143,7 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 	connectLogger.Debugf("found the connection from the socket, connection ID: %d, randomID: %d",
 		event.ConID, event.RandomID)
 	pair.Role = enums.ConnectionRole(event.Role)
+	c.fixSocketFamilyIfNeed(event, pair)
 	c.tryToUpdateSocketFromConntrack(event, pair)
 	return pair
 }
@@ -193,12 +215,14 @@ func (c *ConnectCollector) buildSocketPair(event *events.SocketConnectEvent) *ip
 		return result
 	}
 
+	c.fixSocketFamilyIfNeed(event, result)
 	c.tryToUpdateSocketFromConntrack(event, result)
 	return result
 }
 
 func (c *ConnectCollector) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
-	if socket != nil && socket.IsValid() && c.connTracker != nil && !tools.IsLocalHostAddress(socket.DestIP) {
+	if socket != nil && socket.IsValid() && c.connTracker != nil && !tools.IsLocalHostAddress(socket.DestIP) &&
+		event.FuncName != enums.SocketFunctionNameAccept { // accept event don't need to update the remote address
 		// if no contract and socket data is valid, then trying to get the remote address from the socket
 		// to encase the remote address is not the real remote address
 		originalIP := socket.DestIP

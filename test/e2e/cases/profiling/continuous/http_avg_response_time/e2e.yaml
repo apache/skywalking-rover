@@ -98,8 +98,8 @@ verify:
 
     # check profiling metrics
     - query: |
-        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml metrics multiple-linear \
-          --service-name test-continuous --instance-name test-instance --process-name response_timeout --name continuous_profiling_http_avg_response_time |yq e 'to_entries | with(.[] ; .value=(.value | to_entries))' -
+        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml metrics exec --expression=continuous_profiling_http_avg_response_time \
+          --service-name test-continuous --instance-name test-instance --process-name response_timeout
       expected: expected/metrics-has-value-labeld.yml
 
     # check triggered profiling task

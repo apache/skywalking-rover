@@ -149,6 +149,10 @@ jobs:
             base: test/e2e/cases/process/istio
             config: e2e.yaml
             env: ISTIO_VERSION=1.13.1
+
+          - name: Access Log
+            base: test/e2e/cases/access_log
+            config: e2e.yaml
     steps:
       - uses: actions/checkout@v3
         with:
