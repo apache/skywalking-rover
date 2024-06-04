@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SW_CTL_COMMIT=6b2eb0011e38b630db6af7203db215806bd141ed
+SW_CTL_COMMIT=ee371a210afe2dc6e65c2229b6a0519f8a4a2752
 SW_OAP_COMMIT=7a8bbacd20381bc780c48abf5706fd6e529c9872
 SW_KUBERNETES_COMMIT_SHA=a14f386063fffc61ed9b396e1328b76d33239aba
 

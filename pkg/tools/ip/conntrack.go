@@ -18,13 +18,14 @@
 package ip
 
 import (
-	"golang.org/x/sys/unix"
 	"net"
 	"syscall"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 
 	"github.com/florianl/go-conntrack"
+
+	"golang.org/x/sys/unix"
 )
 
 var log = logger.GetLogger("tools", "ip")

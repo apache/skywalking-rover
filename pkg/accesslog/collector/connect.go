@@ -143,6 +143,7 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 	connectLogger.Debugf("found the connection from the socket, connection ID: %d, randomID: %d",
 		event.ConID, event.RandomID)
 	pair.Role = enums.ConnectionRole(event.Role)
+	c.fixSocketFamilyIfNeed(event, pair)
 	c.tryToUpdateSocketFromConntrack(event, pair)
 	return pair
 }
