@@ -271,6 +271,9 @@ func (r *Runner) BuildNodeInfo(needs bool) *v3.EBPFAccessLogNodeInfo {
 		NetInterfaces: netInterfaces,
 		BootTime:      r.convertTimeToInstant(host.BootTime),
 		ClusterName:   r.cluster,
+		Policy: &v3.EBPFAccessLogPolicy{
+			ExcludeNamespaces: r.context.ConnectionMgr.GetExcludeNamespaces(),
+		},
 	}
 }
 

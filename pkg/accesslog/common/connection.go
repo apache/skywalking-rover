@@ -172,6 +172,14 @@ func (c *ConnectionManager) OnNewProcessExecuting(pid int32) {
 	}
 }
 
+func (c *ConnectionManager) GetExcludeNamespaces() []string {
+	namespaces := make([]string, len(c.excludeNamespaces))
+	for namespace := range c.excludeNamespaces {
+		namespaces = append(namespaces, namespace)
+	}
+	return namespaces
+}
+
 func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 	connectionKey := fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())
 	data, exist := c.connections.Get(connectionKey)
