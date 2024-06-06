@@ -26,7 +26,7 @@ require (
 	k8s.io/apimachinery v0.23.5
 	k8s.io/client-go v0.23.5
 	k8s.io/utils v0.0.0-20211116205334-6203023598ed
-	skywalking.apache.org/repo/goapi v0.0.0-20240104145220-ba7202308dd4
+	skywalking.apache.org/repo/goapi v0.0.0-20240604102541-64f9001abe03
 )
 
 require (
@@ -71,7 +71,7 @@ require (
 	golang.org/x/tools v0.18.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
+	google.golang.org/protobuf v1.32.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.66.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

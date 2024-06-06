@@ -6,6 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Upgrade LLVM to `18`.
+* Support propagation the excluding namespaces in the access log to the backend.
 
 #### Bug Fixes
 * Fixed the issue where `conntrack` could not find the Reply IP in the access log module.
