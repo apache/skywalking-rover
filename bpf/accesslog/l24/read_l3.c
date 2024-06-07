@@ -43,7 +43,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 10000);
 	__type(key, __u64);
-	__type(value, struct bpf_list_head);
+	__type(value, struct c_bpf_list_head);
 } ip_list_rcv_args_map SEC(".maps");
 
 #define ip_list_foreach_skb(loc, time)                                      \
@@ -74,7 +74,7 @@ int ip_list_rcv(struct pt_regs * ctx) {
     struct skb_receive_detail *detail = NULL;
 
     struct sk_buff *skb = NULL, *next = NULL;
-    struct bpf_list_head skb_list = init_bpf_list_head();
+    struct c_bpf_list_head skb_list = init_bpf_list_head();
     list_for_each_entry_init()
     ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
     ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
@@ -95,7 +95,7 @@ int ip_list_rcv(struct pt_regs * ctx) {
 SEC("kretprobe/ip_list_rcv")
 int ip_list_rcv_ret(struct pt_regs * ctx) {
     __u64 id = bpf_get_current_pid_tgid();
-    struct bpf_list_head *head = bpf_map_lookup_elem(&ip_list_rcv_args_map, &id);
+    struct c_bpf_list_head *head = bpf_map_lookup_elem(&ip_list_rcv_args_map, &id);
     if (head == NULL) {
         return 0;
     }
@@ -139,7 +139,7 @@ int ip_sublist_rcv_finish(struct pt_regs * ctx) {
     struct skb_receive_detail *detail = NULL;
 
     struct sk_buff *skb = NULL, *next = NULL;
-    struct bpf_list_head skb_list = init_bpf_list_head();
+    struct c_bpf_list_head skb_list = init_bpf_list_head();
     list_for_each_entry_init()
     ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
     ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)

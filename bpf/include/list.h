@@ -62,32 +62,32 @@
     if (list_should_enter)
 
 // Customized BPF List implementation
-struct bpf_list_head {
+struct c_bpf_list_head {
     void *data;
-	struct bpf_list_head *next;
+	struct c_bpf_list_head *next;
 };
 
-static inline struct bpf_list_head init_bpf_list_head() {
-    struct bpf_list_head head = {};
+static inline struct c_bpf_list_head init_bpf_list_head() {
+    struct c_bpf_list_head head = {};
     head.data = NULL;
     head.next = NULL;
     return head;
 }
 
-static inline struct bpf_list_head append_bpf_list_head(struct bpf_list_head* head, void *data) {
-    struct bpf_list_head new_head = init_bpf_list_head();
+static inline struct c_bpf_list_head append_bpf_list_head(struct c_bpf_list_head* head, void *data) {
+    struct c_bpf_list_head new_head = init_bpf_list_head();
     new_head.data = data;
     new_head.next = head;
     return new_head;
 }
 
-static inline int bpf_list_empty(struct bpf_list_head *head) {
+static inline int bpf_list_empty(struct c_bpf_list_head *head) {
 	return head->next == NULL;
 }
 
 #define bpf_list_for_each_init()			\
     bool bpf_list_is_first = true;          \
-    struct bpf_list_head *current_node = NULL;
+    struct c_bpf_list_head *current_node = NULL;
 
 #define bpf_list_for_each_foreach(pos, head)			\
     if (bpf_list_is_first) {                                \
