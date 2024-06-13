@@ -45,13 +45,13 @@ func (c *L24Collector) startRead(_ *module.Manager, context *common.AccessLogCon
 	context.BPF.AddTracePoint("net", "netif_receive_skb", context.BPF.TracepointNetifReceiveSkb)
 
 	// l3
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_list_rcv": context.BPF.IpListRcv})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{"ip_list_rcv": context.BPF.IpListRcvRet})
 	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_rcv": context.BPF.IpRcv})
 	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{"ip_rcv": context.BPF.IpRcvRet})
 	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_rcv_finish": context.BPF.IpRcvFinish})
 	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_local_deliver": context.BPF.IpLocalDeliver})
 	// it's not exist in old kernel versions
+	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"ip_list_rcv": context.BPF.IpListRcv})
+	_ = context.BPF.AddLinkOrError(link.Kretprobe, map[string]*ebpf.Program{"ip_list_rcv": context.BPF.IpListRcvRet})
 	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"ip_sublist_rcv_finish": context.BPF.IpSublistRcvFinish})
 	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"ip_local_deliver_finish": context.BPF.IpLocalDeliverFinish})
 
