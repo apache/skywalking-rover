@@ -11,6 +11,7 @@ Release Notes.
 #### Bug Fixes
 * Fixed the issue where `conntrack` could not find the Reply IP in the access log module.
 * Fix errors when compiling C source files into eBPF bytecode on a system with Linux headers version 6.2 or higher.
+* Fixed `ip_list_rcv` probe is not exist in older linux kernel.
 
 #### Documentation
 
