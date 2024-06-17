@@ -447,6 +447,8 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 }
 
 func (c *ConnectionManager) rebuildLocalIPWithPID() {
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
 	result := make(map[string]int32)
 	for pid, entities := range c.monitoringProcesses {
 		for _, entity := range entities {
@@ -575,7 +577,7 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 			return
 		}
 		// already mark as deletable or process not monitoring
-		shouldDelete := con.MarkDeletable || len(c.monitoringProcesses[int32(con.PID)]) == 0
+		shouldDelete := con.MarkDeletable || !c.ProcessIsMonitor(con.PID)
 
 		if shouldDelete {
 			deletableConnections = append(deletableConnections, key)
