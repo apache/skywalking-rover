@@ -447,8 +447,6 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 }
 
 func (c *ConnectionManager) rebuildLocalIPWithPID() {
-	c.monitoringProcessLock.RLock()
-	defer c.monitoringProcessLock.RUnlock()
 	result := make(map[string]int32)
 	for pid, entities := range c.monitoringProcesses {
 		for _, entity := range entities {
@@ -527,6 +525,8 @@ func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.Proces
 		processInBPF[int32(pid)] = true
 	}
 
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
 	// make sure BPF and user space are consistent
 	for pid := range processInBPF {
 		if _, ok := c.monitoringProcesses[pid]; !ok {
