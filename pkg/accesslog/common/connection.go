@@ -525,6 +525,8 @@ func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.Proces
 		processInBPF[int32(pid)] = true
 	}
 
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
 	// make sure BPF and user space are consistent
 	for pid := range processInBPF {
 		if _, ok := c.monitoringProcesses[pid]; !ok {
@@ -575,7 +577,7 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 			return
 		}
 		// already mark as deletable or process not monitoring
-		shouldDelete := con.MarkDeletable || len(c.monitoringProcesses[int32(con.PID)]) == 0
+		shouldDelete := con.MarkDeletable || !c.ProcessIsMonitor(con.PID)
 
 		if shouldDelete {
 			deletableConnections = append(deletableConnections, key)
