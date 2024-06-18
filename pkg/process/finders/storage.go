@@ -248,7 +248,7 @@ func (s *ProcessStorage) AddNewProcessInFinder(finder api.ProcessDetectType, pro
 		}
 		founded := false
 		for _, existingProcess := range s.processes[finder] {
-			if existingProcess.Pid() == existingProcess.Pid() && existingProcess.Entity().SameWith(existingProcess.Entity()) {
+			if existingProcess.Pid() == newProcess.Pid() && existingProcess.Entity().SameWith(newProcess.Entity()) {
 				founded = true
 				break
 			}
