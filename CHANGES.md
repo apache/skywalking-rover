@@ -13,6 +13,7 @@ Release Notes.
 * Fix errors when compiling C source files into eBPF bytecode on a system with Linux headers version 6.2 or higher.
 * Fixed `ip_list_rcv` probe is not exist in older linux kernel.
 * Fix concurrent map operation in the access log module.
+* Fix the profiling cannot found process issue.
 
 #### Documentation
 
