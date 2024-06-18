@@ -237,6 +237,34 @@ func (s *ProcessStorage) processesReport(waitReportProcesses []*ProcessContext) 
 	return nil
 }
 
+func (s *ProcessStorage) AddNewProcessInFinder(finder api.ProcessDetectType, processes []api.DetectedProcess) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	addProcessBuilder := s.newProcessEventBuilder(ProcessOperateAdd)
+	for _, newProcess := range processes {
+		if newProcess == nil {
+			continue
+		}
+		founded := false
+		for _, existingProcess := range s.processes[finder] {
+			if existingProcess.Pid() == existingProcess.Pid() && existingProcess.Entity().SameWith(existingProcess.Entity()) {
+				founded = true
+				break
+			}
+		}
+
+		// if not found in existing processes, need to add this process
+		if !founded {
+			processContext := s.constructNewProcessContext(finder, newProcess)
+			addProcessBuilder.AddProcess(newProcess.Pid(), processContext)
+			s.processes[finder] = append(s.processes[finder], processContext)
+			log.Infof("detected new process by add process: pid: %d, entity: %s", newProcess.Pid(), newProcess.Entity())
+		}
+	}
+	addProcessBuilder.Send()
+}
+
 func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, processes []api.DetectedProcess) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -269,7 +297,7 @@ func (s *ProcessStorage) SyncAllProcessInFinder(finder api.ProcessDetectType, pr
 			processContext := s.constructNewProcessContext(finder, syncProcess)
 			newProcesses = append(newProcesses, processContext)
 			addProcessBuilder.AddProcess(syncProcess.Pid(), newProcesses[len(newProcesses)-1])
-			log.Infof("detected new process: pid: %d, entity: %s", syncProcess.Pid(), syncProcess.Entity())
+			log.Infof("detected new process by sync all: pid: %d, entity: %s", syncProcess.Pid(), syncProcess.Entity())
 		}
 	}
 	addProcessBuilder.Send()

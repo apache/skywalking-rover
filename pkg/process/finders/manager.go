@@ -48,8 +48,6 @@ type ProcessManager struct {
 type ProcessManagerWithFinder struct {
 	*ProcessManager
 	finderType api.ProcessDetectType
-
-	lastSync []api.DetectedProcess
 }
 
 func NewProcessManager(ctx context.Context, moduleManager *module.Manager,
@@ -121,20 +119,10 @@ func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 
 func (p *ProcessManagerWithFinder) SyncAllProcessInFinder(processes []api.DetectedProcess) {
 	p.storage.SyncAllProcessInFinder(p.finderType, processes)
-	p.lastSync = processes
 }
 
 func (p *ProcessManagerWithFinder) AddDetectedProcess(processes []api.DetectedProcess) {
-	if len(p.lastSync) == 0 {
-		p.SyncAllProcessInFinder(processes)
-		p.lastSync = processes
-		return
-	}
-	// fetch existing process, add the new processes, finally, re-sync
-	detectedProcesses := make([]api.DetectedProcess, 0, len(processes)+len(p.lastSync))
-	detectedProcesses = append(detectedProcesses, p.lastSync...)
-	detectedProcesses = append(detectedProcesses, processes...)
-	p.SyncAllProcessInFinder(detectedProcesses)
+	p.storage.AddNewProcessInFinder(p.finderType, processes)
 }
 
 func (m *ProcessManager) GetAllProcesses() []api.ProcessInterface {

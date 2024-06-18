@@ -294,6 +294,7 @@ func (m *Manager) StartingWatchTask() error {
 		return err
 	}
 	if len(tasks.Commands) == 0 {
+		log.Debugf("no profiling task found need to execute")
 		return nil
 	}
 

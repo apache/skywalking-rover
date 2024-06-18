@@ -253,7 +253,7 @@ func (r *Buffer) FirstSocketBuffer() SocketDataBuffer {
 }
 
 func (r *Buffer) LastSocketBuffer() SocketDataBuffer {
-	if r.dataEvents.Len() == 0 {
+	if r.dataEvents == nil || r.dataEvents.Len() == 0 {
 		return nil
 	}
 	return r.dataEvents.Back().Value.(SocketDataBuffer)
@@ -285,7 +285,7 @@ func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
 	dataEvents := list.New()
 	detailEvents := list.New()
 	for _, b := range buffers {
-		if b == nil {
+		if b == nil || b.head == nil {
 			continue
 		}
 		if b.head.bufIndex > 0 {
