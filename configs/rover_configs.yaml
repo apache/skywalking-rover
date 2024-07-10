@@ -147,3 +147,9 @@ access_log:
     parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS:2}
     # The size of per paralleled analyzer queue
     queue_size: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}
+
+pprof:
+  # Is active the pprof
+  active: ${ROVER_PPROF_ACTIVE:false}
+  # The bind port of the pprof HTTP server
+  port: ${ROVER_PPROF_PORT:6060}
