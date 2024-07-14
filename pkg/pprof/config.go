@@ -15,24 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package boot
+package pprof
 
-import (
-	"github.com/apache/skywalking-rover/pkg/accesslog"
-	"github.com/apache/skywalking-rover/pkg/core"
-	"github.com/apache/skywalking-rover/pkg/logger"
-	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/pprof"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/profiling"
-)
+import "github.com/apache/skywalking-rover/pkg/module"
 
-func init() {
-	// register all active module
-	module.Register(logger.NewModule())
-	module.Register(core.NewModule())
-	module.Register(process.NewModule())
-	module.Register(profiling.NewModule())
-	module.Register(accesslog.NewModule())
-	module.Register(pprof.NewModule())
+type Config struct {
+	module.Config `mapstructure:",squash"`
+
+	Port int `mapstructure:"port"`
+}
+
+func (c *Config) IsActive() bool {
+	return c.Active
 }

@@ -27,6 +27,7 @@ The SkyWalking Rover requires specialized protocols to communicate with SkyWalki
 2. [Service Discovery](configuration/service-discovery.md) includes advanced setups about the ways of discovering services on your Kubernetes cluster. 
 3. [Access logs](./configuration/traffic.md) reports L2 to L4 network traffic relative information through access logs, to help OAP backend to do topology and metrics analysis.
 4. [Profiling](./configuration/profiling.md) is an on-demand feature to enhance general observability besides access logs. It provides eBPF powered process ON_CPU, OFF_CPU profiling and network advanced profiling to link HTTP traffic with SkyWalking and Zipkin traces. 
+5. [Pprof](./configuration/pprof.md) is a feature to collect self runtime profiling data.
 
 To adjust the configurations, refer to [Overriding Setting](./configuration/override-settings.md) document for more details.
 
