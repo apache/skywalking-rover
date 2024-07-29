@@ -23,6 +23,9 @@ import (
 )
 
 func ParseIPV4(bpfVal uint32) string {
+	if bpfVal == 0 {
+		return ""
+	}
 	return net.IP((*(*[net.IPv4len]byte)(unsafe.Pointer(&bpfVal)))[:]).String()
 }
 

@@ -216,6 +216,8 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
     event->success = success;
 
     __u16 port;
+    event->local_port = 0;
+    event->remote_port = 0;
     if (socket != NULL) {
         // only get from accept function(server side)
         struct sock* s;
@@ -247,11 +249,14 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
             bpf_probe_read(&event->remote_addr_v4, sizeof(event->remote_addr_v4), &daddr->sin_addr.s_addr);
             bpf_probe_read(&port, sizeof(port), &daddr->sin_port);
             event->remote_port = bpf_ntohs(port);
+            // cleanup the local address
+            event->local_addr_v4 = 0;
         } else if (event->socket_family == AF_INET6) {
             struct sockaddr_in6 *daddr = (struct sockaddr_in6 *)addr;
             bpf_probe_read(&event->remote_addr_v6, sizeof(event->remote_addr_v6), &daddr->sin6_addr.s6_addr);
             bpf_probe_read(&port, sizeof(port), &daddr->sin6_port);
             event->remote_port = bpf_ntohs(port);
+            __builtin_memset(&event->local_addr_v6, 0, sizeof(event->local_addr_v6));
         }
     } else {
         event->socket_family = AF_UNKNOWN;

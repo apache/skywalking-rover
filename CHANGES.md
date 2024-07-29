@@ -15,6 +15,7 @@ Release Notes.
 * Fixed `ip_list_rcv` probe is not exist in older linux kernel.
 * Fix concurrent map operation in the access log module.
 * Fix the profiling cannot found process issue.
+* Fix cannot translate peer address in some UDP scenarios.
 
 #### Documentation
 

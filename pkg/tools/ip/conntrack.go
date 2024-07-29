@@ -86,6 +86,8 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 	}
 	if res := c.filterValidateReply(dump, tuple); res != nil {
 		addr.DestIP = res.Src.String()
+		log.Debugf("found the connection from the dump all conntrack, src: %s:%d, dst: %s:%d, proto number: %d",
+			tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, *tuple.Proto.Number)
 		return true
 	}
 	return false

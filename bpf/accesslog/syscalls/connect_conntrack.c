@@ -140,3 +140,8 @@ SEC("kprobe/nf_confirm")
 int nf_confirm(struct pt_regs* ctx) {
     return nf_conn_aware(ctx, (struct nf_conn*)PT_REGS_PARM3(ctx));
 }
+
+SEC("kprobe/ctnetlink_fill_info")
+int nf_ctnetlink_fill_info(struct pt_regs* ctx) {
+    return nf_conn_aware(ctx, (struct nf_conn*)PT_REGS_PARM5(ctx));
+}
