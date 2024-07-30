@@ -16,6 +16,7 @@ Release Notes.
 * Fix concurrent map operation in the access log module.
 * Fix the profiling cannot found process issue.
 * Fix cannot translate peer address in some UDP scenarios.
+* Fix the protocol logs may be missing if the process is short-lived.
 
 #### Documentation
 

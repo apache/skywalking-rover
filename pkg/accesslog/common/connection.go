@@ -570,7 +570,7 @@ func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor boo
 func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	// delete all connections which marked as deletable
 	// all deletable connection events been sent
-	deletableConnections := make([]string, 0)
+	deletableConnections := make(map[string]bool, 0)
 	c.connections.IterCb(func(key string, v interface{}) {
 		con, ok := v.(*ConnectionInfo)
 		if !ok || con == nil {
@@ -580,22 +580,26 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 		shouldDelete := con.MarkDeletable || !c.ProcessIsMonitor(con.PID)
 
 		if shouldDelete {
-			deletableConnections = append(deletableConnections, key)
+			deletableConnections[key] = true
 		}
 	})
 
 	deleteFromUnfinished := make([]string, 0)
 	for conKey, processorFinished := range c.allUnfinishedConnections {
 		if *processorFinished {
-			deletableConnections = append(deletableConnections, conKey)
+			deletableConnections[conKey] = true
 			deleteFromUnfinished = append(deleteFromUnfinished, conKey)
+		} else {
+			// if the processor not finished, then ignore it from deletable connections
+			delete(deletableConnections, conKey)
 		}
 	}
 	for _, key := range deleteFromUnfinished {
 		delete(c.allUnfinishedConnections, key)
 	}
 
-	for _, key := range deletableConnections {
+	for key := range deletableConnections {
+		log.Debugf("deleting the connection in manager: %s", key)
 		c.connections.Remove(key)
 	}
 }
