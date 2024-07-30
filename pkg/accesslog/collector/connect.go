@@ -68,10 +68,18 @@ func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogCon
 	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{
 		"sock_alloc": context.BPF.SockAllocRet,
 	})
-
 	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
+		"ip4_datagram_connect": context.BPF.Ip4UdpDatagramConnect,
+	})
+
+	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
 		"__nf_conntrack_hash_insert": context.BPF.NfConntrackHashInsert,
-		"nf_confirm":                 context.BPF.NfConfirm,
+	})
+	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"nf_confirm": context.BPF.NfConfirm,
+	})
+	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"ctnetlink_fill_info": context.BPF.NfCtnetlinkFillInfo,
 	})
 
 	context.BPF.ReadEventAsync(context.BPF.SocketConnectionEventQueue, func(data interface{}) {
@@ -127,11 +135,15 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 	}
 	socketPair := c.buildSocketPair(event)
 	if socketPair != nil && socketPair.IsValid() {
+		connectLogger.Debugf("found the connection from the connect event is valid, connection ID: %d, randomID: %d",
+			event.ConID, event.RandomID)
 		return socketPair
 	}
 	// if only the local port not success, maybe the upstream port is not open, so it could be continued
 	if c.isOnlyLocalPortEmpty(socketPair) {
 		event.ConnectSuccess = 0
+		connectLogger.Debugf("the connection from the connect event is only the local port is empty, connection ID: %d, randomID: %d",
+			event.ConID, event.RandomID)
 		return socketPair
 	}
 

@@ -146,4 +146,15 @@ int sock_alloc_ret(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("kprobe/ip4_datagram_connect")
+int ip4_udp_datagram_connect(struct pt_regs *ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    struct connect_args_t *connect_args = bpf_map_lookup_elem(&conecting_args, &id);
+    if (connect_args) {
+        struct sock *sock = (struct sock*)PT_REGS_PARM1(ctx);
+        connect_args->sock = sock;
+    }
+    return 0;
+}
+
 #include "connect_conntrack.c"
