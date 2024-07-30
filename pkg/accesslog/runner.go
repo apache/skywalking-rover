@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"time"
 
+	process2 "github.com/shirou/gopsutil/process"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
@@ -284,6 +286,23 @@ func (r *Runner) convertTimeToInstant(t time.Time) *v32.Instant {
 	}
 }
 
+func (r *Runner) shouldReportProcessLog(pid uint32) bool {
+	// if the process not monitoring, then check the process is existed or not
+	if r.context.ConnectionMgr.ProcessIsMonitor(pid) {
+		return true
+	}
+	exists, err := process2.PidExists(int32(pid))
+	if err != nil {
+		log.Warnf("check pid exists error, pid: %d, error: %v", pid, err)
+		return false
+	}
+	if exists {
+		return false
+	}
+	log.Debugf("the log should be also uploaded because the process quick shutdown but the log exist, pid: %d", pid)
+	return true
+}
+
 func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.ConnectionInfo,
 	[]*v3.AccessLogKernelLog, *v3.AccessLogProtocolLogs, bool) {
 	if len(protocolLog.KernelLogs) == 0 {
@@ -292,7 +311,7 @@ func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.Conn
 	firstKernelLog := protocolLog.KernelLogs[0]
 	pid, _ := events.ParseConnectionID(firstKernelLog.GetConnectionID())
 	// if the process not monitoring, then ignore it
-	if !r.context.ConnectionMgr.ProcessIsMonitor(pid) {
+	if !r.shouldReportProcessLog(pid) {
 		return nil, nil, nil, false
 	}
 	connection := r.context.ConnectionMgr.Find(firstKernelLog)
@@ -319,7 +338,7 @@ func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.Conn
 func (r *Runner) buildKernelLog(kernelLog *common.KernelLog) (*common.ConnectionInfo, *v3.AccessLogKernelLog, bool) {
 	pid, _ := events.ParseConnectionID(kernelLog.Event.GetConnectionID())
 	// if the process not monitoring, then ignore it
-	if !r.context.ConnectionMgr.ProcessIsMonitor(pid) {
+	if !r.shouldReportProcessLog(pid) {
 		return nil, nil, false
 	}
 	connection := r.context.ConnectionMgr.Find(kernelLog.Event)
