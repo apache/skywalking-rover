@@ -426,8 +426,8 @@ func (c *ConnectionManager) savingTheAddress(host string, port uint16, localPid 
 	log.Debugf("saving the %s address with pid cache, address: %s:%d, pid: %d", localStr, host, port, pid)
 }
 
-func (c *ConnectionManager) getAddressPid(host string, port uint16, localPid bool) *addressInfo {
-	addrInfo, ok := c.addressWithPid.Get(fmt.Sprintf("%s_%d_%t", host, port, localPid))
+func (c *ConnectionManager) getAddressPid(hostAddress string, port uint16, localPid bool) *addressInfo {
+	addrInfo, ok := c.addressWithPid.Get(fmt.Sprintf("%s_%d_%t", hostAddress, port, localPid))
 	if ok && addrInfo != nil {
 		return addrInfo.(*addressInfo)
 	}
