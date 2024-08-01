@@ -18,6 +18,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,7 +35,9 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/finders/kubernetes"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
+	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/ip"
+	"github.com/apache/skywalking-rover/pkg/tools/path"
 
 	"github.com/cilium/ebpf"
 
@@ -46,8 +49,13 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-// only using to match the remote IP address
-const localAddressPairCacheTime = time.Second * 15
+const (
+	// only using to match the remote IP address
+	localAddressPairCacheTime = time.Second * 15
+
+	// clean the active connection in BPF interval
+	cleanActiveConnectionInterval = time.Second * 20
+)
 
 type addressProcessType int
 
@@ -157,8 +165,56 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 	return mgr
 }
 
-func (c *ConnectionManager) Start() {
+func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessLogContext) {
 	c.processOP.AddListener(c)
+
+	// starting to clean up the un-active connection in BPF
+	go func() {
+		ticker := time.NewTicker(cleanActiveConnectionInterval)
+		for {
+			select {
+			case <-ticker.C:
+				activeConnections := c.activeConnectionMap.Iterate()
+				var conID uint64
+				var activateConn ActiveConnection
+				for activeConnections.Next(&conID, &activateConn) {
+					// if the connection is existed, then check the next one
+					pid, fd := events.ParseConnectionID(conID)
+					if c.checkProcessFDExist(pid, fd) {
+						continue
+					}
+
+					// if the connection is not existed, then delete it
+					if err := c.activeConnectionMap.Delete(conID); err != nil {
+						log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
+							pid, fd, conID, activateConn.RandomID, err)
+						continue
+					}
+					log.Debugf("deleted the active connection as not exist in file system, pid: %d, fd: %d, connection ID: %d, random ID: %d",
+						pid, fd, conID, activateConn.RandomID)
+
+					// building and send the close event
+					wapperedEvent := c.OnConnectionClose(&events.SocketCloseEvent{
+						ConnectionID: conID,
+						RandomID:     activateConn.RandomID,
+						StartTime:    0,
+						EndTime:      0,
+						PID:          activateConn.PID,
+						SocketFD:     activateConn.SocketFD,
+						Success:      0,
+					})
+					accessLogContext.Queue.AppendKernelLog(LogTypeClose, wapperedEvent)
+				}
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (c *ConnectionManager) checkProcessFDExist(pid, fd uint32) bool {
+	return path.Exists(host.GetFileInHost(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)))
 }
 
 func (c *ConnectionManager) Stop() {

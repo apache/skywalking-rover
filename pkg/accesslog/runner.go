@@ -88,7 +88,7 @@ func (r *Runner) Start(ctx context.Context) error {
 	r.ctx = ctx
 	r.context.RuntimeContext = ctx
 	r.context.Queue.Start(ctx)
-	r.context.ConnectionMgr.Start()
+	r.context.ConnectionMgr.Start(ctx, r.context)
 	for _, c := range r.collectors {
 		err := c.Start(r.mgr, r.context)
 		if err != nil {

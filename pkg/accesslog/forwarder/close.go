@@ -34,6 +34,9 @@ func SendCloseEvent(context *common.AccessLogContext, event *common.CloseEventWi
 
 func closeLogBuilder(event events.Event) *v3.AccessLogKernelLog {
 	closeEvent := event.(*common.CloseEventWithNotify)
+	if closeEvent.StartTime == 0 {
+		return nil
+	}
 	closeOp := &v3.AccessLogKernelCloseOperation{}
 	closeOp.StartTime = BuildOffsetTimestamp(closeEvent.StartTime)
 	closeOp.EndTime = BuildOffsetTimestamp(closeEvent.EndTime)
