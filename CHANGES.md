@@ -17,6 +17,7 @@ Release Notes.
 * Fix the profiling cannot found process issue.
 * Fix cannot translate peer address in some UDP scenarios.
 * Fix the protocol logs may be missing if the process is short-lived.
+* Fix some connections not called close syscall, causing unnecessary memory usage.
 
 #### Documentation
 
