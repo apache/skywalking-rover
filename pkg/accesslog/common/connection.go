@@ -414,16 +414,16 @@ func (c *ConnectionManager) OnConnectionClose(event *events.SocketCloseEvent) *C
 	return result
 }
 
-func (c *ConnectionManager) savingTheAddress(host string, port uint16, localPid bool, pid uint32) {
+func (c *ConnectionManager) savingTheAddress(hostAddress string, port uint16, localPid bool, pid uint32) {
 	localAddrInfo := &addressInfo{
 		pid: pid,
 	}
-	c.addressWithPid.Set(fmt.Sprintf("%s_%d_%t", host, port, localPid), localAddrInfo, localAddressPairCacheTime)
+	c.addressWithPid.Set(fmt.Sprintf("%s_%d_%t", hostAddress, port, localPid), localAddrInfo, localAddressPairCacheTime)
 	localStr := strRemote
 	if localPid {
 		localStr = strLocal
 	}
-	log.Debugf("saving the %s address with pid cache, address: %s:%d, pid: %d", localStr, host, port, pid)
+	log.Debugf("saving the %s address with pid cache, address: %s:%d, pid: %d", localStr, hostAddress, port, pid)
 }
 
 func (c *ConnectionManager) getAddressPid(hostAddress string, port uint16, localPid bool) *addressInfo {
