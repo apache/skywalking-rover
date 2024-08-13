@@ -382,21 +382,6 @@ func (f *ProcessFinder) ParseProcessID(ps api.DetectedProcess, downstream *v3.EB
 }
 
 func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
-	pidList, err := process.Pids()
-	if err != nil {
-		return false
-	}
-	pidExist := false
-	for _, p := range pidList {
-		if p == pid {
-			pidExist = true
-			break
-		}
-	}
-	if !pidExist {
-		return false
-	}
-
 	newProcess, err := process.NewProcess(pid)
 	if err != nil {
 		return false
