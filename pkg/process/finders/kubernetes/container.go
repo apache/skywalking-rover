@@ -70,6 +70,7 @@ func (c *PodContainer) CGroupID() string {
 	cgroupID = strings.TrimPrefix(cgroupID, "containerd://")
 	cgroupID = strings.TrimPrefix(cgroupID, "dockerd://")
 	cgroupID = strings.TrimPrefix(cgroupID, "docker://")
+	cgroupID = strings.TrimPrefix(cgroupID, "cri-o://")
 	return cgroupID
 }
 
