@@ -8,6 +8,7 @@ Release Notes.
 * Upgrade LLVM to `18`.
 * Support propagation the excluding namespaces in the access log to the backend.
 * Add `pprof` module for observe self.
+* Add detect process from `CRI-O` container in Kubernetes.
 
 #### Bug Fixes
 * Fixed the issue where `conntrack` could not find the Reply IP in the access log module.
