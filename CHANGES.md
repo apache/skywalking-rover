@@ -8,6 +8,7 @@ Release Notes.
 * Upgrade LLVM to `18`.
 * Support propagation the excluding namespaces in the access log to the backend.
 * Add `pprof` module for observe self.
+* Add detect process from `CRI-O` container in Kubernetes.
 * Introduce `MonitorFilter` into access log module. 
 
 #### Bug Fixes

@@ -50,7 +50,10 @@ import (
 
 var log = logger.GetLogger("process", "finder", "kubernetes")
 
-var kubepodsRegex = regexp.MustCompile(`cri-containerd-(?P<Group>\w+)\.scope`)
+var (
+	kubepodsRegex      = regexp.MustCompile(`cri-containerd-(?P<Group>\w+)\.scope`)
+	openShiftPodsRegex = regexp.MustCompile(`crio-(?P<Group>\w+)\.scope`)
+)
 
 type ProcessFinder struct {
 	conf *Config
@@ -289,6 +292,9 @@ func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
 			if kubepod := kubepodsRegex.FindStringSubmatch(path); len(kubepod) >= 1 {
 				path = kubepod[1]
 			}
+			if openShiftPod := openShiftPodsRegex.FindStringSubmatch(path); len(openShiftPod) >= 1 {
+				path = openShiftPod[1]
+			}
 			cache[path] = true
 		}
 	}
@@ -382,21 +388,6 @@ func (f *ProcessFinder) ParseProcessID(ps api.DetectedProcess, downstream *v3.EB
 }
 
 func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
-	pidList, err := process.Pids()
-	if err != nil {
-		return false
-	}
-	pidExist := false
-	for _, p := range pidList {
-		if p == pid {
-			pidExist = true
-			break
-		}
-	}
-	if !pidExist {
-		return false
-	}
-
 	newProcess, err := process.NewProcess(pid)
 	if err != nil {
 		return false
