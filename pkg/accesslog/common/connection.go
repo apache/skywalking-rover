@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -109,8 +108,7 @@ type ConnectionManager struct {
 	processMonitorMap   *ebpf.Map
 	activeConnectionMap *ebpf.Map
 
-	excludeNamespaces map[string]bool
-	excludeClusters   map[string]bool
+	monitorFilter MonitorFilter
 
 	processors       []ConnectionProcessor
 	processListeners []ProcessListener
@@ -139,15 +137,7 @@ type ConnectionInfo struct {
 	PID           uint32
 }
 
-func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader) *ConnectionManager {
-	excludeNamespaces := make(map[string]bool)
-	for _, ns := range strings.Split(config.ExcludeNamespaces, ",") {
-		excludeNamespaces[ns] = true
-	}
-	excludeClusters := make(map[string]bool)
-	for _, cluster := range strings.Split(config.ExcludeClusters, ",") {
-		excludeClusters[cluster] = true
-	}
+func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
 	mgr := &ConnectionManager{
 		moduleMgr:                moduleMgr,
 		processOP:                moduleMgr.FindModule(process.ModuleName).(process.Operator),
@@ -159,8 +149,7 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		processMonitorMap:        bpfLoader.ProcessMonitorControl,
 		activeConnectionMap:      bpfLoader.ActiveConnectionMap,
 		allUnfinishedConnections: make(map[string]*bool),
-		excludeNamespaces:        excludeNamespaces,
-		excludeClusters:          excludeClusters,
+		monitorFilter:            filter,
 	}
 	return mgr
 }
@@ -229,11 +218,7 @@ func (c *ConnectionManager) OnNewProcessExecuting(pid int32) {
 }
 
 func (c *ConnectionManager) GetExcludeNamespaces() []string {
-	namespaces := make([]string, len(c.excludeNamespaces))
-	for namespace := range c.excludeNamespaces {
-		namespaces = append(namespaces, namespace)
-	}
-	return namespaces
+	return c.monitorFilter.ExcludeNamespaces()
 }
 
 func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
@@ -365,9 +350,6 @@ func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, p
 	for _, pi := range c.monitoringProcesses[int32(pid)] {
 		if pi.DetectType() == api.Kubernetes {
 			entity := pi.Entity()
-			if cluster, _, found := strings.Cut(entity.ServiceName, "::"); found && c.excludeClusters[cluster] {
-				continue
-			}
 			podContainer := pi.DetectProcess().(*kubernetes.Process).PodContainer()
 			return &v3.ConnectionAddress{
 				Address: &v3.ConnectionAddress_Kubernetes{
@@ -528,25 +510,7 @@ func (c *ConnectionManager) printTotalAddressesWithPid(prefix string) {
 }
 
 func (c *ConnectionManager) shouldExcludeTheProcess(entities []api.ProcessInterface) bool {
-	// when the process contains multiple entity, and contains the cluster not exclude, then should not exclude the process
-	containsNotExcludeCluster := false
-	for _, entity := range entities {
-		if entity.DetectType() == api.Kubernetes { // for now, we only have the kubernetes detected process
-			namespace := entity.DetectProcess().(*kubernetes.Process).PodContainer().Pod.Namespace
-			if c.excludeNamespaces[namespace] {
-				return true
-			}
-			if cluster, _, found := strings.Cut(entity.Entity().ServiceName, "::"); found {
-				if !c.excludeClusters[cluster] {
-					containsNotExcludeCluster = true
-				}
-			} else {
-				containsNotExcludeCluster = true
-				break
-			}
-		}
-	}
-	return !containsNotExcludeCluster
+	return c.monitorFilter.ShouldExclude(entities)
 }
 
 func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
