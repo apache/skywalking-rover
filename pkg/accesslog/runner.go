@@ -20,6 +20,7 @@ package accesslog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	process2 "github.com/shirou/gopsutil/process"
@@ -68,11 +69,12 @@ func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
 	coreModule := mgr.FindModule(core.ModuleName).(core.Operator)
 	backendOP := coreModule.BackendOperator()
 	clusterName := coreModule.ClusterName()
+	monitorFilter := common.NewStaticMonitorFilter(strings.Split(config.ExcludeNamespaces, ","), strings.Split(config.ExcludeClusters, ","))
 	runner := &Runner{
 		context: &common.AccessLogContext{
 			BPF:           bpfLoader,
 			Config:        config,
-			ConnectionMgr: common.NewConnectionManager(config, mgr, bpfLoader),
+			ConnectionMgr: common.NewConnectionManager(config, mgr, bpfLoader, monitorFilter),
 		},
 		collectors: collector.Collectors(),
 		mgr:        mgr,
