@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4.1.7
         name: Download docker images
         with:
           name: docker-images-skywalking-rover
@@ -245,17 +245,17 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4.1.7
         name: Download rover docker image
         with:
           name: docker-images-skywalking-rover
           path: docker-images
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4.1.7
         name: Download nginx docker image
         with:
           name: docker-images-test-nginx
           path: docker-images
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4.1.7
         name: Download SSL Data
         with:
           name: network-ssl-data
@@ -316,7 +316,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4.1.7
         name: Download docker images
         with:
           name: docker-images-skywalking-rover
