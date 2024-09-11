@@ -15,29 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package collector
+package events
 
-import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/common"
-	"github.com/apache/skywalking-rover/pkg/logger"
-	"github.com/apache/skywalking-rover/pkg/module"
-)
-
-var log = logger.GetLogger("accesslog", "collector")
-
-type Collector interface {
-	Start(mgr *module.Manager, context *common.AccessLogContext) error
-	Stop()
-}
-
-func Collectors() []Collector {
-	return []Collector{
-		l24CollectorsInstance,
-		transferCollectInstance,
-		closeCollectorInstance,
-		connectCollectInstance,
-		tlsCollectInstance,
-		processCollectInstance,
-		zTunnelCollectInstance,
-	}
+type ZTunnelSocketMappingEvent struct {
+	OriginalSrcIP      uint32
+	OriginalDestIP     uint32
+	OriginalSrcPort    uint16
+	OriginalDestPort   uint16
+	LoadBalancedDestIP uint32
 }

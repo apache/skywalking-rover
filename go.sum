@@ -1064,3 +1064,5 @@ sigs.k8s.io/yaml v1.2.0 h1:kr/MCeFWJWTwyaHoR9c8EjH9OumOmoF9YGiZd7lFm/Q=
 sigs.k8s.io/yaml v1.2.0/go.mod h1:yfXDCHCao9+ENCvLSE62v9VSji2MKu5jeNfTrofGhJc=
 skywalking.apache.org/repo/goapi v0.0.0-20240604102541-64f9001abe03 h1:y0f+3gNmeyC/V5Bt8VE9aL9mmWESj+WvyqJ2tOb7qrk=
 skywalking.apache.org/repo/goapi v0.0.0-20240604102541-64f9001abe03/go.mod h1:+n8BMuS8eRdzdnGh15ElRGBXPi0eYZSs2TKySBDmRTE=
+skywalking.apache.org/repo/goapi v0.0.0-20240914024804-703f701836e6 h1:ZGcxRsuAF+Q/IHzNzunHTeYPSCbXcLIjonEFkDlAfPc=
+skywalking.apache.org/repo/goapi v0.0.0-20240914024804-703f701836e6/go.mod h1:+n8BMuS8eRdzdnGh15ElRGBXPi0eYZSs2TKySBDmRTE=

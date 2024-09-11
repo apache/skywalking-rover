@@ -21,7 +21,7 @@ TMPDIR=$1
 ARCH=$2
 FROM=$3
 OUTPUT=$4
-BPF_SO_PATTERN="^bpf\_[a-z0-9]+\.o"
+BPF_SO_PATTERN="^bpf\_[a-z0-9]+(_[a-z0-9]+)?\.o"
 
 echo "btfhub-archive is a big archive project, maybe take some times..."
 git clone --depth 1 https://github.com/aquasecurity/btfhub $TMPDIR/btfhub
