@@ -30,6 +30,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
+
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 
 	"github.com/shirou/gopsutil/process"
