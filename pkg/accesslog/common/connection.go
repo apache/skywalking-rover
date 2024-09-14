@@ -85,6 +85,11 @@ type ConnectionProcessor interface {
 	OnConnectionClose(event *events.SocketCloseEvent, callback ConnectionProcessFinishCallback)
 }
 
+type FlusherListener interface {
+	// ReadyToFlushConnection notify which connection ready to flush
+	ReadyToFlushConnection(connection *ConnectionInfo, getConnectionFromEvent events.Event)
+}
+
 type ProcessListener interface {
 	OnNewProcessMonitoring(pid int32)
 	OnProcessRemoved(pid int32)
@@ -115,6 +120,8 @@ type ConnectionManager struct {
 
 	// connection already close but the connection (protocols)log not build finished
 	allUnfinishedConnections map[string]*bool
+
+	flushListeners []FlusherListener
 }
 
 func (c *ConnectionManager) RegisterProcessor(processor ConnectionProcessor) {
@@ -123,6 +130,10 @@ func (c *ConnectionManager) RegisterProcessor(processor ConnectionProcessor) {
 
 func (c *ConnectionManager) AddProcessListener(listener ProcessListener) {
 	c.processListeners = append(c.processListeners, listener)
+}
+
+func (c *ConnectionManager) RegisterNewFlushListener(listener FlusherListener) {
+	c.flushListeners = append(c.flushListeners, listener)
 }
 
 type addressInfo struct {
@@ -135,6 +146,7 @@ type ConnectionInfo struct {
 	RPCConnection *v3.AccessLogConnection
 	MarkDeletable bool
 	PID           uint32
+	Socket        *ip.SocketPair
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
@@ -150,6 +162,7 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		activeConnectionMap:      bpfLoader.ActiveConnectionMap,
 		allUnfinishedConnections: make(map[string]*bool),
 		monitorFilter:            filter,
+		flushListeners:           make([]FlusherListener, 0),
 	}
 	return mgr
 }
@@ -246,6 +259,7 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 				e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort,
 				localAddress.String(), remoteAddress.String())
 		}
+		c.connectionPostHandle(connection, event)
 		return connection
 	}
 	return nil
@@ -312,6 +326,11 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 			}
 		}
 	}
+
+	// notify all flush listeners the connection is ready to flush
+	for _, flush := range c.flushListeners {
+		flush.ReadyToFlushConnection(connection, event)
+	}
 }
 
 func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
@@ -341,6 +360,7 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		RandomID:      event.RandomID,
 		RPCConnection: connection,
 		PID:           event.PID,
+		Socket:        socket,
 	}
 }
 

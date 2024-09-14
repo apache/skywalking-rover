@@ -57,3 +57,6 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 #include "tls/go_tls.c"
 #include "tls/node_tls.c"
 #include "tls/openssl.c"
+
+// ambient istio
+#include "ambient/ztunnel.c"

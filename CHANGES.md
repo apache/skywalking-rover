@@ -10,6 +10,7 @@ Release Notes.
 * Add `pprof` module for observe self.
 * Add detect process from `CRI-O` container in Kubernetes.
 * Introduce `MonitorFilter` into access log module. 
+* Support monitoring ztunnel to adapt istio ambient mode.
 
 #### Bug Fixes
 * Fixed the issue where `conntrack` could not find the Reply IP in the access log module.

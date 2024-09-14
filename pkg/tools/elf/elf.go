@@ -50,22 +50,37 @@ func (f *File) Close() error {
 }
 
 func (f *File) FindSymbol(name string) *Symbol {
+	symbol := f.FilterSymbol(func(n string) bool {
+		return n == name
+	}, true)
+	if len(symbol) > 0 {
+		return symbol[0]
+	}
+	return nil
+}
+
+func (f *File) FilterSymbol(filter func(name string) bool, onlyOneResult bool) []*Symbol {
 	symbols, _ := f.realFile.Symbols()
 	dynamicSymbols, _ := f.realFile.DynamicSymbols()
 	if len(symbols) == 0 && len(dynamicSymbols) == 0 {
 		return nil
 	}
 	symbols = append(symbols, dynamicSymbols...)
+
+	result := make([]*Symbol, 0)
 	for _, s := range symbols {
-		if s.Name == name {
-			return &Symbol{
-				Name:     name,
+		if filter(s.Name) {
+			result = append(result, &Symbol{
+				Name:     s.Name,
 				Location: s.Value,
 				Size:     s.Size,
+			})
+			if onlyOneResult {
+				break
 			}
 		}
 	}
-	return nil
+	return result
 }
 
 func (f *File) ReadSymbolData(section string, offset, size uint64) ([]byte, error) {
