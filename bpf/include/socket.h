@@ -60,6 +60,7 @@ struct sock_common {
 
 struct socket {
 	struct sock		*sk;
+	struct file		*file;
 } __attribute__((preserve_access_index));
 
 struct iov_iter {

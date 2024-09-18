@@ -56,9 +56,22 @@ struct thread_struct {
     } uw;
 }  __attribute__((preserve_access_index));
 
+struct file {
+	void *private_data;
+} __attribute__((preserve_access_index));
+
+struct fdtable {
+	struct file **fd;      /* current fd array */
+} __attribute__((preserve_access_index));
+
+struct files_struct {
+	struct fdtable *fdt;
+} __attribute__((preserve_access_index));
+
 struct task_struct {
 	__u32 pid;
     __u32 tgid;
     struct thread_struct thread;
+    struct files_struct *files;
 }  __attribute__((preserve_access_index));
 #endif

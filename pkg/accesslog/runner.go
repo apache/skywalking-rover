@@ -214,6 +214,16 @@ func (r *Runner) sendLogs(allLogs map[*common.ConnectionInfo]*connectionLogs) er
 	firstLog := true
 	firstConnection := true
 	for connection, logs := range allLogs {
+		if len(logs.kernels) == 0 && len(logs.protocols) == 0 {
+			continue
+		}
+		if log.Enable(logrus.DebugLevel) {
+			log.Debugf("ready to sending access log with connection, connection ID: %d, random ID: %d, "+
+				"local: %s, remote: %s, role: %s, kernel logs count: %d, protocol log count: %d",
+				connection.ConnectionID, connection.RandomID, connection.RPCConnection.Local, connection.RPCConnection.Remote,
+				connection.RPCConnection.Role, len(logs.kernels), len(logs.protocols))
+		}
+
 		if len(logs.kernels) > 0 {
 			r.sendLogToTheStream(streaming, r.buildAccessLogMessage(firstLog, firstConnection, connection, logs.kernels, nil))
 			firstLog, firstConnection = false, false
@@ -243,12 +253,6 @@ func (r *Runner) buildAccessLogMessage(firstLog, firstConnection bool, conn *com
 	var rpcCon *v3.AccessLogConnection
 	if firstConnection {
 		rpcCon = conn.RPCConnection
-		if log.Enable(logrus.DebugLevel) {
-			log.Debugf("ready to sending access log with connection, connection ID: %d, random ID: %d, "+
-				"local: %s, remote: %s, role: %s, kernel logs count: %d, contains protocol log: %t",
-				conn.ConnectionID, conn.RandomID, rpcCon.Local, rpcCon.Remote, rpcCon.Role,
-				len(kernelLogs), protocolLog != nil)
-		}
 	}
 	return &v3.EBPFAccessLogMessage{
 		Node:        r.BuildNodeInfo(firstLog),
