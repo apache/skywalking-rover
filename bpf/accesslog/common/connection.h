@@ -218,6 +218,16 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
     __u16 port;
     event->local_port = 0;
     event->remote_port = 0;
+    if (socket == NULL) {
+        struct task_struct* task_ptr = (struct task_struct*)bpf_get_current_task();
+        struct files_struct *files = _(task_ptr->files);
+        struct fdtable *fdtable = _(files->fdt);
+        struct file *fd_data;
+        struct file **fd_ptr;
+        bpf_probe_read_kernel(&fd_ptr, sizeof(fd_ptr), &fdtable->fd);
+        bpf_probe_read_kernel(&fd_data, sizeof(fd_data), &fd_ptr[fd]);
+        socket = _(fd_data->private_data);
+    }
     if (socket != NULL) {
         // only get from accept function(server side)
         struct sock* s;
