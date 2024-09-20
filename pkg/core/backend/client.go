@@ -55,7 +55,7 @@ func (c *Client) Start(parent context.Context) error {
 
 	// build connection
 	addr := c.config.Addr
-	conn, err := grpc.Dial(addr, options...)
+	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,8 @@ func (c *Client) buildConfig(conf *Config) ([]grpc.DialOption, error) {
 		authHeader := metadata.New(map[string]string{"Authentication": conf.Authentication})
 		options = append(options,
 			grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn,
-				method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+				method string, streamer grpc.Streamer, opts ...grpc.CallOption,
+			) (grpc.ClientStream, error) {
 				ctx = metadata.NewOutgoingContext(ctx, authHeader)
 				stream, err := streamer(ctx, desc, cc, method, opts...)
 				if err != nil {
@@ -101,7 +102,8 @@ func (c *Client) buildConfig(conf *Config) ([]grpc.DialOption, error) {
 				return stream, err
 			}),
 			grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply interface{},
-				cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+				cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption,
+			) error {
 				ctx = metadata.NewOutgoingContext(ctx, authHeader)
 				err := invoker(ctx, method, req, reply, cc, opts...)
 				if err != nil {
