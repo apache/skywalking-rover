@@ -315,7 +315,7 @@ The text of each license is also included at licenses/license-[project].txt.
     github.com/mdlayher/socket v0.1.0 MIT
     github.com/mitchellh/mapstructure v1.4.3 MIT
     github.com/orcaman/concurrent-map v1.0.0 MIT
-    github.com/sirupsen/logrus v1.8.1 MIT
+    github.com/sirupsen/logrus v1.9.3 MIT
     github.com/spf13/cast v1.4.1 MIT
     github.com/spf13/jwalterweatherman v1.1.0 MIT
     github.com/spf13/viper v1.10.1 MIT
