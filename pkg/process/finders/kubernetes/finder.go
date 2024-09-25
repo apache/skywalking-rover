@@ -270,7 +270,7 @@ func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodConta
 }
 
 func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
-	processCgroupFilePath := host.GetFileInHost(fmt.Sprintf("/proc/%d/cgroup", pid))
+	processCgroupFilePath := host.GetHostProcInHost(fmt.Sprintf("%d/cgroup", pid))
 	cgroupFile, err := os.Open(processCgroupFilePath)
 	if err != nil {
 		return nil, err

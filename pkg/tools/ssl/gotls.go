@@ -85,7 +85,7 @@ func (r *Register) GoTLS(symbolAddrMap *ebpf.Map, write, writeRet, read, readRet
 		if buildVersionSymbol == nil {
 			return false, nil
 		}
-		pidExeFile := host.GetFileInHost(fmt.Sprintf("/proc/%d/exe", r.pid))
+		pidExeFile := host.GetHostProcInHost(fmt.Sprintf("%d/exe", r.pid))
 		elfFile, err := elf.NewFile(pidExeFile)
 		if err != nil {
 			return false, fmt.Errorf("read executable file error: %v", err)

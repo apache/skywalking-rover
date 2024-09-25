@@ -38,8 +38,8 @@ type DistributionInfo struct {
 // GetDistributionInfo of machine
 func GetDistributionInfo() (*DistributionInfo, error) {
 	var result = &DistributionInfo{}
-	tryingToFindDistributionByReleaseFile(result, "/etc/lsb-release", "DISTRIB_ID", "DISTRIB_RELEASE", "")
-	tryingToFindDistributionByReleaseFile(result, "/etc/os-release", "ID", "VERSION_ID", "")
+	tryingToFindDistributionByReleaseFile(result, "lsb-release", "DISTRIB_ID", "DISTRIB_RELEASE", "")
+	tryingToFindDistributionByReleaseFile(result, "os-release", "ID", "VERSION_ID", "")
 
 	tryingToFindDistributionByCommand(result, "Distributor ID", "Release", "", "lsb_release", "-a")
 	tryingToFindDistributionByCommand(result, "", "", "Architecture", "hostnamectl")
@@ -56,11 +56,11 @@ func GetDistributionInfo() (*DistributionInfo, error) {
 	return result, nil
 }
 
-func tryingToFindDistributionByReleaseFile(data *DistributionInfo, filename, nameKey, versionKey, architectureKey string) {
+func tryingToFindDistributionByReleaseFile(data *DistributionInfo, etcSubFilename, nameKey, versionKey, architectureKey string) {
 	if data.AllDataSuccess() {
 		return
 	}
-	file, err := os.Open(host.GetFileInHost(filename))
+	file, err := os.Open(host.GetHostEtcInHost(etcSubFilename))
 	if err != nil {
 		return
 	}

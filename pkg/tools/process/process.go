@@ -55,10 +55,10 @@ var (
 
 // KernelFileProfilingStat is works for read the kernel and get is support for kernel symbol analyze
 func KernelFileProfilingStat() (*profiling.Info, error) {
-	if !kernelFinder.IsSupport(profiling.KernelSymbolFilePath) {
+	if !kernelFinder.IsSupport(profiling.KernelProcSymbolFilePath) {
 		return nil, fmt.Errorf("not support kernel space profiling")
 	}
-	return kernelFinder.Analyze(profiling.KernelSymbolFilePath)
+	return kernelFinder.Analyze(profiling.KernelProcSymbolFilePath)
 }
 
 // ProfilingStat is validating the exe file could be profiling and get info
@@ -95,7 +95,7 @@ func Modules(pid int32) ([]*profiling.Module, error) {
 
 func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, error) {
 	// analyze process mapping
-	mapFile, _ := os.Open(host2.GetFileInHost(fmt.Sprintf("/proc/%d/maps", pid)))
+	mapFile, _ := os.Open(host2.GetHostProcInHost(fmt.Sprintf("%d/maps", pid)))
 	scanner := bufio.NewScanner(mapFile)
 	modules := make(map[string]*profiling.Module)
 	for scanner.Scan() {
@@ -126,7 +126,7 @@ func analyzeProfilingInfo(context *analyzeContext, pid int32) (*profiling.Info, 
 			module.Ranges = append(module.Ranges, moduleRange)
 			continue
 		}
-		modulePath := host2.GetFileInHost(fmt.Sprintf("/proc/%d/root%s", pid, moduleName))
+		modulePath := host2.GetHostProcInHost(fmt.Sprintf("%d/root%s", pid, moduleName))
 		if !path.Exists(modulePath) {
 			log.Debugf("could not found the module, ignore. name: %s, path: %s", moduleName, modulePath)
 			continue

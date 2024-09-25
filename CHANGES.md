@@ -12,6 +12,7 @@ Release Notes.
 * Introduce `MonitorFilter` into access log module. 
 * Support monitoring ztunnel to adapt istio ambient mode.
 * Enhance get connection address strategy in access log module.
+* Reduce file mount needs when deploy in the Kubernetes, split env name `ROVER_HOST_MAPPING` to `ROVER_HOST_PROC_MAPPING` and `ROVER_HOST_ETC_MAPPING`.
 
 #### Bug Fixes
 * Fixed the issue where `conntrack` could not find the Reply IP in the access log module.

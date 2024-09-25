@@ -216,7 +216,7 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 }
 
 func (c *ConnectionManager) checkProcessFDExist(pid, fd uint32) bool {
-	return path.Exists(host.GetFileInHost(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)))
+	return path.Exists(host.GetHostProcInHost(fmt.Sprintf("%d/fd/%d", pid, fd)))
 }
 
 func (c *ConnectionManager) Stop() {
