@@ -41,7 +41,7 @@ func (k *KernelFinder) IsSupport(filepath string) bool {
 	if filepath != KernelProcSymbolFilePath {
 		return false
 	}
-	stat, _ := os.Stat(filepath)
+	stat, _ := os.Stat(host.GetHostProcInHost(filepath))
 	return stat != nil
 }
 
