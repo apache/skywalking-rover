@@ -182,7 +182,7 @@ func (z *ZTunnelCollector) findZTunnelProcessAndCollect() error {
 }
 
 func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
-	pidExeFile := host.GetFileInHost(fmt.Sprintf("/proc/%d/exe", p.Pid))
+	pidExeFile := host.GetHostProcInHost(fmt.Sprintf("%d/exe", p.Pid))
 	elfFile, err := elf.NewFile(pidExeFile)
 	if err != nil {
 		return fmt.Errorf("read executable file error: %v", err)
