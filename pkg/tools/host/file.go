@@ -19,23 +19,37 @@ package host
 
 import (
 	"os"
-	"strings"
+	"path"
 )
 
-var hostMappingPath string
+var (
+	hostProcMappingPath string
+	hostEtcMappingPath  string
+)
 
 func init() {
-	hostMappingPath = os.Getenv("ROVER_HOST_MAPPING")
+	hostProcMappingPath = os.Getenv("ROVER_HOST_PROC_MAPPING")
 	// adapt with gopsutil framework to read the right process directory of host
-	if hostMappingPath != "" {
-		os.Setenv("HOST_PROC", hostMappingPath+"/proc")
+	if hostProcMappingPath != "" {
+		os.Setenv("HOST_PROC", hostProcMappingPath)
 	}
+	hostEtcMappingPath = os.Getenv("ROVER_HOST_ETC_MAPPING")
 }
 
-// GetFileInHost means add the host root mapping prefix, it's dependent when the rover is deploy in a container
-func GetFileInHost(absPath string) string {
-	if hostMappingPath != "" && strings.HasPrefix(absPath, hostMappingPath) {
-		return absPath
+func GetHostProcInHost(procSubPath string) string {
+	if hostProcMappingPath != "" {
+		return cleanPath(hostProcMappingPath + "/" + procSubPath)
 	}
-	return hostMappingPath + absPath
+	return cleanPath("/proc/" + procSubPath)
+}
+
+func GetHostEtcInHost(etcSubPath string) string {
+	if hostEtcMappingPath != "" {
+		return cleanPath(hostEtcMappingPath + "/" + etcSubPath)
+	}
+	return cleanPath("/etc/" + etcSubPath)
+}
+
+func cleanPath(p string) string {
+	return path.Clean(p)
 }

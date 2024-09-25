@@ -52,7 +52,7 @@ func tryToFindFileExecutePath(ps *process.Process) string {
 	if path.Exists(exe) {
 		return exe
 	}
-	pathInNs := host.GetFileInHost(fmt.Sprintf("/proc/%d/root%s", ps.Pid, exe))
+	pathInNs := host.GetHostProcInHost(fmt.Sprintf("%d/root%s", ps.Pid, exe))
 	if path.Exists(pathInNs) {
 		return pathInNs
 	}

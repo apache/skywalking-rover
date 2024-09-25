@@ -29,7 +29,7 @@ import (
 type ModuleType int8
 
 var (
-	KernelSymbolFilePath = "/proc/kallsyms"
+	KernelProcSymbolFilePath = "kallsyms" // after host.GetHostProcInHost, should be "/proc/kallsyms"
 
 	log = logger.GetLogger("tools", "profiling")
 )

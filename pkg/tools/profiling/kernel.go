@@ -33,12 +33,12 @@ type KernelFinder struct {
 }
 
 func NewKernelFinder() *KernelFinder {
-	stat, _ := os.Stat(host.GetFileInHost(KernelSymbolFilePath))
+	stat, _ := os.Stat(host.GetHostProcInHost(KernelProcSymbolFilePath))
 	return &KernelFinder{kernelFileExists: stat != nil}
 }
 
 func (k *KernelFinder) IsSupport(filepath string) bool {
-	if filepath != KernelSymbolFilePath {
+	if filepath != KernelProcSymbolFilePath {
 		return false
 	}
 	stat, _ := os.Stat(filepath)
