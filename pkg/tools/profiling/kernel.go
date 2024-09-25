@@ -46,7 +46,7 @@ func (k *KernelFinder) IsSupport(filepath string) bool {
 }
 
 func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
-	kernelPath, err := os.Open(filepath)
+	kernelPath, err := os.Open(host.GetHostProcInHost(filepath))
 	if err != nil {
 		return nil, err
 	}
