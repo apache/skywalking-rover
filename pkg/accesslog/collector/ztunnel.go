@@ -122,8 +122,8 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 		return
 	}
 	address := lbIPObj.(*ZTunnelLoadBalanceAddress)
-	log.Debugf("found the ztunnel load balanced IP for the connection: %s, connectionID: %d, randomID: %d", address,
-		connection.ConnectionID, connection.RandomID)
+	log.Debugf("found the ztunnel load balanced IP for the connection: %s, connectionID: %d, randomID: %d",
+		address.String(), connection.ConnectionID, connection.RandomID)
 	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_NONE
 	// if the target port is 15008, this mean ztunnel have use mTLS
 	if address.Port == 15008 {
@@ -211,4 +211,8 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 type ZTunnelLoadBalanceAddress struct {
 	IP   string
 	Port uint16
+}
+
+func (z *ZTunnelLoadBalanceAddress) String() string {
+	return fmt.Sprintf("%s:%d", z.IP, z.Port)
 }
