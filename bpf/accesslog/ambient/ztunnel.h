@@ -21,6 +21,9 @@ struct ztunnel_socket_mapping_t {
     __u16 src_port;             // origin local port
     __u16 dst_port;             // origin remote port
     __u32 lb_dst_ip;            // load balanced remote ip(should be real pod ip)
+    __u16 lb_dst_port;          // load balanced remote port
+    __u16 pad0;
+    __u32 pad1;
 };
 
 struct {

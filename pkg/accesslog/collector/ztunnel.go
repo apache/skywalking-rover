@@ -84,7 +84,10 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 		log.Debugf("received ztunnel lb socket mapping event: %s:%d -> %s:%d, lb: %s", localIP, localPort, remoteIP, remotePort, lbIP)
 
 		key := z.buildIPMappingCacheKey(localIP, int(localPort), remoteIP, int(remotePort))
-		z.ipMappingCache.Set(key, lbIP, z.ipMappingExpireDuration)
+		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+			IP:   lbIP,
+			Port: event.LoadBalancedDestPort,
+		}, z.ipMappingExpireDuration)
 	}, func() interface{} {
 		return &events.ZTunnelSocketMappingEvent{}
 	})
@@ -118,14 +121,20 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 			connection.ConnectionID, connection.RandomID)
 		return
 	}
-	lbIP := lbIPObj.(string)
-	log.Debugf("found the ztunnel load balanced IP for the connection: %s, connectionID: %d, randomID: %d", lbIP,
-		connection.ConnectionID, connection.RandomID)
+	address := lbIPObj.(*ZTunnelLoadBalanceAddress)
+	log.Debugf("found the ztunnel load balanced IP for the connection: %s, connectionID: %d, randomID: %d",
+		address.String(), connection.ConnectionID, connection.RandomID)
+	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_NONE
+	// if the target port is 15008, this mean ztunnel have use mTLS
+	if address.Port == 15008 {
+		securityPolicy = v3.ZTunnelAttachmentSecurityPolicy_MTLS
+	}
 	connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
 		Environment: &v3.ConnectionAttachment_ZTunnel{
 			ZTunnel: &v3.ZTunnelAttachmentEnvironment{
-				RealDestinationIp: lbIP,
+				RealDestinationIp: address.IP,
 				By:                v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
+				SecurityPolicy:    securityPolicy,
 			},
 		},
 	}
@@ -197,4 +206,13 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 	uprobeFile := z.alc.BPF.OpenUProbeExeFile(pidExeFile)
 	uprobeFile.AddLink(trackBoundSymbol[0].Name, z.alc.BPF.ConnectionManagerTrackOutbound, nil)
 	return nil
+}
+
+type ZTunnelLoadBalanceAddress struct {
+	IP   string
+	Port uint16
+}
+
+func (z *ZTunnelLoadBalanceAddress) String() string {
+	return fmt.Sprintf("%s:%d", z.IP, z.Port)
 }
