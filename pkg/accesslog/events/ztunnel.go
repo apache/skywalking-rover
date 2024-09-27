@@ -18,9 +18,12 @@
 package events
 
 type ZTunnelSocketMappingEvent struct {
-	OriginalSrcIP      uint32
-	OriginalDestIP     uint32
-	OriginalSrcPort    uint16
-	OriginalDestPort   uint16
-	LoadBalancedDestIP uint32
+	OriginalSrcIP        uint32
+	OriginalDestIP       uint32
+	OriginalSrcPort      uint16
+	OriginalDestPort     uint16
+	LoadBalancedDestIP   uint32
+	LoadBalancedDestPort uint16
+	Pad0                 uint16
+	Pad1                 uint32
 }

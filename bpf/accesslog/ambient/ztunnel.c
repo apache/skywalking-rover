@@ -43,7 +43,7 @@ int connection_manager_track_outbound(struct pt_regs* ctx) {
     bool success = true;
     success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM3(ctx), &event->orginal_src_ip, &event->src_port);
     success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM4(ctx), &event->original_dst_ip, &event->dst_port);
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM5(ctx), &event->lb_dst_ip, NULL);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM5(ctx), &event->lb_dst_ip, &event->lb_dst_port);
     if (!success) {
         return 0;
     }
