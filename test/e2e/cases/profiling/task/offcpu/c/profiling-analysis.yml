@@ -20,7 +20,7 @@ trees:
   {{- contains .elements }}
   - id: "{{ notEmpty .id }}"
     parentid: "{{ notEmpty .parentid }}"
-    symbol: "fprintf"
+    symbol: "vfprintf"
     stacktype: USER_SPACE
     dumpcount: {{ gt .dumpcount 0 }}
 {{- end }}
