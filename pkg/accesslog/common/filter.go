@@ -25,8 +25,8 @@ import (
 )
 
 type MonitorFilter interface {
-	// ShouldExclude returns true if the process should be excluded from monitoring.
-	ShouldExclude(process []api.ProcessInterface) bool
+	// ShouldIncludeProcesses returns true if the processes should be included in monitoring.
+	ShouldIncludeProcesses(process []api.ProcessInterface) []api.ProcessInterface
 	// ExcludeNamespaces returns a list of namespaces that should be excluded from monitoring.
 	ExcludeNamespaces() []string
 }
@@ -45,26 +45,24 @@ func NewStaticMonitorFilter(namespaces, clusters []string) *StaticMonitorFilter 
 	}
 }
 
-func (s *StaticMonitorFilter) ShouldExclude(processes []api.ProcessInterface) bool {
-	containsNotExcludeCluster := false
+func (s *StaticMonitorFilter) ShouldIncludeProcesses(processes []api.ProcessInterface) (res []api.ProcessInterface) {
 	for _, entity := range processes {
 		if entity.DetectType() != api.Kubernetes { // for now, we only have the kubernetes detected processes
 			continue
 		}
 		namespace := entity.DetectProcess().(*kubernetes.Process).PodContainer().Pod.Namespace
-		if s.namespaces[namespace] {
-			return true
+		nameExclude := s.namespaces[namespace]
+		clusterExclude := false
+		if cluster, _, found := strings.Cut(entity.Entity().ServiceName, "::"); found && s.clusters[cluster] {
+			clusterExclude = true
 		}
-		if cluster, _, found := strings.Cut(entity.Entity().ServiceName, "::"); found {
-			if !s.clusters[cluster] {
-				containsNotExcludeCluster = true
-			}
-		} else {
-			containsNotExcludeCluster = true
-			break
+
+		// if the namespace and cluster are not excluded, include the process
+		if !nameExclude && !clusterExclude {
+			res = append(res, entity)
 		}
 	}
-	return !containsNotExcludeCluster
+	return
 }
 
 func (s *StaticMonitorFilter) ExcludeNamespaces() []string {
