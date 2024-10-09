@@ -482,7 +482,8 @@ func (c *ConnectionManager) isLocalTarget(pair *ip.SocketPair) addressProcessTyp
 
 func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInterface) {
 	// filtering the namespace
-	if c.shouldExcludeTheProcess(entities) {
+	monitorProcesses := c.shouldMonitorProcesses(entities)
+	if len(monitorProcesses) == 0 {
 		c.RemoveProcess(pid, entities)
 		return
 	}
@@ -491,9 +492,9 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 	defer c.monitoringProcessLock.Unlock()
 
 	// adding monitoring process and IP addresses
-	c.monitoringProcesses[pid] = entities
+	c.monitoringProcesses[pid] = monitorProcesses
 	c.updateMonitorStatusForProcess(pid, true)
-	for _, entity := range entities {
+	for _, entity := range monitorProcesses {
 		for _, host := range entity.ExposeHosts() {
 			c.localIPWithPid[host] = pid
 		}
@@ -529,8 +530,8 @@ func (c *ConnectionManager) printTotalAddressesWithPid(prefix string) {
 	log.Debugf("----------------------------")
 }
 
-func (c *ConnectionManager) shouldExcludeTheProcess(entities []api.ProcessInterface) bool {
-	return c.monitorFilter.ShouldExclude(entities)
+func (c *ConnectionManager) shouldMonitorProcesses(entities []api.ProcessInterface) []api.ProcessInterface {
+	return c.monitorFilter.ShouldIncludeProcesses(entities)
 }
 
 func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
@@ -549,10 +550,11 @@ func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInter
 func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.ProcessInterface) {
 	shouldMonitoringProcesses := make(map[int32][]api.ProcessInterface)
 	for pid, p := range processes {
-		if c.shouldExcludeTheProcess(p) {
+		monitorProcesses := c.shouldMonitorProcesses(p)
+		if len(monitorProcesses) == 0 {
 			continue
 		}
-		shouldMonitoringProcesses[pid] = p
+		shouldMonitoringProcesses[pid] = monitorProcesses
 	}
 	// checking the monitoring process
 	c.monitoringProcesses = shouldMonitoringProcesses
