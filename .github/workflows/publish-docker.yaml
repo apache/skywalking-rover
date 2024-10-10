@@ -44,11 +44,15 @@ jobs:
           registry: ${{ env.HUB }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Clean spaces for docker images
+      - name: Clean spaces for docker images and show disk usage
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+          sudo swapoff -a
+          sudo rm -f /mnt/swapfile
+          df -h /
       - name: Build and push docker images
         run: make docker.push
