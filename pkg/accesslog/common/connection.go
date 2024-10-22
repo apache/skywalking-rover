@@ -246,7 +246,7 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 	if e, socket := getSocketPairFromConnectEvent(event); e != nil && socket != nil {
 		var localAddress, remoteAddress *v3.ConnectionAddress
 		localPID, _ := events.ParseConnectionID(event.GetConnectionID())
-		localAddress = c.buildAddressFromLocalKubernetesProcess(localPID, socket.SrcPort)
+		localAddress = c.buildLocalAddress(localPID, socket.SrcPort, socket)
 		remoteAddress = c.buildRemoteAddress(e, socket)
 		if localAddress == nil || remoteAddress == nil {
 			return nil
@@ -287,12 +287,12 @@ func (c *ConnectionManager) buildRemoteAddress(e *events.SocketConnectEvent, soc
 	if addrInfo != nil {
 		log.Debugf("building the remote address from %s process, pid: %d, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
 			fromType, addrInfo.pid, e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-		return c.buildAddressFromLocalKubernetesProcess(addrInfo.pid, socket.DestPort)
+		return c.buildLocalAddress(addrInfo.pid, socket.DestPort, socket)
 	} else if tp == addressProcessTypeKubernetes {
 		if p := c.localIPWithPid[socket.DestIP]; p != 0 {
 			log.Debugf("building the remote address from kubernetes process, connection: %d-%d, role: %s, pid: %d, local: %s:%d, remote: %s:%d",
 				e.GetConnectionID(), e.GetRandomID(), socket.Role, p, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-			return c.buildAddressFromLocalKubernetesProcess(uint32(p), socket.DestPort)
+			return c.buildLocalAddress(uint32(p), socket.DestPort, socket)
 		}
 	}
 
@@ -364,7 +364,7 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 	}
 }
 
-func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, port uint16) *v3.ConnectionAddress {
+func (c *ConnectionManager) buildLocalAddress(pid uint32, port uint16, socket *ip.SocketPair) *v3.ConnectionAddress {
 	c.monitoringProcessLock.RLock()
 	defer c.monitoringProcessLock.RUnlock()
 	for _, pi := range c.monitoringProcesses[int32(pid)] {
@@ -384,7 +384,14 @@ func (c *ConnectionManager) buildAddressFromLocalKubernetesProcess(pid uint32, p
 			}
 		}
 	}
-	return nil
+	return &v3.ConnectionAddress{
+		Address: &v3.ConnectionAddress_Ip{
+			Ip: &v3.IPAddress{
+				Host: socket.SrcIP,
+				Port: int32(port),
+			},
+		},
+	}
 }
 
 func (c *ConnectionManager) buildAddressFromRemote(ipHost string, port uint16) *v3.ConnectionAddress {

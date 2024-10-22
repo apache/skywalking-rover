@@ -16,7 +16,7 @@
 
 FROM golang:1.21
 
-RUN apt update && \
+RUN apt update -y && apt upgrade -y && \
     git clone --depth 1 --branch v1.1.0 https://github.com/libbpf/libbpf.git && \
     mkdir -p /usr/include/bpf && cp libbpf/src/*.h /usr/include/bpf && \
     apt install -y lsb-release wget software-properties-common "$([ $(uname -m) = "x86_64" ] && echo "libc6-dev-i386" || echo "libc6-dev-armhf-cross")" && \
