@@ -2,6 +2,19 @@ Changes by Version
 ==================
 Release Notes.
 
+0.8.0
+------------------
+#### Features
+
+#### Bug Fixes
+* Fix the base image cannot run in the arm64.
+
+#### Documentation
+
+#### Issues and PR
+- All issues are [here](https://github.com/apache/skywalking/milestone/228?closed=1)
+- All and pull requests are [here](https://github.com/apache/skywalking-rover/milestone/8?closed=1)
+
 0.7.0
 ------------------
 #### Features
