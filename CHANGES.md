@@ -5,6 +5,7 @@ Release Notes.
 0.8.0
 ------------------
 #### Features
+* Separate multiple process for reading connection information in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

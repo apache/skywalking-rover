@@ -18,8 +18,13 @@
 package collector
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"net"
+	"os"
+
+	"github.com/docker/go-units"
 
 	"github.com/sirupsen/logrus"
 
@@ -29,6 +34,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/ip"
 
@@ -43,18 +49,41 @@ var connectLogger = logger.GetLogger("access_log", "collector", "connect")
 var connectCollectInstance = NewConnectCollector()
 
 type ConnectCollector struct {
-	connTracker *ip.ConnTrack
+	eventQueue *btf.EventQueue
 }
 
 func NewConnectCollector() *ConnectCollector {
+	return &ConnectCollector{}
+}
+
+func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogContext) error {
+	perCPUBufferSize, err := units.RAMInBytes(context.Config.ConnectionAnalyze.PerCPUBufferSize)
+	if err != nil {
+		return err
+	}
+	if int(perCPUBufferSize) < os.Getpagesize() {
+		return fmt.Errorf("the cpu buffer must bigger than %dB", os.Getpagesize())
+	}
+	if context.Config.ConnectionAnalyze.Parallels < 1 {
+		return fmt.Errorf("the parallels cannot be small than 1")
+	}
+	if context.Config.ConnectionAnalyze.QueueSize < 1 {
+		return fmt.Errorf("the queue size be small than 1")
+	}
 	track, err := ip.NewConnTrack()
 	if err != nil {
 		connectLogger.Warnf("cannot create the connection tracker, %v", err)
 	}
-	return &ConnectCollector{connTracker: track}
-}
+	c.eventQueue = btf.NewEventQueue(context.Config.ConnectionAnalyze.Parallels, context.Config.ConnectionAnalyze.QueueSize, func() btf.PartitionContext {
+		return newConnectionPartitionContext(context, track)
+	})
+	c.eventQueue.RegisterReceiver(context.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), func() interface{} {
+		return &events.SocketConnectEvent{}
+	}, func(data interface{}) string {
+		return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
+	})
+	c.eventQueue.Start(context.RuntimeContext, context.BPF.Linker)
 
-func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogContext) error {
 	context.BPF.AddTracePoint("syscalls", "sys_enter_connect", context.BPF.TracepointEnterConnect)
 	context.BPF.AddTracePoint("syscalls", "sys_exit_connect", context.BPF.TracepointExitConnect)
 	context.BPF.AddTracePoint("syscalls", "sys_enter_accept", context.BPF.TracepointEnterAccept)
@@ -81,34 +110,47 @@ func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogCon
 	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
 		"ctnetlink_fill_info": context.BPF.NfCtnetlinkFillInfo,
 	})
-
-	context.BPF.ReadEventAsync(context.BPF.SocketConnectionEventQueue, func(data interface{}) {
-		event := data.(*events.SocketConnectEvent)
-		connectLogger.Debugf("receive connect event, connection ID: %d, randomID: %d, "+
-			"pid: %d, fd: %d, role: %s: func: %s, family: %d, success: %d, conntrack exist: %t",
-			event.ConID, event.RandomID, event.PID, event.SocketFD, enums.ConnectionRole(event.Role), enums.SocketFunctionName(event.FuncName),
-			event.SocketFamily, event.ConnectSuccess, event.ConnTrackUpstreamPort != 0)
-		socketPair := c.buildSocketFromConnectEvent(event)
-		if socketPair == nil {
-			connectLogger.Debugf("cannot found the socket paire from connect event, connection ID: %d, randomID: %d",
-				event.ConID, event.RandomID)
-			return
-		}
-		connectLogger.Debugf("build socket pair success, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d",
-			event.ConID, event.RandomID, socketPair.Role, socketPair.SrcIP, socketPair.SrcPort, socketPair.DestIP, socketPair.DestPort)
-		context.ConnectionMgr.OnConnectEvent(event, socketPair)
-		forwarder.SendConnectEvent(context, event, socketPair)
-	}, func() interface{} {
-		return &events.SocketConnectEvent{}
-	})
-
 	return nil
 }
 
 func (c *ConnectCollector) Stop() {
 }
 
-func (c *ConnectCollector) fixSocketFamilyIfNeed(event *events.SocketConnectEvent, result *ip.SocketPair) {
+type ConnectionPartitionContext struct {
+	context     *common.AccessLogContext
+	connTracker *ip.ConnTrack
+}
+
+func newConnectionPartitionContext(context *common.AccessLogContext, connTracker *ip.ConnTrack) *ConnectionPartitionContext {
+	return &ConnectionPartitionContext{
+		context:     context,
+		connTracker: connTracker,
+	}
+}
+
+func (c *ConnectionPartitionContext) Start(ctx context.Context) {
+
+}
+
+func (c *ConnectionPartitionContext) Consume(data interface{}) {
+	event := data.(*events.SocketConnectEvent)
+	connectLogger.Debugf("receive connect event, connection ID: %d, randomID: %d, "+
+		"pid: %d, fd: %d, role: %s: func: %s, family: %d, success: %d, conntrack exist: %t",
+		event.ConID, event.RandomID, event.PID, event.SocketFD, enums.ConnectionRole(event.Role), enums.SocketFunctionName(event.FuncName),
+		event.SocketFamily, event.ConnectSuccess, event.ConnTrackUpstreamPort != 0)
+	socketPair := c.buildSocketFromConnectEvent(event)
+	if socketPair == nil {
+		connectLogger.Debugf("cannot found the socket paire from connect event, connection ID: %d, randomID: %d",
+			event.ConID, event.RandomID)
+		return
+	}
+	connectLogger.Debugf("build socket pair success, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d",
+		event.ConID, event.RandomID, socketPair.Role, socketPair.SrcIP, socketPair.SrcPort, socketPair.DestIP, socketPair.DestPort)
+	c.context.ConnectionMgr.OnConnectEvent(event, socketPair)
+	forwarder.SendConnectEvent(c.context, event, socketPair)
+}
+
+func (c *ConnectionPartitionContext) fixSocketFamilyIfNeed(event *events.SocketConnectEvent, result *ip.SocketPair) {
 	if result == nil {
 		return
 	}
@@ -128,7 +170,7 @@ func (c *ConnectCollector) fixSocketFamilyIfNeed(event *events.SocketConnectEven
 	}
 }
 
-func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConnectEvent) *ip.SocketPair {
+func (c *ConnectionPartitionContext) buildSocketFromConnectEvent(event *events.SocketConnectEvent) *ip.SocketPair {
 	if event.SocketFamily != unix.AF_INET && event.SocketFamily != unix.AF_INET6 && event.SocketFamily != enums.SocketFamilyUnknown {
 		// if not ipv4, ipv6 or unknown, ignore
 		return nil
@@ -160,7 +202,7 @@ func (c *ConnectCollector) buildSocketFromConnectEvent(event *events.SocketConne
 	return pair
 }
 
-func (c *ConnectCollector) isOnlyLocalPortEmpty(socketPair *ip.SocketPair) bool {
+func (c *ConnectionPartitionContext) isOnlyLocalPortEmpty(socketPair *ip.SocketPair) bool {
 	if socketPair == nil {
 		return false
 	}
@@ -172,7 +214,7 @@ func (c *ConnectCollector) isOnlyLocalPortEmpty(socketPair *ip.SocketPair) bool 
 	return socketPair.IsValid()
 }
 
-func (c *ConnectCollector) buildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
+func (c *ConnectionPartitionContext) buildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
 	var result *ip.SocketPair
 	haveConnTrack := false
 	if event.SocketFamily == unix.AF_INET {
@@ -232,7 +274,7 @@ func (c *ConnectCollector) buildSocketPair(event *events.SocketConnectEvent) *ip
 	return result
 }
 
-func (c *ConnectCollector) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
+func (c *ConnectionPartitionContext) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
 	if socket != nil && socket.IsValid() && c.connTracker != nil && !tools.IsLocalHostAddress(socket.DestIP) &&
 		event.FuncName != enums.SocketFunctionNameAccept { // accept event don't need to update the remote address
 		// if no contract and socket data is valid, then trying to get the remote address from the socket
