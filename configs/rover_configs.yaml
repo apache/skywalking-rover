@@ -140,6 +140,13 @@ access_log:
     max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:10000}
     # The period of flush access log to the backend
     period: ${ROVER_ACCESS_LOG_FLUSH_PERIOD:5s}
+  connection_analyze:
+    # The size of connection buffer on each CPU
+    per_cpu_buffer: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PER_CPU_BUFFER:200KB}
+    # The count of parallel connection analyzer
+    parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARALLELS:1}
+    # The size of per paralleled analyzer queue
+    queue_size: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_QUEUE_SIZE:2000}
   protocol_analyze:
     # The size of socket data buffer on each CPU
     per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:400KB}

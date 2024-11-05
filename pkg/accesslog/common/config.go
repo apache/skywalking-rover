@@ -22,16 +22,23 @@ import "github.com/apache/skywalking-rover/pkg/module"
 type Config struct {
 	module.Config
 
-	Active            bool                  `mapstructure:"active"`
-	ExcludeNamespaces string                `mapstructure:"exclude_namespaces"`
-	ExcludeClusters   string                `mapstructure:"exclude_cluster"`
-	Flush             FlushConfig           `mapstructure:"flush"`
-	ProtocolAnalyze   ProtocolAnalyzeConfig `mapstructure:"protocol_analyze"`
+	Active            bool                    `mapstructure:"active"`
+	ExcludeNamespaces string                  `mapstructure:"exclude_namespaces"`
+	ExcludeClusters   string                  `mapstructure:"exclude_cluster"`
+	Flush             FlushConfig             `mapstructure:"flush"`
+	ConnectionAnalyze ConnectionAnalyzeConfig `mapstructure:"connection_analyze"`
+	ProtocolAnalyze   ProtocolAnalyzeConfig   `mapstructure:"protocol_analyze"`
 }
 
 type FlushConfig struct {
 	MaxCountOneStream int    `mapstructure:"max_count"`
 	Period            string `mapstructure:"period"`
+}
+
+type ConnectionAnalyzeConfig struct {
+	PerCPUBufferSize string `mapstructure:"per_cpu_buffer"`
+	Parallels        int    `mapstructure:"parallels"`
+	QueueSize        int    `mapstructure:"queue_size"`
 }
 
 type ProtocolAnalyzeConfig struct {
