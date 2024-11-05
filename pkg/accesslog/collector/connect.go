@@ -56,59 +56,59 @@ func NewConnectCollector() *ConnectCollector {
 	return &ConnectCollector{}
 }
 
-func (c *ConnectCollector) Start(_ *module.Manager, context *common.AccessLogContext) error {
-	perCPUBufferSize, err := units.RAMInBytes(context.Config.ConnectionAnalyze.PerCPUBufferSize)
+func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
+	perCPUBufferSize, err := units.RAMInBytes(ctx.Config.ConnectionAnalyze.PerCPUBufferSize)
 	if err != nil {
 		return err
 	}
 	if int(perCPUBufferSize) < os.Getpagesize() {
 		return fmt.Errorf("the cpu buffer must bigger than %dB", os.Getpagesize())
 	}
-	if context.Config.ConnectionAnalyze.Parallels < 1 {
+	if ctx.Config.ConnectionAnalyze.Parallels < 1 {
 		return fmt.Errorf("the parallels cannot be small than 1")
 	}
-	if context.Config.ConnectionAnalyze.QueueSize < 1 {
+	if ctx.Config.ConnectionAnalyze.QueueSize < 1 {
 		return fmt.Errorf("the queue size be small than 1")
 	}
 	track, err := ip.NewConnTrack()
 	if err != nil {
 		connectLogger.Warnf("cannot create the connection tracker, %v", err)
 	}
-	c.eventQueue = btf.NewEventQueue(context.Config.ConnectionAnalyze.Parallels, context.Config.ConnectionAnalyze.QueueSize, func() btf.PartitionContext {
-		return newConnectionPartitionContext(context, track)
+	c.eventQueue = btf.NewEventQueue(ctx.Config.ConnectionAnalyze.Parallels, ctx.Config.ConnectionAnalyze.QueueSize, func() btf.PartitionContext {
+		return newConnectionPartitionContext(ctx, track)
 	})
-	c.eventQueue.RegisterReceiver(context.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), func() interface{} {
+	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), func() interface{} {
 		return &events.SocketConnectEvent{}
 	}, func(data interface{}) string {
 		return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
 	})
-	c.eventQueue.Start(context.RuntimeContext, context.BPF.Linker)
+	c.eventQueue.Start(ctx.RuntimeContext, ctx.BPF.Linker)
 
-	context.BPF.AddTracePoint("syscalls", "sys_enter_connect", context.BPF.TracepointEnterConnect)
-	context.BPF.AddTracePoint("syscalls", "sys_exit_connect", context.BPF.TracepointExitConnect)
-	context.BPF.AddTracePoint("syscalls", "sys_enter_accept", context.BPF.TracepointEnterAccept)
-	context.BPF.AddTracePoint("syscalls", "sys_exit_accept", context.BPF.TracepointExitAccept)
-	context.BPF.AddTracePoint("syscalls", "sys_enter_accept4", context.BPF.TracepointEnterAccept)
-	context.BPF.AddTracePoint("syscalls", "sys_exit_accept4", context.BPF.TracepointExitAccept)
+	ctx.BPF.AddTracePoint("syscalls", "sys_enter_connect", ctx.BPF.TracepointEnterConnect)
+	ctx.BPF.AddTracePoint("syscalls", "sys_exit_connect", ctx.BPF.TracepointExitConnect)
+	ctx.BPF.AddTracePoint("syscalls", "sys_enter_accept", ctx.BPF.TracepointEnterAccept)
+	ctx.BPF.AddTracePoint("syscalls", "sys_exit_accept", ctx.BPF.TracepointExitAccept)
+	ctx.BPF.AddTracePoint("syscalls", "sys_enter_accept4", ctx.BPF.TracepointEnterAccept)
+	ctx.BPF.AddTracePoint("syscalls", "sys_exit_accept4", ctx.BPF.TracepointExitAccept)
 
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
-		"tcp_connect": context.BPF.TcpConnect,
+	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
+		"tcp_connect": ctx.BPF.TcpConnect,
 	})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{
-		"sock_alloc": context.BPF.SockAllocRet,
+	ctx.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{
+		"sock_alloc": ctx.BPF.SockAllocRet,
 	})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
-		"ip4_datagram_connect": context.BPF.Ip4UdpDatagramConnect,
+	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
+		"ip4_datagram_connect": ctx.BPF.Ip4UdpDatagramConnect,
 	})
 
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"__nf_conntrack_hash_insert": context.BPF.NfConntrackHashInsert,
+	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"__nf_conntrack_hash_insert": ctx.BPF.NfConntrackHashInsert,
 	})
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"nf_confirm": context.BPF.NfConfirm,
+	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"nf_confirm": ctx.BPF.NfConfirm,
 	})
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"ctnetlink_fill_info": context.BPF.NfCtnetlinkFillInfo,
+	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
+		"ctnetlink_fill_info": ctx.BPF.NfCtnetlinkFillInfo,
 	})
 	return nil
 }
@@ -121,9 +121,9 @@ type ConnectionPartitionContext struct {
 	connTracker *ip.ConnTrack
 }
 
-func newConnectionPartitionContext(context *common.AccessLogContext, connTracker *ip.ConnTrack) *ConnectionPartitionContext {
+func newConnectionPartitionContext(ctx *common.AccessLogContext, connTracker *ip.ConnTrack) *ConnectionPartitionContext {
 	return &ConnectionPartitionContext{
-		context:     context,
+		context:     ctx,
 		connTracker: connTracker,
 	}
 }
