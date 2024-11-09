@@ -28,7 +28,7 @@ import (
 )
 
 type NetworkHTTPAvgResponseTimeChecker struct {
-	*common.HTTPBasedChecker[*processNetworkAvgResponseTimeStatics]
+	*common.HTTPBasedChecker
 }
 
 func NewNetworkAvgResponseTimeChecker() *NetworkHTTPAvgResponseTimeChecker {
@@ -36,7 +36,7 @@ func NewNetworkAvgResponseTimeChecker() *NetworkHTTPAvgResponseTimeChecker {
 }
 
 func (n *NetworkHTTPAvgResponseTimeChecker) Init(config *base.ContinuousConfig) error {
-	n.HTTPBasedChecker = common.NewHTTPBasedChecker[*processNetworkAvgResponseTimeStatics](
+	n.HTTPBasedChecker = common.NewHTTPBasedChecker(
 		base.CheckTypeHTTPAvgResponseTime, func(val string) (float64, error) {
 			return strconv.ParseFloat(val, 64)
 		}, func() base.WindowData[network.BufferEvent, float64] {
