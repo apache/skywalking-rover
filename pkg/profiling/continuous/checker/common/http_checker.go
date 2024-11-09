@@ -28,7 +28,7 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/profiling/v3"
 )
 
-type HTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]] struct {
+type HTTPBasedChecker struct {
 	*BaseChecker[*HTTPBasedCheckerProcessInfo]
 
 	CheckType         base.CheckType
@@ -36,10 +36,10 @@ type HTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]] struct
 	ThresholdGenerate func(val string) (float64, error)
 }
 
-func NewHTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]](checkType base.CheckType,
+func NewHTTPBasedChecker(checkType base.CheckType,
 	thresholdGenerator func(val string) (float64, error), dataGenerator func() base.WindowData[network.BufferEvent, float64],
-	monitorType v3.ContinuousProfilingTriggeredMonitorType) *HTTPBasedChecker[Data] {
-	checker := &HTTPBasedChecker[Data]{
+	monitorType v3.ContinuousProfilingTriggeredMonitorType) *HTTPBasedChecker {
+	checker := &HTTPBasedChecker{
 		CheckType:         checkType,
 		ThresholdGenerate: thresholdGenerator,
 		MonitorType:       monitorType,
@@ -113,7 +113,7 @@ func NewHTTPBasedChecker[Data base.WindowData[network.BufferEvent, float64]](che
 	return checker
 }
 
-func (n *HTTPBasedChecker[Data]) SyncPolicies(policies []*base.SyncPolicyWithProcesses) {
+func (n *HTTPBasedChecker) SyncPolicies(policies []*base.SyncPolicyWithProcesses) {
 	n.BaseChecker.SyncPolicies(policies, func(items map[base.CheckType]*base.PolicyItem) *base.PolicyItem {
 		item := items[n.CheckType]
 		if item == nil {
@@ -142,7 +142,7 @@ func (n *HTTPBasedChecker[Data]) SyncPolicies(policies []*base.SyncPolicyWithPro
 	})
 }
 
-func (n *HTTPBasedChecker[Data]) ReceiveBufferEvent(event network.BufferEvent) {
+func (n *HTTPBasedChecker) ReceiveBufferEvent(event network.BufferEvent) {
 	info := n.PidWithInfos[event.Pid()]
 	if info == nil {
 		return
@@ -172,15 +172,15 @@ func (n *HTTPBasedChecker[Data]) ReceiveBufferEvent(event network.BufferEvent) {
 	}
 }
 
-func (n *HTTPBasedChecker[Data]) Fetch() error {
+func (n *HTTPBasedChecker) Fetch() error {
 	return nil
 }
 
-func (n *HTTPBasedChecker[Data]) Close() error {
+func (n *HTTPBasedChecker) Close() error {
 	return network.ForceShutdownBPF()
 }
 
-func (n *HTTPBasedChecker[Data]) Check(ctx base.CheckContext, metricsAppender *base.MetricsAppender) []base.ThresholdCause {
+func (n *HTTPBasedChecker) Check(ctx base.CheckContext, metricsAppender *base.MetricsAppender) []base.ThresholdCause {
 	causes := make([]base.ThresholdCause, 0)
 	for _, pidPolicies := range n.PidWithInfos {
 		for item, itemInfo := range pidPolicies.PolicyWithWindows {
@@ -220,7 +220,7 @@ func (n *HTTPBasedChecker[Data]) Check(ctx base.CheckContext, metricsAppender *b
 	return causes
 }
 
-func (n *HTTPBasedChecker[Data]) flushMetrics(uri string, windows *base.TimeWindows[network.BufferEvent, float64],
+func (n *HTTPBasedChecker) flushMetrics(uri string, windows *base.TimeWindows[network.BufferEvent, float64],
 	process api.ProcessInterface, metricsAppender *base.MetricsAppender) {
 	if uri == "" {
 		uri = "global"

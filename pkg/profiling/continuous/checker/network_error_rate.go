@@ -28,7 +28,7 @@ import (
 )
 
 type NetworkHTTPErrorRateChecker struct {
-	*common.HTTPBasedChecker[*processNetworkResponseErrorStatics]
+	*common.HTTPBasedChecker
 }
 
 func NewNetworkResponseErrorChecker() *NetworkHTTPErrorRateChecker {
@@ -36,7 +36,7 @@ func NewNetworkResponseErrorChecker() *NetworkHTTPErrorRateChecker {
 }
 
 func (n *NetworkHTTPErrorRateChecker) Init(config *base.ContinuousConfig) error {
-	n.HTTPBasedChecker = common.NewHTTPBasedChecker[*processNetworkResponseErrorStatics](
+	n.HTTPBasedChecker = common.NewHTTPBasedChecker(
 		base.CheckTypeHTTPErrorRate, func(val string) (float64, error) {
 			v, err := strconv.ParseFloat(val, 64)
 			if err != nil {
