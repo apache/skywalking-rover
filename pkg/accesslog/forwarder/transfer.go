@@ -26,10 +26,10 @@ import (
 )
 
 func init() {
-	registerKernelLogBuilder(common.LogTypeKernelTransfer, kernelTransferLogBuilder)
+	RegisterKernelLogBuilder(common.LogTypeKernelTransfer, kernelTransferLogBuilder)
 }
 
-func SendTransferNoProtocolEvent(context *common.AccessLogContext, event *events.SocketDetailEvent) {
+func SendTransferNoProtocolEvent(context *common.AccessLogContext, event events.SocketDetail) {
 	context.Queue.AppendKernelLog(common.LogTypeKernelTransfer, event)
 }
 

@@ -27,7 +27,7 @@ import (
 )
 
 func init() {
-	registerKernelLogBuilder(common.LogTypeConnect, connectLogBuilder)
+	RegisterKernelLogBuilder(common.LogTypeConnect, connectLogBuilder)
 }
 
 func SendConnectEvent(context *common.AccessLogContext, event *events.SocketConnectEvent, socketPair *ip.SocketPair) {

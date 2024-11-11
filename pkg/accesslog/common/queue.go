@@ -39,7 +39,7 @@ type KernelLog struct {
 }
 
 type ProtocolLog struct {
-	KernelLogs []*events.SocketDetailEvent
+	KernelLogs []events.SocketDetail
 	Protocol   *v3.AccessLogProtocolLogs
 }
 
@@ -84,7 +84,7 @@ func (q *Queue) AppendKernelLog(tp LogType, event events.Event) {
 	q.consumeIfNeed()
 }
 
-func (q *Queue) AppendProtocolLog(kernelLogs []*events.SocketDetailEvent, protocol *v3.AccessLogProtocolLogs) {
+func (q *Queue) AppendProtocolLog(kernelLogs []events.SocketDetail, protocol *v3.AccessLogProtocolLogs) {
 	select {
 	case q.protocolLogs <- &ProtocolLog{
 		KernelLogs: kernelLogs,

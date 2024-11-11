@@ -143,7 +143,7 @@ func (p *HTTP1Protocol) handleResponse(metrics ProtocolMetrics, b *buffer.Buffer
 }
 
 func (p *HTTP1Protocol) handleHTTPData(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) {
-	detailEvents := make([]*events.SocketDetailEvent, 0)
+	detailEvents := make([]events.SocketDetail, 0)
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, request.HeaderBuffer())
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, request.BodyBuffer())
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, response.HeaderBuffer())
@@ -166,8 +166,8 @@ func (p *HTTP1Protocol) handleHTTPData(metrics *HTTP1Metrics, request *reader.Re
 	forwarder.SendTransferProtocolEvent(p.ctx, detailEvents, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
-				StartTime: forwarder.BuildOffsetTimestamp(detailEvents[0].StartTime),
-				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].EndTime),
+				StartTime: forwarder.BuildOffsetTimestamp(detailEvents[0].GetStartTime()),
+				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].GetEndTime()),
 				Version:   v3.AccessLogHTTPProtocolVersion_HTTP1,
 				Request: &v3.AccessLogHTTPProtocolRequest{
 					Method:             transformHTTPMethod(originalRequest.Method),

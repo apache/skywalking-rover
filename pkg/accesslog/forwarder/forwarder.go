@@ -28,7 +28,7 @@ type KernelLogBuilder func(data events.Event) *v3.AccessLogKernelLog
 
 var kernelLogBuilders = make([]KernelLogBuilder, 10)
 
-func registerKernelLogBuilder(tp common.LogType, builder KernelLogBuilder) {
+func RegisterKernelLogBuilder(tp common.LogType, builder KernelLogBuilder) {
 	kernelLogBuilders[tp] = builder
 }
 
