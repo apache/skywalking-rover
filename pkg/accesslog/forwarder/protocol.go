@@ -24,6 +24,6 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-func SendTransferProtocolEvent(context *common.AccessLogContext, kernelLogs []*events.SocketDetailEvent, protocolData *v3.AccessLogProtocolLogs) {
+func SendTransferProtocolEvent(context *common.AccessLogContext, kernelLogs []events.SocketDetail, protocolData *v3.AccessLogProtocolLogs) {
 	context.Queue.AppendProtocolLog(kernelLogs, protocolData)
 }

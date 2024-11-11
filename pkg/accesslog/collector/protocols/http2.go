@@ -224,7 +224,7 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(metrics *HTTP2Metrics, id ui
 }
 
 func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) {
-	detailEvents := make([]*events.SocketDetailEvent, 0)
+	detailEvents := make([]events.SocketDetail, 0)
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, stream.reqHeaderBuffer)
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, stream.reqBodyBuffer)
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, stream.respHeaderBuffer)
@@ -239,8 +239,8 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) {
 	forwarder.SendTransferProtocolEvent(r.ctx, detailEvents, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
-				StartTime: forwarder.BuildOffsetTimestamp(r.firstDetail(stream.reqBodyBuffer, detailEvents[0]).StartTime),
-				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].EndTime),
+				StartTime: forwarder.BuildOffsetTimestamp(r.firstDetail(stream.reqBodyBuffer, detailEvents[0]).GetStartTime()),
+				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].GetEndTime()),
 				Version:   v3.AccessLogHTTPProtocolVersion_HTTP2,
 				Request: &v3.AccessLogHTTPProtocolRequest{
 					Method:             r.parseHTTPMethod(stream),
@@ -271,11 +271,11 @@ func (r *HTTP2Protocol) parseHTTPMethod(streaming *HTTP2Streaming) v3.AccessLogH
 	return transformHTTPMethod(strings.ToUpper(method))
 }
 
-func (r *HTTP2Protocol) firstDetail(buf *buffer.Buffer, def *events.SocketDetailEvent) *events.SocketDetailEvent {
+func (r *HTTP2Protocol) firstDetail(buf *buffer.Buffer, def events.SocketDetail) events.SocketDetail {
 	if buf == nil || buf.Details() == nil || buf.Details().Len() == 0 {
 		return def
 	}
-	return buf.Details().Front().Value.(*events.SocketDetailEvent)
+	return buf.Details().Front().Value.(events.SocketDetail)
 }
 
 func (r *HTTP2Protocol) bufferSizeOfZero(buf *buffer.Buffer) uint64 {

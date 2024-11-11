@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	registerKernelLogBuilder(common.LogTypeClose, closeLogBuilder)
+	RegisterKernelLogBuilder(common.LogTypeClose, closeLogBuilder)
 }
 
 func SendCloseEvent(context *common.AccessLogContext, event *common.CloseEventWithNotify) {

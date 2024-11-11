@@ -48,6 +48,8 @@ type AnalyzeQueue struct {
 	context      *common.AccessLogContext
 	eventQueue   *btf.EventQueue
 	perCPUBuffer int64
+
+	detailSupplier func() events.SocketDetail
 }
 
 func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
@@ -71,14 +73,17 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 		eventQueue: btf.NewEventQueue(ctx.Config.ProtocolAnalyze.Parallels, ctx.Config.ProtocolAnalyze.QueueSize, func() btf.PartitionContext {
 			return NewPartitionContext(ctx)
 		}),
+		detailSupplier: func() events.SocketDetail {
+			return &events.SocketDetailEvent{}
+		},
 	}, nil
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailDataQueue, int(q.perCPUBuffer), func() interface{} {
-		return &events.SocketDetailEvent{}
+		return q.detailSupplier()
 	}, func(data interface{}) string {
-		return fmt.Sprintf("%d", data.(*events.SocketDetailEvent).GetConnectionID())
+		return fmt.Sprintf("%d", data.(events.SocketDetail).GetConnectionID())
 	})
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadEventQueue, int(q.perCPUBuffer), func() interface{} {
 		return &events.SocketDataUploadEvent{}
@@ -87,6 +92,10 @@ func (q *AnalyzeQueue) Start(ctx context.Context) {
 	})
 
 	q.eventQueue.Start(ctx, q.context.BPF.Linker)
+}
+
+func (q *AnalyzeQueue) ChangeDetailSupplier(supplier func() events.SocketDetail) {
+	q.detailSupplier = supplier
 }
 
 type PartitionContext struct {
@@ -164,18 +173,18 @@ func (p *PartitionContext) Start(ctx context.Context) {
 
 func (p *PartitionContext) Consume(data interface{}) {
 	switch event := data.(type) {
-	case *events.SocketDetailEvent:
-		pid, _ := events.ParseConnectionID(event.ConnectionID)
+	case events.SocketDetail:
+		pid, _ := events.ParseConnectionID(event.GetConnectionID())
 		log.Debugf("receive the socket detail event, connection ID: %d, random ID: %d, pid: %d, data id: %d, "+
-			"function name: %s, package count: %d, package size: %d, l4 duration: %d, ssl: %d",
-			event.ConnectionID, event.RandomID, pid, event.DataID0, event.FunctionName,
-			event.L4PackageCount, event.L4TotalPackageSize, event.L4Duration, event.SSL)
-		if event.Protocol == enums.ConnectionProtocolUnknown {
+			"function name: %s, package count: %d, package size: %d, ssl: %d",
+			event.GetConnectionID(), event.GetRandomID(), pid, event.DataID(), event.GetFunctionName(),
+			event.GetL4PackageCount(), event.GetL4TotalPackageSize(), event.GetSSL())
+		if event.GetProtocol() == enums.ConnectionProtocolUnknown {
 			// if the connection protocol is unknown, we just needs to add this into the kernel log
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
 			return
 		}
-		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.Protocol)
+		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol())
 		connection.appendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
@@ -303,7 +312,7 @@ type PartitionConnection struct {
 	lastCheckCloseTime     time.Time
 }
 
-func (p *PartitionConnection) appendDetail(ctx *common.AccessLogContext, detail *events.SocketDetailEvent) {
+func (p *PartitionConnection) appendDetail(ctx *common.AccessLogContext, detail events.SocketDetail) {
 	if p.skipAllDataAnalyze {
 		// if the connection is already skip all data analyze, then just send the detail event
 		forwarder.SendTransferNoProtocolEvent(ctx, detail)

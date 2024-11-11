@@ -313,12 +313,12 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 			// if not all processor finished, then add into the map
 			c.allUnfinishedConnections[fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())] = &e.allProcessorFinished
 		}
-	case *events.SocketDetailEvent:
-		if e.SSL == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
+	case events.SocketDetail:
+		if e.GetSSL() == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
 			connection.RPCConnection.TlsMode = v3.AccessLogConnectionTLSMode_TLS
 		}
-		if e.Protocol != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
-			switch e.Protocol {
+		if e.GetProtocol() != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
+			switch e.GetProtocol() {
 			case enums.ConnectionProtocolHTTP:
 				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_1
 			case enums.ConnectionProtocolHTTP2:

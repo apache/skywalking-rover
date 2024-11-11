@@ -58,7 +58,7 @@ type Protocol interface {
 	Analyze(metrics ProtocolMetrics, buffer *buffer.Buffer, helper *AnalyzeHelper) error
 }
 
-func appendSocketDetailsFromBuffer(result []*events.SocketDetailEvent, buf *buffer.Buffer) []*events.SocketDetailEvent {
+func appendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer) []events.SocketDetail {
 	if buf == nil || buf.DetailLength() == 0 {
 		return result
 	}
@@ -66,7 +66,7 @@ func appendSocketDetailsFromBuffer(result []*events.SocketDetailEvent, buf *buff
 		if len(result) > 0 && result[len(result)-1] == e.Value {
 			continue
 		}
-		result = append(result, e.Value.(*events.SocketDetailEvent))
+		result = append(result, e.Value.(events.SocketDetail))
 	}
 	return result
 }

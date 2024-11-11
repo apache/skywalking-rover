@@ -20,9 +20,25 @@ package events
 import (
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
+
+type SocketDetail interface {
+	Event
+	buffer.SocketDataDetail
+
+	GetStartTime() uint64
+	GetEndTime() uint64
+
+	GetL4PackageCount() uint8
+	GetL4TotalPackageSize() uint64
+
+	GetFunctionName() enums.SocketFunctionName
+	GetProtocol() enums.ConnectionProtocol
+	GetSSL() uint8
+}
 
 type SocketDetailEvent struct {
 	ConnectionID uint64
@@ -70,4 +86,32 @@ func (d *SocketDetailEvent) Timestamp() time.Time {
 
 func (d *SocketDetailEvent) DataID() uint64 {
 	return d.DataID0
+}
+
+func (d *SocketDetailEvent) GetStartTime() uint64 {
+	return d.StartTime
+}
+
+func (d *SocketDetailEvent) GetEndTime() uint64 {
+	return d.EndTime
+}
+
+func (d *SocketDetailEvent) GetL4PackageCount() uint8 {
+	return d.L4PackageCount
+}
+
+func (d *SocketDetailEvent) GetL4TotalPackageSize() uint64 {
+	return d.L4TotalPackageSize
+}
+
+func (d *SocketDetailEvent) GetFunctionName() enums.SocketFunctionName {
+	return d.FunctionName
+}
+
+func (d *SocketDetailEvent) GetProtocol() enums.ConnectionProtocol {
+	return d.Protocol
+}
+
+func (d *SocketDetailEvent) GetSSL() uint8 {
+	return d.SSL
 }
