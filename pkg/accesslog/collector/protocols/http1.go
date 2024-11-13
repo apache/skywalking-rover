@@ -150,7 +150,8 @@ func (p *HTTP1Protocol) handleHTTPData(metrics *HTTP1Metrics, request *reader.Re
 	detailEvents = appendSocketDetailsFromBuffer(detailEvents, response.BodyBuffer())
 
 	if len(detailEvents) == 0 {
-		http1Log.Warnf("cannot found any detail events for HTTP/1.x protocol, data id: %d-%d",
+		http1Log.Warnf("cannot found any detail events for HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d-%d",
+			metrics.connectionID, metrics.randomID,
 			request.MinDataID(), response.BodyBuffer().LastSocketBuffer().DataID())
 		return
 	}

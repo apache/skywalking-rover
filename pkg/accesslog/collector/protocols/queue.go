@@ -70,8 +70,8 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 	return &AnalyzeQueue{
 		context:      ctx,
 		perCPUBuffer: perCPUBufferSize,
-		eventQueue: btf.NewEventQueue(ctx.Config.ProtocolAnalyze.Parallels, ctx.Config.ProtocolAnalyze.QueueSize, func() btf.PartitionContext {
-			return NewPartitionContext(ctx)
+		eventQueue: btf.NewEventQueue(ctx.Config.ProtocolAnalyze.Parallels, ctx.Config.ProtocolAnalyze.QueueSize, func(num int) btf.PartitionContext {
+			return NewPartitionContext(ctx, num)
 		}),
 		detailSupplier: func() events.SocketDetail {
 			return &events.SocketDetailEvent{}
@@ -99,9 +99,10 @@ func (q *AnalyzeQueue) ChangeDetailSupplier(supplier func() events.SocketDetail)
 }
 
 type PartitionContext struct {
-	context     *common.AccessLogContext
-	protocolMgr *ProtocolManager
-	connections cmap.ConcurrentMap
+	context      *common.AccessLogContext
+	protocolMgr  *ProtocolManager
+	connections  cmap.ConcurrentMap
+	partitionNum int
 
 	analyzeLocker sync.Mutex
 }
@@ -118,11 +119,12 @@ func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64
 	}
 }
 
-func NewPartitionContext(ctx *common.AccessLogContext) *PartitionContext {
+func NewPartitionContext(ctx *common.AccessLogContext, num int) *PartitionContext {
 	pc := &PartitionContext{
-		context:     ctx,
-		protocolMgr: NewProtocolManager(ctx),
-		connections: cmap.New(),
+		context:      ctx,
+		protocolMgr:  NewProtocolManager(ctx),
+		connections:  cmap.New(),
+		partitionNum: num,
 	}
 	ctx.ConnectionMgr.RegisterProcessor(pc)
 	return pc
@@ -131,12 +133,16 @@ func NewPartitionContext(ctx *common.AccessLogContext) *PartitionContext {
 func (p *PartitionContext) OnConnectionClose(event *events.SocketCloseEvent, closeCallback common.ConnectionProcessFinishCallback) {
 	conn, exist := p.connections.Get(p.buildConnectionKey(event.GetConnectionID(), event.GetRandomID()))
 	if !exist {
+		log.Debugf("connection is not exist in the partion context, connection ID: %d, random ID: %d, partition number: %d",
+			event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
 		closeCallback()
 		return
 	}
 	connection := conn.(*PartitionConnection)
 	connection.closeCallback = closeCallback
 	connection.closed = true
+	log.Debugf("receive the connection close event and mark is closable, connection ID: %d, random ID: %d, partition number: %d",
+		event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
 }
 
 func (p *PartitionContext) Start(ctx context.Context) {
@@ -236,6 +242,8 @@ func (p *PartitionContext) processEvents() {
 				info.closeCallback()
 			}
 			closedConnections = append(closedConnections, conKey)
+			log.Debugf("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
+				info.connectionID, info.randomID, p.partitionNum)
 		}
 	})
 

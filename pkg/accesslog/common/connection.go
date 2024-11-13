@@ -54,6 +54,9 @@ const (
 
 	// clean the active connection in BPF interval
 	cleanActiveConnectionInterval = time.Second * 20
+
+	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the connection infomation
+	connectionDeleteDelayTime = time.Second * 20
 )
 
 type addressProcessType int
@@ -147,6 +150,7 @@ type ConnectionInfo struct {
 	MarkDeletable bool
 	PID           uint32
 	Socket        *ip.SocketPair
+	DeleteAfter   *time.Time
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
@@ -620,6 +624,7 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	// delete all connections which marked as deletable
 	// all deletable connection events been sent
 	deletableConnections := make(map[string]bool, 0)
+	now := time.Now()
 	c.connections.IterCb(func(key string, v interface{}) {
 		con, ok := v.(*ConnectionInfo)
 		if !ok || con == nil {
@@ -628,7 +633,14 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 		// already mark as deletable or process not monitoring
 		shouldDelete := con.MarkDeletable || !c.ProcessIsMonitor(con.PID)
 
-		if shouldDelete {
+		if shouldDelete && con.DeleteAfter == nil {
+			deleteAfterTime := now.Add(connectionDeleteDelayTime)
+			con.DeleteAfter = &deleteAfterTime
+			log.Debugf("detected the connection has mark as deletable, so add a delay timer, connection ID: %d, random ID: %d",
+				con.ConnectionID, con.RandomID)
+		}
+
+		if shouldDelete && now.After(*con.DeleteAfter) {
 			deletableConnections[key] = true
 		}
 	})

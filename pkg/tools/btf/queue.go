@@ -45,10 +45,10 @@ type mapReceiver struct {
 	router       func(data interface{}) string
 }
 
-func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func() PartitionContext) *EventQueue {
+func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
 	partitions := make([]*partition, 0)
 	for i := 0; i < partitionCount; i++ {
-		partitions = append(partitions, newPartition(i, sizePerPartition, contextGenerator()))
+		partitions = append(partitions, newPartition(i, sizePerPartition, contextGenerator(i)))
 	}
 	return &EventQueue{count: partitionCount, partitions: partitions}
 }
