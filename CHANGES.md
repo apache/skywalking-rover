@@ -6,6 +6,7 @@ Release Notes.
 ------------------
 #### Features
 * Separate multiple process for reading connection information in the access log module.
+* Add a delay time before delete the connection in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
