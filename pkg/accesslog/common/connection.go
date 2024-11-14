@@ -55,7 +55,7 @@ const (
 	// clean the active connection in BPF interval
 	cleanActiveConnectionInterval = time.Second * 20
 
-	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the connection infomation
+	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the connection information
 	connectionDeleteDelayTime = time.Second * 20
 )
 
