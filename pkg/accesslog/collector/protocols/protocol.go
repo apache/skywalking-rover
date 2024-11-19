@@ -18,7 +18,6 @@
 package protocols
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
@@ -28,18 +27,16 @@ import (
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-var registeredProtocols = make(map[enums.ConnectionProtocol]func(ctx *common.AccessLogContext) Protocol)
-
 type ProtocolManager struct {
 	protocols map[enums.ConnectionProtocol]Protocol
 }
 
-func NewProtocolManager(ctx *common.AccessLogContext) *ProtocolManager {
-	protocols := make(map[enums.ConnectionProtocol]Protocol)
-	for protocol, generator := range registeredProtocols {
-		protocols[protocol] = generator(ctx)
+func NewProtocolManager(protocols []Protocol) *ProtocolManager {
+	m := make(map[enums.ConnectionProtocol]Protocol)
+	for _, protocol := range protocols {
+		m[protocol.ForProtocol()] = protocol
 	}
-	return &ProtocolManager{protocols: protocols}
+	return &ProtocolManager{protocols: m}
 }
 
 func (a *ProtocolManager) GetProtocol(protocol enums.ConnectionProtocol) Protocol {
@@ -54,11 +51,12 @@ type AnalyzeHelper struct {
 }
 
 type Protocol interface {
+	ForProtocol() enums.ConnectionProtocol
 	GenerateConnection(connectionID, randomID uint64) ProtocolMetrics
-	Analyze(metrics ProtocolMetrics, buffer *buffer.Buffer, helper *AnalyzeHelper) error
+	Analyze(connection *PartitionConnection, helper *AnalyzeHelper) error
 }
 
-func appendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer) []events.SocketDetail {
+func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer) []events.SocketDetail {
 	if buf == nil || buf.DetailLength() == 0 {
 		return result
 	}
@@ -71,7 +69,7 @@ func appendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buf
 	return result
 }
 
-func analyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {
+func AnalyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {
 	context, err := tracing.AnalyzeTracingContext(func(key string) string {
 		return fetcher(key)
 	})

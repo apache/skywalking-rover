@@ -199,7 +199,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 
 func (a *ProtocolAnalyzer) processConnectionExpireEvents(connection *connectionInfo, expireDuration time.Duration) {
 	if c := connection.buffer.DeleteExpireEvents(expireDuration); c > 0 {
-		log.Debugf("total removed %d expired events for %s protocol", c, a.protocol.Protocol().String())
+		log.Debugf("total removed %d expired events for %s protocol", c, enums.ConnectionProtocolString(a.protocol.Protocol()))
 	}
 }
 

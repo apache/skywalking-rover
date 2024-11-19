@@ -74,7 +74,7 @@ func (a *Analyzer) ReceiveSocketDataEvent(event *events.SocketDataUploadEvent) {
 	analyzer := a.protocols[event.Protocol]
 	if analyzer == nil {
 		log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d)",
-			event.GenerateConnectionID(), event.Protocol.String(), event.Protocol)
+			event.GenerateConnectionID(), enums.ConnectionProtocolString(event.Protocol), event.Protocol)
 		return
 	}
 	analyzer.ReceiveSocketData(a.ctx, event)
@@ -84,7 +84,7 @@ func (a *Analyzer) ReceiveSocketDetail(event *events.SocketDetailEvent) {
 	analyzer := a.protocols[event.Protocol]
 	if analyzer == nil {
 		log.Warnf("could not found any protocol to handle socket detail, connection id: %s, protocol: %s(%d)",
-			event.GenerateConnectionID(), event.Protocol.String(), event.Protocol)
+			event.GenerateConnectionID(), enums.ConnectionProtocolString(event.Protocol), event.Protocol)
 		return
 	}
 	analyzer.ReceiveSocketDetail(a.ctx, event)

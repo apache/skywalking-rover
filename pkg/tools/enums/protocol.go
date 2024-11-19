@@ -23,3 +23,29 @@ const (
 	ParseResultSuccess ParseResult = iota
 	ParseResultSkipPackage
 )
+
+type ConnectionProtocol uint8
+
+const (
+	ConnectionProtocolUnknown ConnectionProtocol = 0
+	ConnectionProtocolHTTP    ConnectionProtocol = 1
+	ConnectionProtocolHTTP2   ConnectionProtocol = 2
+)
+
+var connectionProtocolMap = make(map[ConnectionProtocol]string)
+
+func init() {
+	RegisterConnectionProtocolString(ConnectionProtocolHTTP, http)
+	RegisterConnectionProtocolString(ConnectionProtocolHTTP2, http)
+}
+
+func RegisterConnectionProtocolString(protocol ConnectionProtocol, name string) {
+	connectionProtocolMap[protocol] = name
+}
+
+func ConnectionProtocolString(protocol ConnectionProtocol) string {
+	if name, ok := connectionProtocolMap[protocol]; ok {
+		return name
+	}
+	return unknown
+}

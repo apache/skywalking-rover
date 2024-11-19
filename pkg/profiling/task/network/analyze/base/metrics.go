@@ -111,7 +111,7 @@ func (m *MetricsBuilder) BuildBasicMeterLabels(traffic *ProcessTraffic, local ap
 	labels = m.appendMeterValue(labels, "side", curRole.String())
 
 	// protocol and ssl
-	labels = m.appendMeterValue(labels, "protocol", traffic.Protocol.String())
+	labels = m.appendMeterValue(labels, "protocol", enums.ConnectionProtocolString(traffic.Protocol))
 	labels = m.appendMeterValue(labels, "is_ssl", fmt.Sprintf("%t", traffic.IsSSL))
 	return curRole, labels
 }

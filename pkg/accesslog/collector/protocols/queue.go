@@ -49,7 +49,8 @@ type AnalyzeQueue struct {
 	eventQueue   *btf.EventQueue
 	perCPUBuffer int64
 
-	detailSupplier func() events.SocketDetail
+	detailSupplier   func() events.SocketDetail
+	supportAnalyzers func(ctx *common.AccessLogContext) []Protocol
 }
 
 func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
@@ -70,16 +71,23 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 	return &AnalyzeQueue{
 		context:      ctx,
 		perCPUBuffer: perCPUBufferSize,
-		eventQueue: btf.NewEventQueue(ctx.Config.ProtocolAnalyze.Parallels, ctx.Config.ProtocolAnalyze.QueueSize, func(num int) btf.PartitionContext {
-			return NewPartitionContext(ctx, num)
-		}),
 		detailSupplier: func() events.SocketDetail {
 			return &events.SocketDetailEvent{}
+		},
+		supportAnalyzers: func(ctx *common.AccessLogContext) []Protocol {
+			return []Protocol{
+				NewHTTP1Analyzer(ctx, nil),
+				NewHTTP2Analyzer(ctx, nil),
+			}
 		},
 	}, nil
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
+	q.eventQueue = btf.NewEventQueue(q.context.Config.ProtocolAnalyze.Parallels, q.context.Config.ProtocolAnalyze.QueueSize,
+		func(num int) btf.PartitionContext {
+			return NewPartitionContext(q.context, num, q.supportAnalyzers(q.context))
+		})
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailDataQueue, int(q.perCPUBuffer), func() interface{} {
 		return q.detailSupplier()
 	}, func(data interface{}) string {
@@ -98,6 +106,10 @@ func (q *AnalyzeQueue) ChangeDetailSupplier(supplier func() events.SocketDetail)
 	q.detailSupplier = supplier
 }
 
+func (q *AnalyzeQueue) ChangeSupportAnalyzers(protocols func(ctx *common.AccessLogContext) []Protocol) {
+	q.supportAnalyzers = protocols
+}
+
 type PartitionContext struct {
 	context      *common.AccessLogContext
 	protocolMgr  *ProtocolManager
@@ -108,21 +120,31 @@ type PartitionContext struct {
 }
 
 func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol) *PartitionConnection {
-	analyzer := protocolMgr.GetProtocol(protocol)
-	return &PartitionConnection{
+	connection := &PartitionConnection{
 		connectionID:     conID,
 		randomID:         randomID,
 		dataBuffer:       buffer.NewBuffer(),
-		protocol:         protocol,
-		protocolAnalyzer: analyzer,
-		protocolMetrics:  analyzer.GenerateConnection(conID, randomID),
+		protocol:         make(map[enums.ConnectionProtocol]bool),
+		protocolAnalyzer: make(map[enums.ConnectionProtocol]Protocol),
+		protocolMetrics:  make(map[enums.ConnectionProtocol]ProtocolMetrics),
+	}
+	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol)
+	return connection
+}
+
+func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol) {
+	if _, exist := p.protocol[protocol]; !exist {
+		analyzer := protocolMgr.GetProtocol(protocol)
+		p.protocol[protocol] = true
+		p.protocolAnalyzer[protocol] = analyzer
+		p.protocolMetrics[protocol] = analyzer.GenerateConnection(conID, randomID)
 	}
 }
 
-func NewPartitionContext(ctx *common.AccessLogContext, num int) *PartitionContext {
+func NewPartitionContext(ctx *common.AccessLogContext, num int, protocols []Protocol) *PartitionContext {
 	pc := &PartitionContext{
 		context:      ctx,
-		protocolMgr:  NewProtocolManager(ctx),
+		protocolMgr:  NewProtocolManager(protocols),
 		connections:  cmap.New(),
 		partitionNum: num,
 	}
@@ -191,13 +213,13 @@ func (p *PartitionContext) Consume(data interface{}) {
 			return
 		}
 		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol())
-		connection.appendDetail(p.context, event)
+		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
 		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
 			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol)
-		connection.appendData(event)
+		connection.AppendData(event)
 	}
 }
 
@@ -205,7 +227,9 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64, p
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
 	if exist {
-		return conn.(*PartitionConnection)
+		connection := conn.(*PartitionConnection)
+		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol)
+		return connection
 	}
 	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol)
 	p.connections.Set(conKey, result)
@@ -296,8 +320,10 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 		return
 	}
 	helper := &AnalyzeHelper{}
-	if err := connection.protocolAnalyzer.Analyze(connection.protocolMetrics, connection.dataBuffer, helper); err != nil {
-		log.Warnf("failed to analyze the %s protocol data: %v", connection.protocol.String(), err)
+	for protocol, analyzer := range connection.protocolAnalyzer {
+		if err := analyzer.Analyze(connection, helper); err != nil {
+			log.Warnf("failed to analyze the %s protocol data: %v", enums.ConnectionProtocolString(protocol), err)
+		}
 	}
 
 	if helper.ProtocolBreak {
@@ -306,32 +332,4 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 		p.context.ConnectionMgr.SkipAllDataAnalyze(connection.connectionID, connection.randomID)
 		connection.dataBuffer.Clean()
 	}
-}
-
-type PartitionConnection struct {
-	connectionID, randomID uint64
-	dataBuffer             *buffer.Buffer
-	protocol               enums.ConnectionProtocol
-	protocolAnalyzer       Protocol
-	protocolMetrics        ProtocolMetrics
-	closed                 bool
-	closeCallback          common.ConnectionProcessFinishCallback
-	skipAllDataAnalyze     bool
-	lastCheckCloseTime     time.Time
-}
-
-func (p *PartitionConnection) appendDetail(ctx *common.AccessLogContext, detail events.SocketDetail) {
-	if p.skipAllDataAnalyze {
-		// if the connection is already skip all data analyze, then just send the detail event
-		forwarder.SendTransferNoProtocolEvent(ctx, detail)
-		return
-	}
-	p.dataBuffer.AppendDetailEvent(detail)
-}
-
-func (p *PartitionConnection) appendData(data buffer.SocketDataBuffer) {
-	if p.skipAllDataAnalyze {
-		return
-	}
-	p.dataBuffer.AppendDataEvent(data)
 }
