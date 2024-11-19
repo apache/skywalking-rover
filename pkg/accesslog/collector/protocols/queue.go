@@ -133,7 +133,7 @@ func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64
 }
 
 func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol) {
-	if _, exist := protocolMgr.protocols[protocol]; !exist {
+	if _, exist := p.protocol[protocol]; !exist {
 		analyzer := protocolMgr.GetProtocol(protocol)
 		p.protocol[protocol] = true
 		p.protocolAnalyzer[protocol] = analyzer
