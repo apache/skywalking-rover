@@ -204,7 +204,7 @@ func (h *Trace) Flush(duration int64, process api.ProcessInterface, traffic *bas
 		Latency:       duration,
 		TraceProvider: h.Trace.Provider().Name,
 		DetectPoint:   traffic.Role.String(),
-		Component:     traffic.Protocol.String(),
+		Component:     enums.ConnectionProtocolString(traffic.Protocol),
 		SSL:           traffic.IsSSL,
 		URI:           h.RequestURI,
 		Reason:        h.Type,

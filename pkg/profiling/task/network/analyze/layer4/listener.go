@@ -111,7 +111,7 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, protocol: %s, is_ssl: %t, is_closed: %t, write: %d bytes/%d, read: %d bytes/%d",
 				connection.ConnectionID, connection.Role.String(),
 				connection.LocalIP, connection.LocalPort, connection.LocalPid, connection.RemoteIP, connection.RemotePort,
-				connection.Protocol.String(), connection.IsSSL, connection.ConnectionClosed, layer4.WriteCounter.Cur.Bytes,
+				enums.ConnectionProtocolString(connection.Protocol), connection.IsSSL, connection.ConnectionClosed, layer4.WriteCounter.Cur.Bytes,
 				layer4.WriteCounter.Cur.Count, layer4.ReadCounter.Cur.Bytes, layer4.ReadCounter.Cur.Count)
 		}
 	}
@@ -218,7 +218,8 @@ func (l *Listener) logTheMetricsConnections(traffics []*base.ProcessTraffic) {
 		side := traffic.Role.String()
 		layer4 := l.getMetrics(traffic.Metrics)
 		log.Debugf("connection layer4 analyze result: %s : %s, protocol: %s, is SSL: %t, write: %d bytes/%d, read: %d bytes/%d",
-			side, traffic.GenerateConnectionInfo(), traffic.Protocol.String(), traffic.IsSSL, layer4.WriteCounter.Cur.Bytes, layer4.WriteCounter.Cur.Count,
+			side, traffic.GenerateConnectionInfo(), enums.ConnectionProtocolString(traffic.Protocol),
+			traffic.IsSSL, layer4.WriteCounter.Cur.Bytes, layer4.WriteCounter.Cur.Count,
 			layer4.ReadCounter.Cur.Bytes, layer4.ReadCounter.Cur.Count)
 	}
 }

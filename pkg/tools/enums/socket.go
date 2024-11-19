@@ -92,27 +92,6 @@ const (
 	SocketExceptionOperationDrop       SocketExceptionOperationType = 2
 )
 
-type ConnectionProtocol uint8
-
-const (
-	ConnectionProtocolUnknown ConnectionProtocol = 0
-	ConnectionProtocolHTTP    ConnectionProtocol = 1
-	ConnectionProtocolHTTP2   ConnectionProtocol = 2
-)
-
-func (c ConnectionProtocol) String() string {
-	switch c {
-	case ConnectionProtocolUnknown:
-		return unknown
-	case ConnectionProtocolHTTP:
-		return http
-	case ConnectionProtocolHTTP2:
-		return http
-	default:
-		return unknown
-	}
-}
-
 type SocketMessageType uint8
 
 const (
