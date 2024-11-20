@@ -46,6 +46,23 @@ typedef enum
     true=1, false=0
 } bool;
 
+struct trace_entry {
+        short unsigned int type;
+        unsigned char flags;
+        unsigned char preempt_count;
+        int pid;
+} __attribute__((preserve_access_index));
+struct syscall_trace_enter {
+        struct trace_entry ent;
+        int nr;
+        long unsigned int args[0];
+} __attribute__((preserve_access_index));
+struct syscall_trace_exit {
+    struct trace_entry ent;
+    int nr;
+    long int ret;
+}__attribute__((preserve_access_index));
+
 struct thread_struct {
     // x86_64
 	long unsigned int fsbase;

@@ -21,34 +21,6 @@
 #include "../process/process.h"
 #include "../common/connection.h"
 
-struct trace_point_enter_connect {
-    __u64 pad_0;
-    int __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct sockaddr * uservaddr;
-};
-struct trace_point_exit_connect {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    __u64 ret;
-};
-
-struct trace_point_enter_accept {
-    __u64 pad_0;
-    int __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct sockaddr * upeer_sockaddr;
-};
-struct trace_point_exit_accept {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    long ret;
-};
-
 static __inline void process_connect(void *ctx, __u64 id, struct connect_args_t *connect_args, long ret) {
     bool success = true;
     if (ret < 0 && ret != -EINPROGRESS) {
@@ -71,22 +43,22 @@ static __inline void process_accept(void *ctx, __u64 id, struct accept_args_t *a
 }
 
 SEC("tracepoint/syscalls/sys_enter_connect")
-int tracepoint_enter_connect(struct trace_point_enter_connect *ctx) {
+int tracepoint_enter_connect(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct connect_args_t connect_args = {};
-    connect_args.fd = ctx->fd;
-    connect_args.addr = ctx->uservaddr;
+    connect_args.fd = (__u32)ctx->args[0];
+    connect_args.addr = (struct sockaddr *)ctx->args[1];
     connect_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
 	return 0;
 }
 
 SEC("tracepoint/syscalls/sys_exit_connect")
-int tracepoint_exit_connect(struct trace_point_exit_connect *ctx) {
+int tracepoint_exit_connect(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct connect_args_t *connect_args;
 
@@ -110,21 +82,21 @@ int tcp_connect(struct pt_regs *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_accept")
-int tracepoint_enter_accept(struct trace_point_enter_accept *ctx) {
+int tracepoint_enter_accept(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct accept_args_t accept_args = {};
-    accept_args.addr = ctx->upeer_sockaddr;
+    accept_args.addr = (struct sockaddr *)ctx->args[1];
     accept_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&accepting_args, &id, &accept_args, 0);
 	return 0;
 }
 
 SEC("tracepoint/syscalls/sys_exit_accept")
-int tracepoint_exit_accept(struct trace_point_exit_accept *ctx) {
+int tracepoint_exit_accept(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct accept_args_t *accept_args = bpf_map_lookup_elem(&accepting_args, &id);
     if (accept_args) {

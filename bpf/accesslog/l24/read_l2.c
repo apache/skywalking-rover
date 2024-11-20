@@ -17,14 +17,15 @@
 
 #include "l24.h"
 #include "../common/data_args.h"
+#include "api.h"
 
-struct netif_receive_skb {
-	unsigned long long pad;
-	void * skbaddr;
-};
+struct trace_event_raw_net_dev_template {
+    struct trace_entry ent;
+    void *skbaddr;
+} __attribute__((preserve_access_index)) ;
 
 SEC("tracepoint/net/netif_receive_skb")
-int tracepoint_netif_receive_skb(struct netif_receive_skb *ctx) {
+int tracepoint_netif_receive_skb(struct trace_event_raw_net_dev_template *ctx) {
     struct sk_buff * skb = (struct sk_buff *)ctx->skbaddr;
 
     struct net_device *device = _(skb->dev);

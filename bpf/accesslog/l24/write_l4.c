@@ -19,12 +19,11 @@
 #include "../common/data_args.h"
 #include "../common/sock.h"
 
-struct kfree_skb_args {
-  unsigned long pad;
-
-  void *skb;
-  void *location;
-};
+struct trace_event_raw_kfree_skb {
+    struct trace_entry ent;
+    void *skbaddr;
+    void *location;
+} __attribute__((preserve_access_index));
 
 SEC("kprobe/tcp_sendmsg")
 int tcp_sendmsg(struct pt_regs* ctx) {
@@ -83,8 +82,8 @@ int tracepoint_tcp_retransmit_skb() {
     }
 
 SEC("tracepoint/skb/kfree_skb")
-int kfree_skb(struct kfree_skb_args *args) {
-    struct sk_buff *skb = args->skb;
+int kfree_skb(struct trace_event_raw_kfree_skb *args) {
+    struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
     if (skb == NULL) {
         return 0;
     }
