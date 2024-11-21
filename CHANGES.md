@@ -12,6 +12,7 @@ Release Notes.
 * Fix the base image cannot run in the arm64.
 
 #### Documentation
+* Add a dead link checker in the CI.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/228?closed=1)

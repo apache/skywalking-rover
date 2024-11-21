@@ -27,6 +27,7 @@ header:
     - 'licenses'
     - '**/go.mod'
     - '**/go.sum'
+    - '**/*.json'
     - 'LICENSE'
     - 'NOTICE'
     - '.gitignore'

@@ -38,10 +38,6 @@ Each expression must return the boolean value. Otherwise, the decision throws an
 
 The context is similar to the entity builder. Using context could help the rover understand which process could build the entity.
 
-##### Process Context
-
-Is the same with the [process context in scanner](./scanner.md#process), but doesn't need to add the `{{` and `}}` in prefix and suffix.
-
 ##### Pod Context
 
 Provide current pod information and judgments.
