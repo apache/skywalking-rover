@@ -28,4 +28,4 @@ Follow the [releases page](https://skywalking.apache.org/downloads/#SkyWalkingRo
 * [bilibili B站 视频](https://space.bilibili.com/390683219)
 
 # License
-[Apache 2.0 License.](/LICENSE)
+[Apache 2.0 License.](LICENSE)
