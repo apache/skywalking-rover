@@ -23,103 +23,26 @@
 #include "../l24/l24.h"
 #include "transfer.h"
 
-struct trace_point_common_exit {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    __u64 ret;
-};
-struct trace_point_common_write {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    char * buf;
-    size_t count;
-};
-struct trace_point_common_writev {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct iovec * vec;
-    size_t count;
-};
-struct trace_point_common_readv {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct iovec * vec;
-    size_t count;
-};
-struct trace_point_common_sendmsg {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct user_msghdr * msg;
-};
-struct trace_point_common_sendmmsg {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct mmsghdr * mmsg;
-    unsigned int vlen;
-};
-struct trace_point_enter_sendto {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    char * buf;
-    size_t count;
-    unsigned int flags;
-    struct sockaddr * addr;
-};
-struct trace_point_enter_recvfrom {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    char * buf;
-    size_t count;
-    unsigned int flags;
-    struct sockaddr * addr;
-};
-struct trace_point_common_recvmsg {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct user_msghdr * msg;
-};
-struct trace_point_common_recvmmsg {
-    __u64 pad_0;
-    __u32 __syscall_nr;
-    __u32 pad_1;
-    int fd;
-    struct mmsghdr * mmsg;
-    unsigned int vlen;
-};
-struct trace_point_skb_copy_datagram_iovec {
-    __u64 pad_0;
-    void *skb;
-};
+
+struct trace_event_raw_skb_copy_datagram_iovec {
+        struct trace_entry ent;
+        const void *skbaddr;
+        int len;
+        char __data[0];
+} __attribute__((preserve_access_index));
 
 #define BPF_PROBE_READ_VAR(value, ptr) bpf_probe_read(&value, sizeof(value), ptr)
 
 SEC("tracepoint/syscalls/sys_enter_write")
-int tracepoint_enter_write(struct trace_point_common_write *ctx) {
+int tracepoint_enter_write(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.buf = ctx->buf;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.buf = (char *)ctx->args[1];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITE, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -127,7 +50,7 @@ int tracepoint_enter_write(struct trace_point_common_write *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_write")
-int tracepoint_exit_write(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_write(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
@@ -140,22 +63,22 @@ int tracepoint_exit_write(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sendto")
-int tracepoint_enter_sendto(struct trace_point_enter_sendto *ctx) {
+int tracepoint_enter_sendto(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
-    if (ctx->addr != NULL) {
+    if ((struct sockaddr *)ctx->args[4] != NULL) {
         struct connect_args_t connect_args = {};
-        connect_args.addr = ctx->addr;
-        connect_args.fd = ctx->fd;
+        connect_args.addr = (struct sockaddr *)ctx->args[4];
+        connect_args.fd = (__u32)ctx->args[0];
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.buf = ctx->buf;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.buf = (char *)ctx->args[1];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_SENDTO, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -163,7 +86,7 @@ int tracepoint_enter_sendto(struct trace_point_enter_sendto *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_sendto")
-int tracepoint_exit_sendto(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_sendto(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -184,16 +107,16 @@ int tracepoint_exit_sendto(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_writev")
-int tracepoint_enter_writev(struct trace_point_common_writev *ctx) {
+int tracepoint_enter_writev(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.iovec = ctx->vec;
-    data_args.iovlen = ctx->count;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.iovec = (struct iovec *)ctx->args[1];
+    data_args.iovlen = (size_t)ctx->args[2];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_WRITE, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -201,7 +124,7 @@ int tracepoint_enter_writev(struct trace_point_common_writev *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_writev")
-int tracepoint_exit_writev(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_writev(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
@@ -214,12 +137,12 @@ int tracepoint_exit_writev(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_sendmsg")
-int tracepoint_enter_sendmsg(struct trace_point_common_sendmsg *ctx) {
+int tracepoint_enter_sendmsg(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
-    struct user_msghdr* msghdr = ctx->msg;
+    struct user_msghdr* msghdr = (struct user_msghdr*)ctx->args[1];
     if (msghdr == NULL) {
         return 0;
     }
@@ -228,13 +151,13 @@ int tracepoint_enter_sendmsg(struct trace_point_common_sendmsg *ctx) {
     if (addr != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
+        connect_args.fd = (__u32)ctx->args[0];
         connect_args.start_nacs = bpf_ktime_get_ns();
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
+    data_args.fd = (__u32)ctx->args[0];
     data_args.iovec = _(msghdr->msg_iov);
     data_args.iovlen = _(msghdr->msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
@@ -244,7 +167,7 @@ int tracepoint_enter_sendmsg(struct trace_point_common_sendmsg *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_sendmsg")
-int tracepoint_exit_sendmsg(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_sendmsg(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -265,13 +188,13 @@ int tracepoint_exit_sendmsg(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_sendmmsg")
-int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
+int tracepoint_enter_sendmmsg(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
-    struct mmsghdr* mmsghdr = ctx->mmsg;
-    __u32 vlen = ctx->vlen;
+    struct mmsghdr* mmsghdr = (struct mmsghdr*)ctx->args[1];
+    __u32 vlen = (__u32)ctx->args[2];
     if (mmsghdr == NULL || vlen <= 0) {
         return 0;
     }
@@ -280,13 +203,13 @@ int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
     if (addr != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
+        connect_args.fd = (__u32)ctx->args[0];
         connect_args.start_nacs = bpf_ktime_get_ns();
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
+    data_args.fd = (__u32)ctx->args[0];
     struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
     data_args.iovec = msg_iov;
     size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
@@ -299,7 +222,7 @@ int tracepoint_enter_sendmmsg(struct trace_point_common_sendmmsg *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_sendmmsg")
-int tracepoint_exit_sendmmsg(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_sendmmsg(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -322,15 +245,15 @@ int tracepoint_exit_sendmmsg(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_read")
-int tracepoint_enter_read(struct trace_point_common_write *ctx) {
+int tracepoint_enter_read(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.buf = ctx->buf;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.buf = (char *)ctx->args[1];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READ, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -338,7 +261,7 @@ int tracepoint_enter_read(struct trace_point_common_write *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_read")
-int tracepoint_exit_read(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_read(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
@@ -351,16 +274,16 @@ int tracepoint_exit_read(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_readv")
-int tracepoint_enter_readv(struct trace_point_common_readv *ctx) {
+int tracepoint_enter_readv(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.iovec = ctx->vec;
-    data_args.iovlen = ctx->count;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.iovec = (struct iovec *)ctx->args[1];
+    data_args.iovlen = (size_t)ctx->args[2];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_READV, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -368,7 +291,7 @@ int tracepoint_enter_readv(struct trace_point_common_readv *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_readv")
-int tracepoint_exit_readv(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_readv(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args && data_args->is_sock_event) {
@@ -411,22 +334,22 @@ int sys_recv_ret(struct pt_regs* ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_recvfrom")
-int tracepoint_enter_recvfrom(struct trace_point_enter_recvfrom *ctx) {
+int tracepoint_enter_recvfrom(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
-    if (ctx->addr != NULL) {
+    if ((struct sockaddr *)ctx->args[4] != NULL) {
         struct connect_args_t connect_args = {};
-        connect_args.addr = ctx->addr;
-        connect_args.fd = ctx->fd;
+        connect_args.addr = (struct sockaddr *)ctx->args[4];
+        connect_args.fd = (__u32)ctx->args[0];
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
-    data_args.buf = ctx->buf;
+    data_args.fd = (__u32)ctx->args[0];
+    data_args.buf = (char *)ctx->args[1];
     data_args.start_nacs = bpf_ktime_get_ns();
     data_args.data_id = generate_socket_data_id(id, data_args.fd, SOCKET_OPTS_TYPE_RECVFROM, false);
     bpf_map_update_elem(&socket_data_args, &id, &data_args, 0);
@@ -434,7 +357,7 @@ int tracepoint_enter_recvfrom(struct trace_point_enter_recvfrom *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_recvfrom")
-int tracepoint_exit_recvfrom(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_recvfrom(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -455,12 +378,12 @@ int tracepoint_exit_recvfrom(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_recvmsg")
-int tracepoint_enter_recvmsg(struct trace_point_common_recvmsg *ctx) {
+int tracepoint_enter_recvmsg(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
-    struct user_msghdr* msghdr = ctx->msg;
+    struct user_msghdr* msghdr = (struct user_msghdr*)ctx->args[1];
     if (msghdr == NULL) {
         return 0;
     }
@@ -469,13 +392,13 @@ int tracepoint_enter_recvmsg(struct trace_point_common_recvmsg *ctx) {
     if (addr != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
+        connect_args.fd = (__u32)ctx->args[0];
         connect_args.start_nacs = bpf_ktime_get_ns();
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
+    data_args.fd = (__u32)ctx->args[0];
     data_args.iovec = _(msghdr->msg_iov);
     data_args.iovlen = _(msghdr->msg_iovlen);
     data_args.start_nacs = bpf_ktime_get_ns();
@@ -485,7 +408,7 @@ int tracepoint_enter_recvmsg(struct trace_point_common_recvmsg *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_recvmsg")
-int tracepoint_exit_recvmsg(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_recvmsg(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -506,13 +429,13 @@ int tracepoint_exit_recvmsg(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_recvmmsg")
-int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
+int tracepoint_enter_recvmmsg(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
-    struct mmsghdr* mmsghdr = ctx->mmsg;
-    __u32 vlen = ctx->vlen;
+    struct mmsghdr* mmsghdr = (struct mmsghdr*)ctx->args[1];
+    __u32 vlen = (__u32)ctx->args[2];
     if (mmsghdr == NULL || vlen <= 0) {
         return 0;
     }
@@ -521,13 +444,13 @@ int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
     if (addr != NULL) {
         struct connect_args_t connect_args = {};
         connect_args.addr = addr;
-        connect_args.fd = ctx->fd;
+        connect_args.fd = (__u32)ctx->args[0];
         connect_args.start_nacs = bpf_ktime_get_ns();
         bpf_map_update_elem(&conecting_args, &id, &connect_args, 0);
     }
 
     struct sock_data_args_t data_args = {};
-    data_args.fd = ctx->fd;
+    data_args.fd = (__u32)ctx->args[0];
     struct iovec *msg_iov = _(mmsghdr->msg_hdr.msg_iov);
     data_args.iovec = msg_iov;
     size_t msg_iovlen = _(mmsghdr->msg_hdr.msg_iovlen);
@@ -540,7 +463,7 @@ int tracepoint_enter_recvmmsg(struct trace_point_common_recvmmsg *ctx) {
 }
 
 SEC("tracepoint/syscalls/sys_exit_recvmmsg")
-int tracepoint_exit_recvmmsg(struct trace_point_common_exit *ctx) {
+int tracepoint_exit_recvmmsg(struct syscall_trace_exit *ctx) {
     __u64 id = bpf_get_current_pid_tgid();
     ssize_t bytes_count = ctx->ret;
 
@@ -563,9 +486,9 @@ int tracepoint_exit_recvmmsg(struct trace_point_common_exit *ctx) {
 }
 
 SEC("tracepoint/skb/skb_copy_datagram_iovec")
-int tracepoint_skb_copy_datagram_iovec(struct trace_point_skb_copy_datagram_iovec* ctx) {
+int tracepoint_skb_copy_datagram_iovec(struct trace_event_raw_skb_copy_datagram_iovec* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
-    struct sk_buff *buff = ctx->skb;
+    struct sk_buff *buff = (struct sk_buff *)ctx->skbaddr;
     struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
     if (data_args == NULL) {
         bpf_map_delete_elem(&sk_buff_receive_detail_map, &buff);

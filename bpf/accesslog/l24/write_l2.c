@@ -18,18 +18,19 @@
 #include "l24.h"
 #include "../common/data_args.h"
 
-struct net_dev_start_xmit_args {
-  unsigned long pad0;
-  unsigned long pad1;
+struct trace_event_raw_net_dev_start_xmit {
+        struct trace_entry ent;
+        __u32 __data_loc_name;
+        __u16 queue_mapping;
+        const void *skbaddr;
+} __attribute__((aligned(8))) __attribute__((preserve_access_index)) ;
 
-  void *skb;
-};
 
-struct net_dev_xmit_args {
-  unsigned long pad0;
+struct trace_event_raw_net_dev_xmit {
+    struct trace_entry ent;
+    void *skbaddr;
+} __attribute__((preserve_access_index));
 
-  void *skb;
-};
 
 SEC("kprobe/__dev_queue_xmit")
 int dev_queue_emit(struct pt_regs * ctx){
@@ -52,8 +53,8 @@ int dev_queue_emit_ret(struct pt_regs * ctx){
 }
 
 SEC("tracepoint/net/net_dev_start_xmit")
-int tracepoint_net_dev_start_xmit(struct net_dev_start_xmit_args *args) {
-    struct sk_buff * skb = args->skb;
+int tracepoint_net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *args) {
+    struct sk_buff * skb = (struct sk_buff *)args->skbaddr;
     struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
     if (detail != NULL) {
         detail->l2_start_xmit_time = bpf_ktime_get_ns();
@@ -62,8 +63,8 @@ int tracepoint_net_dev_start_xmit(struct net_dev_start_xmit_args *args) {
 }
 
 SEC("tracepoint/net/net_dev_xmit")
-int tracepoint_net_dev_xmit(struct net_dev_xmit_args *args) {
-    struct sk_buff * skb = args->skb;
+int tracepoint_net_dev_xmit(struct trace_event_raw_net_dev_xmit *args) {
+    struct sk_buff * skb = (struct sk_buff *)args->skbaddr;
     struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
     if (detail != NULL) {
         detail->l2_finish_xmit_time = bpf_ktime_get_ns();

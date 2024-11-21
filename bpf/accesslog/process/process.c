@@ -26,19 +26,17 @@ struct process_execute_event {
     __u32 pid;
 };
 
-struct sched_comm_fork_ctx {
-    unsigned short common_type;
-    unsigned char common_flags;
-    unsigned char common_preempt_count;
-    int common_pid;
-	char parent_comm[16];
-	pid_t parent_pid;
-	char child_comm[16];
-	pid_t child_pid;
-};
+struct trace_event_raw_sched_process_fork {
+        struct trace_entry ent;
+        char parent_comm[16];
+        __u32 parent_pid;
+        char child_comm[16];
+        __u32 child_pid;
+        char __data[0];
+}  __attribute__((preserve_access_index)) ;
 
 SEC("tracepoint/sched/sched_process_fork")
-int tracepoint_sched_process_fork(struct sched_comm_fork_ctx* ctx) {
+int tracepoint_sched_process_fork(struct trace_event_raw_sched_process_fork* ctx) {
     __u32 tgid = ctx->parent_pid;
     // adding to the monitor
     __u32 v = 1;
