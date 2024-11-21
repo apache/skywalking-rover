@@ -1,0 +1,25 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^http://pgp.mit.edu:11371"
+    },
+    {
+      "pattern": "^https://twitter.com*"
+    },
+    {
+      "pattern": "^http://people.apache.org/committer-index.html"
+    }
+  ],
+  "timeout": "10s",
+  "retryOn429": true,
+  "retryCount": 10,
+  "fallbackRetryDelay": "1000s",
+  "aliveStatusCodes": [
+    200,
+    401,
+    403
+  ]
+}
