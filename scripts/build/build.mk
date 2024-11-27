@@ -19,7 +19,7 @@
 BINARY = skywalking-rover
 
 OUT_DIR = bin
-GO_BUILD_FLAGS = -v
+GO_BUILD_FLAGS = -buildvcs=false -v
 GO_BUILD_LDFLAGS = -X main.version=$(VERSION)
 
 PLATFORMS := linux
@@ -36,7 +36,7 @@ deps:
 .PHONY: $(PLATFORMS)
 $(PLATFORMS): deps
 	mkdir -p $(OUT_DIR)
-	GOOS=$(os) GOARCH=$(ARCH) $(GO_BUILD) $(GO_BUILD_FLAGS) -ldflags "$(GO_BUILD_LDFLAGS)" -o $(OUT_DIR)/$(BINARY)-$(VERSION)-$(os)-$(ARCH) ./cmd
+	CGO_ENABLED=0 GOOS=$(os) GOARCH=$(ARCH) $(GO_BUILD) $(GO_BUILD_FLAGS) -ldflags "$(GO_BUILD_LDFLAGS)" -o $(OUT_DIR)/$(BINARY)-$(VERSION)-$(os)-$(ARCH) ./cmd
 
 .PHONY: build
 build: linux
