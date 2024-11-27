@@ -7,6 +7,8 @@ Release Notes.
 #### Features
 * Separate multiple process for reading connection information in the access log module.
 * Add a delay time before delete the connection in the access log module.
+* Fix context structs parameters for tracepoint programs.
+* Improve the build of skywalking-rover by adding some options.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

@@ -23,8 +23,6 @@ WORKDIR /src
 
 COPY . .
 
-ENV CGO_ENABLED=0
-
 RUN go install github.com/go-delve/delve/cmd/dlv@latest
 
 RUN VERSION=$VERSION make generate && make linux
