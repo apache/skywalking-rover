@@ -120,7 +120,8 @@ type PartitionContext struct {
 	analyzeLocker sync.Mutex
 }
 
-func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol, currentDataId uint64) *PartitionConnection {
+func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	connection := &PartitionConnection{
 		connectionID:     conID,
 		randomID:         randomID,
@@ -129,19 +130,20 @@ func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64
 		protocolAnalyzer: make(map[enums.ConnectionProtocol]Protocol),
 		protocolMetrics:  make(map[enums.ConnectionProtocol]ProtocolMetrics),
 	}
-	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol, currentDataId)
+	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol, currentDataID)
 	return connection
 }
 
-func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol, currentDataId uint64) {
-	if minDataId, exist := p.protocol[protocol]; !exist {
+func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) {
+	if minDataID, exist := p.protocol[protocol]; !exist {
 		analyzer := protocolMgr.GetProtocol(protocol)
-		p.protocol[protocol] = currentDataId
+		p.protocol[protocol] = currentDataID
 		p.dataBuffers[protocol] = buffer.NewBuffer()
 		p.protocolAnalyzer[protocol] = analyzer
 		p.protocolMetrics[protocol] = analyzer.GenerateConnection(conID, randomID)
-	} else if currentDataId < minDataId {
-		p.protocol[protocol] = currentDataId
+	} else if currentDataID < minDataID {
+		p.protocol[protocol] = currentDataID
 	}
 }
 
@@ -227,15 +229,16 @@ func (p *PartitionContext) Consume(data interface{}) {
 	}
 }
 
-func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64, protocol enums.ConnectionProtocol, currentDataId uint64) *PartitionConnection {
+func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
 	if exist {
 		connection := conn.(*PartitionConnection)
-		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol, currentDataId)
+		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 		return connection
 	}
-	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataId)
+	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 	p.connections.Set(conKey, result)
 	return result
 }
@@ -332,7 +335,7 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 
 	// since the socket data/detail are getting unsorted, so rover need to using the minimal data id to analyze to ensure the order
 	sortedProtocols := make([]enums.ConnectionProtocol, 0, len(connection.protocol))
-	for protocol, _ := range connection.protocol {
+	for protocol := range connection.protocol {
 		sortedProtocols = append(sortedProtocols, protocol)
 	}
 	sort.Slice(sortedProtocols, func(i, j int) bool {
