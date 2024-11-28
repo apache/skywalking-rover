@@ -33,6 +33,8 @@ var (
 )
 
 type SocketDataBuffer interface {
+	// Protocol of the buffer
+	Protocol() enums.ConnectionProtocol
 	// GenerateConnectionID for identity the buffer belong which connection
 	GenerateConnectionID() string
 	// BufferData of the buffer
@@ -86,6 +88,10 @@ type SocketDataEventLimited struct {
 	SocketDataBuffer
 	From int
 	Size int
+}
+
+func (s *SocketDataEventLimited) Protocol() enums.ConnectionProtocol {
+	return s.SocketDataBuffer.Protocol()
 }
 
 func (s *SocketDataEventLimited) BufferData() []byte {

@@ -206,7 +206,7 @@ func (r *Register) generateGOTLSSymbolOffsets(register *Register, elfFile *elf.F
 
 	sym := register.SearchSymbol(func(a, b string) bool {
 		return a == b
-	}, "go.itab.*net.TCPConn,net.Conn")
+	}, "go.itab.*net.TCPConn,net.Conn", "go:itab.*net.TCPConn,net.Conn")
 	if sym == nil {
 		log.Warnf("could not found the tcp connection symbol: go.itab.*net.TCPConn,net.Conn")
 		return nil, nil

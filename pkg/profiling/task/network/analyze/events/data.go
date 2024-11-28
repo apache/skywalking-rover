@@ -24,7 +24,7 @@ import (
 )
 
 type SocketDataUploadEvent struct {
-	Protocol     enums.ConnectionProtocol
+	Protocol0    enums.ConnectionProtocol
 	HaveReduce   uint8
 	Direction0   enums.SocketDataDirection
 	Finished     uint8
@@ -37,6 +37,10 @@ type SocketDataUploadEvent struct {
 	DataID0      uint64
 	TotalSize0   uint64
 	Buffer       [2048]byte
+}
+
+func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {
+	return s.Protocol0
 }
 
 func (s *SocketDataUploadEvent) GenerateConnectionID() string {
