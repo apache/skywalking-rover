@@ -71,10 +71,10 @@ func (a *Analyzer) Start(ctx context.Context) {
 }
 
 func (a *Analyzer) ReceiveSocketDataEvent(event *events.SocketDataUploadEvent) {
-	analyzer := a.protocols[event.Protocol]
+	analyzer := a.protocols[event.Protocol()]
 	if analyzer == nil {
 		log.Warnf("could not found any protocol to handle socket data, connection id: %s, protocol: %s(%d)",
-			event.GenerateConnectionID(), enums.ConnectionProtocolString(event.Protocol), event.Protocol)
+			event.GenerateConnectionID(), enums.ConnectionProtocolString(event.Protocol()), event.Protocol())
 		return
 	}
 	analyzer.ReceiveSocketData(a.ctx, event)

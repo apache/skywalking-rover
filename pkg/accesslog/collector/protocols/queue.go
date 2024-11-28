@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -119,25 +120,30 @@ type PartitionContext struct {
 	analyzeLocker sync.Mutex
 }
 
-func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol) *PartitionConnection {
+func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	connection := &PartitionConnection{
 		connectionID:     conID,
 		randomID:         randomID,
-		dataBuffer:       buffer.NewBuffer(),
-		protocol:         make(map[enums.ConnectionProtocol]bool),
+		dataBuffers:      make(map[enums.ConnectionProtocol]*buffer.Buffer),
+		protocol:         make(map[enums.ConnectionProtocol]uint64),
 		protocolAnalyzer: make(map[enums.ConnectionProtocol]Protocol),
 		protocolMetrics:  make(map[enums.ConnectionProtocol]ProtocolMetrics),
 	}
-	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol)
+	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol, currentDataID)
 	return connection
 }
 
-func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64, protocol enums.ConnectionProtocol) {
-	if _, exist := p.protocol[protocol]; !exist {
+func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) {
+	if minDataID, exist := p.protocol[protocol]; !exist {
 		analyzer := protocolMgr.GetProtocol(protocol)
-		p.protocol[protocol] = true
+		p.protocol[protocol] = currentDataID
+		p.dataBuffers[protocol] = buffer.NewBuffer()
 		p.protocolAnalyzer[protocol] = analyzer
 		p.protocolMetrics[protocol] = analyzer.GenerateConnection(conID, randomID)
+	} else if currentDataID < minDataID {
+		p.protocol[protocol] = currentDataID
 	}
 }
 
@@ -212,26 +218,27 @@ func (p *PartitionContext) Consume(data interface{}) {
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
 			return
 		}
-		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol())
+		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol(), event.DataID())
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
 		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
-			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol)
-		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol)
+			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0)
+		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
 }
 
-func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64, protocol enums.ConnectionProtocol) *PartitionConnection {
+func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
+	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
 	if exist {
 		connection := conn.(*PartitionConnection)
-		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol)
+		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 		return connection
 	}
-	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol)
+	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 	p.connections.Set(conKey, result)
 	return result
 }
@@ -254,7 +261,10 @@ func (p *PartitionContext) processEvents() {
 		p.processConnectionEvents(info)
 
 		// if the connection already closed and not contains any buffer data, then delete the connection
-		bufLen := info.dataBuffer.DataLength()
+		var bufLen = 0
+		for _, buf := range info.dataBuffers {
+			bufLen += buf.DataLength()
+		}
 		if bufLen > 0 {
 			return
 		}
@@ -309,9 +319,11 @@ func (p *PartitionContext) processExpireEvents() {
 }
 
 func (p *PartitionContext) processConnectionExpireEvents(connection *PartitionConnection) {
-	if c := connection.dataBuffer.DeleteExpireEvents(maxBufferExpireDuration); c > 0 {
-		log.Debugf("total removed %d expired socket data events from connection ID: %d, random ID: %d", c,
-			connection.connectionID, connection.randomID)
+	for _, buf := range connection.dataBuffers {
+		if c := buf.DeleteExpireEvents(maxBufferExpireDuration); c > 0 {
+			log.Debugf("total removed %d expired socket data events from connection ID: %d, random ID: %d", c,
+				connection.connectionID, connection.randomID)
+		}
 	}
 }
 
@@ -320,8 +332,17 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 		return
 	}
 	helper := &AnalyzeHelper{}
-	for protocol, analyzer := range connection.protocolAnalyzer {
-		if err := analyzer.Analyze(connection, helper); err != nil {
+
+	// since the socket data/detail are getting unsorted, so rover need to using the minimal data id to analyze to ensure the order
+	sortedProtocols := make([]enums.ConnectionProtocol, 0, len(connection.protocol))
+	for protocol := range connection.protocol {
+		sortedProtocols = append(sortedProtocols, protocol)
+	}
+	sort.Slice(sortedProtocols, func(i, j int) bool {
+		return connection.protocol[sortedProtocols[i]] < connection.protocol[sortedProtocols[j]]
+	})
+	for _, protocol := range sortedProtocols {
+		if err := connection.protocolAnalyzer[protocol].Analyze(connection, helper); err != nil {
 			log.Warnf("failed to analyze the %s protocol data: %v", enums.ConnectionProtocolString(protocol), err)
 		}
 	}
@@ -330,6 +351,8 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 		// notify the connection manager to skip analyze all data(just sending the detail)
 		connection.skipAllDataAnalyze = true
 		p.context.ConnectionMgr.SkipAllDataAnalyze(connection.connectionID, connection.randomID)
-		connection.dataBuffer.Clean()
+		for _, buf := range connection.dataBuffers {
+			buf.Clean()
+		}
 	}
 }

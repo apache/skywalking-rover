@@ -68,18 +68,19 @@ func (p *HTTP1Protocol) GenerateConnection(connectionID, randomID uint64) Protoc
 
 func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelper) error {
 	metrics := connection.Metrics(enums.ConnectionProtocolHTTP).(*HTTP1Metrics)
+	buf := connection.Buffer(enums.ConnectionProtocolHTTP)
 	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d, data len: %d",
-		metrics.ConnectionID, metrics.RandomID, connection.Buffer().DataLength())
-	connection.Buffer().ResetForLoopReading()
+		metrics.ConnectionID, metrics.RandomID, buf.DataLength())
+	buf.ResetForLoopReading()
 	for {
-		if !connection.Buffer().PrepareForReading() {
+		if !buf.PrepareForReading() {
 			return nil
 		}
 
-		messageType, err := reader.IdentityMessageType(connection.Buffer())
+		messageType, err := reader.IdentityMessageType(buf)
 		if err != nil {
 			http1Log.Debugf("failed to identity message type, %v", err)
-			if connection.Buffer().SkipCurrentElement() {
+			if buf.SkipCurrentElement() {
 				break
 			}
 			continue
@@ -88,9 +89,9 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		var result enums.ParseResult
 		switch messageType {
 		case reader.MessageTypeRequest:
-			result, _ = p.handleRequest(metrics, connection.Buffer())
+			result, _ = p.handleRequest(metrics, buf)
 		case reader.MessageTypeResponse:
-			result, _ = p.handleResponse(metrics, connection.Buffer())
+			result, _ = p.handleResponse(metrics, buf)
 		case reader.MessageTypeUnknown:
 			result = enums.ParseResultSkipPackage
 		}
@@ -98,9 +99,9 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = connection.Buffer().RemoveReadElements()
+			finishReading = buf.RemoveReadElements()
 		case enums.ParseResultSkipPackage:
-			finishReading = connection.Buffer().SkipCurrentElement()
+			finishReading = buf.SkipCurrentElement()
 		}
 
 		if finishReading {

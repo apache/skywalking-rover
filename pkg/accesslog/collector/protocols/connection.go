@@ -29,8 +29,8 @@ import (
 
 type PartitionConnection struct {
 	connectionID, randomID uint64
-	dataBuffer             *buffer.Buffer
-	protocol               map[enums.ConnectionProtocol]bool
+	dataBuffers            map[enums.ConnectionProtocol]*buffer.Buffer
+	protocol               map[enums.ConnectionProtocol]uint64 // protocol with minimal data id
 	protocolAnalyzer       map[enums.ConnectionProtocol]Protocol
 	protocolMetrics        map[enums.ConnectionProtocol]ProtocolMetrics
 	closed                 bool
@@ -48,8 +48,8 @@ func (p *PartitionConnection) IsExistProtocol(protocol enums.ConnectionProtocol)
 	return exist
 }
 
-func (p *PartitionConnection) Buffer() *buffer.Buffer {
-	return p.dataBuffer
+func (p *PartitionConnection) Buffer(protocol enums.ConnectionProtocol) *buffer.Buffer {
+	return p.dataBuffers[protocol]
 }
 
 func (p *PartitionConnection) AppendDetail(ctx *common.AccessLogContext, detail events.SocketDetail) {
@@ -58,12 +58,12 @@ func (p *PartitionConnection) AppendDetail(ctx *common.AccessLogContext, detail 
 		forwarder.SendTransferNoProtocolEvent(ctx, detail)
 		return
 	}
-	p.dataBuffer.AppendDetailEvent(detail)
+	p.dataBuffers[detail.GetProtocol()].AppendDetailEvent(detail)
 }
 
 func (p *PartitionConnection) AppendData(data buffer.SocketDataBuffer) {
 	if p.skipAllDataAnalyze {
 		return
 	}
-	p.dataBuffer.AppendDataEvent(data)
+	p.dataBuffers[data.Protocol()].AppendDataEvent(data)
 }

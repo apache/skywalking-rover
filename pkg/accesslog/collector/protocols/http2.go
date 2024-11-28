@@ -89,19 +89,20 @@ func (r *HTTP2Protocol) GenerateConnection(connectionID, randomID uint64) Protoc
 
 func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *AnalyzeHelper) error {
 	http2Metrics := connection.Metrics(enums.ConnectionProtocolHTTP2).(*HTTP2Metrics)
+	buf := connection.Buffer(enums.ConnectionProtocolHTTP2)
 	http2Log.Debugf("ready to analyze HTTP/2 protocol data, connection ID: %d, random ID: %d",
 		http2Metrics.connectionID, http2Metrics.randomID)
-	connection.Buffer().ResetForLoopReading()
+	buf.ResetForLoopReading()
 	for {
-		if !connection.Buffer().PrepareForReading() {
+		if !buf.PrepareForReading() {
 			return nil
 		}
 
-		startPosition := connection.Buffer().Position()
-		header, err := http2.ReadFrameHeader(connection.Buffer())
+		startPosition := buf.Position()
+		header, err := http2.ReadFrameHeader(buf)
 		if err != nil {
 			http2Log.Debugf("failed to read frame header, %v", err)
-			if connection.Buffer().SkipCurrentElement() {
+			if buf.SkipCurrentElement() {
 				break
 			}
 			continue
@@ -112,12 +113,12 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *Analyze
 		var result enums.ParseResult
 		switch header.Type {
 		case http2.FrameHeaders:
-			result, protocolBreak, _ = r.handleHeader(&header, startPosition, http2Metrics, connection.Buffer())
+			result, protocolBreak, _ = r.handleHeader(&header, startPosition, http2Metrics, buf)
 		case http2.FrameData:
-			result, protocolBreak, _ = r.handleData(&header, startPosition, http2Metrics, connection.Buffer())
+			result, protocolBreak, _ = r.handleData(&header, startPosition, http2Metrics, buf)
 		default:
 			tmp := make([]byte, header.Length)
-			if err := connection.Buffer().ReadUntilBufferFull(tmp); err != nil {
+			if err := buf.ReadUntilBufferFull(tmp); err != nil {
 				if errors.Is(err, buffer.ErrNotComplete) {
 					result = enums.ParseResultSkipPackage
 				} else {
@@ -139,9 +140,9 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *Analyze
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = connection.Buffer().RemoveReadElements()
+			finishReading = buf.RemoveReadElements()
 		case enums.ParseResultSkipPackage:
-			finishReading = connection.Buffer().SkipCurrentElement()
+			finishReading = buf.SkipCurrentElement()
 		}
 
 		if finishReading {
