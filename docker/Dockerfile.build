@@ -23,8 +23,6 @@ WORKDIR /src
 
 COPY . .
 
-ENV CGO_ENABLED=0
-
 RUN VERSION=$VERSION make btfgen && make linux
 RUN mv /src/bin/skywalking-rover-${VERSION}-linux-* /src/bin/skywalking-rover
 
