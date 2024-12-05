@@ -20,6 +20,7 @@ package events
 import (
 	"fmt"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -37,6 +38,22 @@ type SocketDataUploadEvent struct {
 	DataID0      uint64
 	TotalSize0   uint64
 	Buffer       [2048]byte
+}
+
+func (s *SocketDataUploadEvent) ReadFrom(r *reader.Reader) {
+	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
+	s.HaveReduce = r.ReadUint8()
+	s.Direction0 = enums.SocketDataDirection(r.ReadUint8())
+	s.Finished = r.ReadUint8()
+	s.Sequence0 = r.ReadUint16()
+	s.DataLen = r.ReadUint16()
+	s.StartTime0 = r.ReadUint64()
+	s.EndTime0 = r.ReadUint64()
+	s.ConnectionID = r.ReadUint64()
+	s.RandomID = r.ReadUint64()
+	s.DataID0 = r.ReadUint64()
+	s.TotalSize0 = r.ReadUint64()
+	r.ReadUint8Array(s.Buffer[:], 2048)
 }
 
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {

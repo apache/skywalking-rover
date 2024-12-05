@@ -30,6 +30,7 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/x86/x86asm"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/process"
 
@@ -154,11 +155,11 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 	}
 }
 
-func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSupplier func() interface{}) {
-	m.ReadEventAsyncWithBufferSize(emap, reader, os.Getpagesize(), dataSupplier)
+func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, dataSupplier func() interface{}) {
+	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), dataSupplier)
 }
 
-func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
+func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
 	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
@@ -183,12 +184,21 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, reader RingBufferR
 			}
 
 			data := dataSupplier()
-			if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
-				log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
-				continue
+			if r, ok := data.(reader.EventReader); ok {
+				sampleReader := reader.NewReader(record.RawSample)
+				r.ReadFrom(sampleReader)
+				if readErr := sampleReader.HasError(); readErr != nil {
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					continue
+				}
+			} else {
+				if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					continue
+				}
 			}
 
-			reader(data)
+			bufReader(data)
 		}
 	}()
 }

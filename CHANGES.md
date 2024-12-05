@@ -9,6 +9,7 @@ Release Notes.
 * Add a delay time before delete the connection in the access log module.
 * Fix context structs parameters for tracepoint programs.
 * Improve the build of skywalking-rover by adding some options.
+* Decode the BPF data by self instant `binary.Read` to reduce CPU usage.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
