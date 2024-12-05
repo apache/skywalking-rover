@@ -20,6 +20,7 @@ package events
 import (
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -70,6 +71,36 @@ type SocketDetailEvent struct {
 	FunctionName                  enums.SocketFunctionName
 	Protocol                      enums.ConnectionProtocol
 	SSL                           uint8
+}
+
+func (d *SocketDetailEvent) ReadFrom(r *reader.Reader) {
+	d.ConnectionID = r.ReadUint64()
+	d.RandomID = r.ReadUint64()
+	d.DataID0 = r.ReadUint64()
+	d.StartTime = r.ReadUint64()
+	d.EndTime = r.ReadUint64()
+	d.L4Duration = r.ReadUint32()
+	d.L3Duration = r.ReadUint32()
+	d.L3LocalDuration = r.ReadUint32()
+	d.L3OutputDuration = r.ReadUint32()
+	d.L3ResolveMacDuration = r.ReadUint32()
+	d.L3NetFilterDuration = r.ReadUint32()
+	d.L2Duration = r.ReadUint32()
+	d.L2ReadySendDuration = r.ReadUint32()
+	d.L2SendDuration = r.ReadUint32()
+	d.L2PackageToQueueDuration = r.ReadUint32()
+	d.L3TotalRcvDuration = r.ReadUint32()
+	d.IfIndex = r.ReadUint32()
+	d.L4PackageRcvFromQueueDuration = r.ReadUint64()
+	d.L4TotalPackageSize = r.ReadUint64()
+	d.L2EnterQueueCount = r.ReadUint8()
+	d.L4PackageCount = r.ReadUint8()
+	d.L4RetransmitPackageCount = r.ReadUint8()
+	d.L3ResolveMacCount = r.ReadUint8()
+	d.L3NetFilterCount = r.ReadUint8()
+	d.FunctionName = enums.SocketFunctionName(r.ReadUint8())
+	d.Protocol = enums.ConnectionProtocol(r.ReadUint8())
+	d.SSL = r.ReadUint8()
 }
 
 func (d *SocketDetailEvent) GetConnectionID() uint64 {

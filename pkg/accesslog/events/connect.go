@@ -20,6 +20,7 @@ package events
 import (
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -44,6 +45,29 @@ type SocketConnectEvent struct {
 	ConnTrackUpstreamIPl  uint64
 	ConnTrackUpstreamIPh  uint64
 	ConnTrackUpstreamPort uint32
+}
+
+func (c *SocketConnectEvent) ReadFrom(r *reader.Reader) {
+	c.ConID = r.ReadUint64()
+	c.RandomID = r.ReadUint64()
+	c.StartTime = r.ReadUint64()
+	c.EndTime = r.ReadUint64()
+	c.PID = r.ReadUint32()
+	c.SocketFD = r.ReadUint32()
+	c.FuncName = r.ReadUint8()
+	c.Role = r.ReadUint8()
+	c.SocketFamily = r.ReadUint8()
+	c.ConnectSuccess = r.ReadUint8()
+	c.Pad0 = r.ReadUint32()
+	c.RemoteAddrV4 = r.ReadUint32()
+	c.RemoteAddrPort = r.ReadUint32()
+	r.ReadUint8Array(c.RemoteAddrV6[:], 16)
+	c.LocalAddrV4 = r.ReadUint32()
+	c.LocalAddrPort = r.ReadUint32()
+	r.ReadUint8Array(c.LocalAddrV6[:], 16)
+	c.ConnTrackUpstreamIPl = r.ReadUint64()
+	c.ConnTrackUpstreamIPh = r.ReadUint64()
+	c.ConnTrackUpstreamPort = r.ReadUint32()
 }
 
 func (c *SocketConnectEvent) GetConnectionID() uint64 {
