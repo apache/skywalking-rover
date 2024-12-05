@@ -34,8 +34,7 @@ func Collectors() []Collector {
 	return []Collector{
 		l24CollectorsInstance,
 		transferCollectInstance,
-		closeCollectorInstance,
-		connectCollectInstance,
+		connectionCollectInstance,
 		tlsCollectInstance,
 		processCollectInstance,
 		zTunnelCollectInstance,
