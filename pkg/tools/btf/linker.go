@@ -155,8 +155,8 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 	}
 }
 
-func (m *Linker) ReadEventAsync(emap *ebpf.Map, reader RingBufferReader, dataSupplier func() interface{}) {
-	m.ReadEventAsyncWithBufferSize(emap, reader, os.Getpagesize(), dataSupplier)
+func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, dataSupplier func() interface{}) {
+	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), dataSupplier)
 }
 
 func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
@@ -185,9 +185,9 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBuff
 
 			data := dataSupplier()
 			if r, ok := data.(reader.EventReader); ok {
-				reader := reader.NewReader(record.RawSample)
-				r.ReadFrom(reader)
-				if readErr := reader.HasError(); readErr != nil {
+				sampleReader := reader.NewReader(record.RawSample)
+				r.ReadFrom(sampleReader)
+				if readErr := sampleReader.HasError(); readErr != nil {
 					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
 					continue
 				}

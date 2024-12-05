@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -215,7 +214,7 @@ d7 f0 e3 f9 09 35 c2 be 9d 74 48 19 39 b8 c9 04
 	}
 
 	for _, test := range tests {
-		t.Run(fmt.Sprintf("%v", reflect.TypeOf(test.create())), func(t *testing.T) {
+		t.Run(reflect.TypeOf(test.create()).String(), func(t *testing.T) {
 			test.hex = strings.ReplaceAll(test.hex, "\n", "")
 			test.hex = strings.ReplaceAll(test.hex, " ", "")
 			rawData, err := hex.DecodeString(test.hex)
@@ -237,5 +236,4 @@ d7 f0 e3 f9 09 35 c2 be 9d 74 48 19 39 b8 c9 04
 			assert.Equal(t, selfRead, binaryRead)
 		})
 	}
-
 }
