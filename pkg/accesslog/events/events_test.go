@@ -30,6 +30,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 )
 
+// nolint
 func TestBufferRead(t *testing.T) {
 	tests := []struct {
 		hex    string
