@@ -35,7 +35,7 @@ struct socket_data_upload_event {
     __u64 randomid;
     __u64 data_id;
     __u64 total_size;
-    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH + 1];
+    char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
 };
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -107,15 +107,17 @@ static __always_inline struct upload_data_args* generate_socket_upload_args() {
 }
 
 static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, __u8 have_reduce_after_chunk, struct socket_data_upload_event *event) {
+    if (size <= 0) {
+        return;
+    }
+    if (size > sizeof(event->buffer)) {
+        size = sizeof(event->buffer);
+    }
     event->sequence = index;
     event->data_len = size;
     event->finished = is_finished;
     event->have_reduce_after_chunk = have_reduce_after_chunk;
-    if (size <= 0) {
-        return;
-    }
-    asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
-    bpf_probe_read(&event->buffer, size & 0x7ff, buf);
+    bpf_probe_read(&event->buffer, size, buf);
 
     bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
 }
