@@ -80,9 +80,10 @@ struct {
 
 
 static __inline void upload_socket_detail(void *ctx, __u64 conid, struct active_connection_t *connection, __u8 func_name, struct sock_data_args_t *data_args, bool ssl, __u64 end_nacs) {
-    // 1. send when the SSL connection sends SSL(unencrypted) message
-    // 2. send the plain data when not SSL connection
-    if ((connection->ssl == true && ssl == true) || connection->ssl == false && ssl == false) {
+    // detail can only be send when the ssl are same:
+    // 1. when the SSL connection sends SSL(unencrypted) message
+    // 2. when the not SSL connection sends plain data
+    if (connection->ssl == ssl) {
         return;
     }
     __u32 kZero = 0;

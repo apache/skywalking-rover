@@ -98,7 +98,7 @@ int go_tls_write_ret(struct pt_regs* ctx) {
         data_args.fd = args->fd;
         data_args.buf = args->buffer_ptr;
         data_args.start_nacs = args->start_nacs;
-        data_args.data_id = get_socket_data_id(6, id, fd);
+        data_args.data_id = get_socket_data_id(6, id, args->fd);
 
         process_write_data(ctx, id, &data_args, retval0, SOCK_DATA_DIRECTION_EGRESS, false, SOCKET_OPTS_TYPE_GOTLS_WRITE, true);
     }
@@ -186,7 +186,7 @@ int go_tls_read_ret(struct pt_regs* ctx) {
         data_args.fd = args->fd;
         data_args.buf = args->buffer_ptr;
         data_args.start_nacs = args->start_nacs;
-        data_args.data_id = get_socket_data_id(8, id, fd);
+        data_args.data_id = get_socket_data_id(8, id, args->fd);
 
         process_write_data(ctx, id, &data_args, retval0, SOCK_DATA_DIRECTION_INGRESS, false, SOCKET_OPTS_TYPE_GOTLS_WRITE, true);
     }
