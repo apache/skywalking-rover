@@ -143,7 +143,7 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
     // upload the socket detail, detail can only be send when the ssl are same:
     // 1. when the SSL connection sends SSL(unencrypted) message
     // 2. when the not SSL connection sends plain data
-    if (connection->ssl == ssl) {
+    if (conn->ssl == ssl) {
         __u32 kZero = 0;
         struct socket_detail_t *detail = bpf_map_lookup_elem(&socket_detail_event_per_cpu_map, &kZero);
         if (detail != NULL) {
