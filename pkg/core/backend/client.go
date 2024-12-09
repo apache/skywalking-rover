@@ -124,15 +124,17 @@ func configTLS(conf *Config) (tc *tls.Config, tlsErr error) {
 	tlsConfig := new(tls.Config)
 	tlsConfig.Renegotiation = tls.RenegotiateNever
 	tlsConfig.InsecureSkipVerify = conf.InsecureSkipVerify
-	caPem, err := os.ReadFile(conf.CaPemPath)
-	if err != nil {
-		return nil, err
+	if conf.CaPemPath != "" {
+		caPem, err := os.ReadFile(conf.CaPemPath)
+		if err != nil {
+			return nil, err
+		}
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caPem) {
+			return nil, fmt.Errorf("failed to append certificates")
+		}
+		tlsConfig.RootCAs = certPool
 	}
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caPem) {
-		return nil, fmt.Errorf("failed to append certificates")
-	}
-	tlsConfig.RootCAs = certPool
 
 	if conf.ClientKeyPath != "" && conf.ClientPemPath != "" {
 		if err := checkTLSFile(conf.ClientKeyPath); err != nil {

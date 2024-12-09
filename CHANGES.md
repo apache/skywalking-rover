@@ -11,6 +11,7 @@ Release Notes.
 * Improve the build of skywalking-rover by adding some options.
 * Decode the BPF data by self instant `binary.Read` to reduce CPU usage.
 * Fix the unaligned memory accesses for `upload_socket_data_buf`.
+* Support for connecting to the backend server over TLS without requiring `ca.pem`.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
