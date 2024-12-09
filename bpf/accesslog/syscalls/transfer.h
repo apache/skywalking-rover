@@ -78,55 +78,6 @@ struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } socket_detail_data_queue SEC(".maps");
 
-
-static __inline void upload_socket_detail(void *ctx, __u64 conid, struct active_connection_t *connection, __u8 func_name, struct sock_data_args_t *data_args, bool ssl, __u64 end_nacs) {
-    // detail can only be send when the ssl are same:
-    // 1. when the SSL connection sends SSL(unencrypted) message
-    // 2. when the not SSL connection sends plain data
-    if (connection->ssl == ssl) {
-        return;
-    }
-    __u32 kZero = 0;
-    struct socket_detail_t *detail = bpf_map_lookup_elem(&socket_detail_event_per_cpu_map, &kZero);
-    if (detail == NULL) {
-        return;
-    }
-
-    detail->connection_id = conid;
-    detail->random_id = connection->random_id;
-    detail->data_id = data_args->data_id;
-
-    detail->start_nacs = data_args->start_nacs;
-    detail->end_nacs = end_nacs;
-
-    detail->l4_duration = data_args->exit_l4_time - data_args->enter_l4_time;
-    detail->l3_duration = data_args->l3_duration;
-    detail->l3_local_duration = data_args->l3_local_duration;
-    detail->l3_output_duration = data_args->l3_output_duration;
-    detail->l3_resolve_mac_duration = data_args->total_resolve_mac_time;
-    detail->l3_net_filter_duration = data_args->total_net_filter_time;
-    detail->l2_duration = data_args->l2_duration;
-    detail->l2_ready_send_duration = data_args->l2_ready_send_duration;
-    detail->l2_send_duration = data_args->l2_send_duration;
-    detail->ifindex = data_args->ifindex;
-    detail->l4_total_package_size = data_args->total_package_size;
-    detail->l4_package_count = data_args->package_count;
-    detail->l4_retransmit_package_count = data_args->retransmit_package_count;
-    detail->l3_resolve_mac_count = data_args->total_resolve_mac_count;
-    detail->l3_net_filter_count = data_args->total_net_filter_count;
-    detail->op_func_name = func_name;
-    detail->data_protocol = connection->protocol;
-    detail->ssl = connection->ssl;
-    detail->l2_package_to_queue_time = data_args->total_package_to_queue_time;
-    detail->l3_total_recv_time = data_args->l3_rcv_duration;
-    detail->l2_enter_queue_count = data_args->l2_enter_queue_count;
-    detail->l4_package_rcv_from_queue_time = data_args->total_package_receive_from_queue_time;
-
-    // loss package detail
-
-    bpf_perf_event_output(ctx, &socket_detail_data_queue, BPF_F_CURRENT_CPU, detail, sizeof(*detail));
-}
-
 static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
                                         __u32 data_direction, const bool vecs, __u8 func_name, bool ssl) {
     __u64 curr_nacs = bpf_ktime_get_ns();
@@ -189,8 +140,46 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
     }
 
     __u64 conid = gen_tgid_fd(tgid, args->fd);
-    // upload the socket detail
-    upload_socket_detail(ctx, conid, conn, func_name, args, ssl, curr_nacs);
+    // upload the socket detail, detail can only be send when the ssl are same:
+    // 1. when the SSL connection sends SSL(unencrypted) message
+    // 2. when the not SSL connection sends plain data
+    if (connection->ssl == ssl) {
+        __u32 kZero = 0;
+        struct socket_detail_t *detail = bpf_map_lookup_elem(&socket_detail_event_per_cpu_map, &kZero);
+        if (detail != NULL) {
+            detail->connection_id = conid;
+            detail->random_id = connection->random_id;
+            detail->data_id = data_args->data_id;
+
+            detail->start_nacs = data_args->start_nacs;
+            detail->end_nacs = end_nacs;
+
+            detail->l4_duration = data_args->exit_l4_time - data_args->enter_l4_time;
+            detail->l3_duration = data_args->l3_duration;
+            detail->l3_local_duration = data_args->l3_local_duration;
+            detail->l3_output_duration = data_args->l3_output_duration;
+            detail->l3_resolve_mac_duration = data_args->total_resolve_mac_time;
+            detail->l3_net_filter_duration = data_args->total_net_filter_time;
+            detail->l2_duration = data_args->l2_duration;
+            detail->l2_ready_send_duration = data_args->l2_ready_send_duration;
+            detail->l2_send_duration = data_args->l2_send_duration;
+            detail->ifindex = data_args->ifindex;
+            detail->l4_total_package_size = data_args->total_package_size;
+            detail->l4_package_count = data_args->package_count;
+            detail->l4_retransmit_package_count = data_args->retransmit_package_count;
+            detail->l3_resolve_mac_count = data_args->total_resolve_mac_count;
+            detail->l3_net_filter_count = data_args->total_net_filter_count;
+            detail->op_func_name = func_name;
+            detail->data_protocol = connection->protocol;
+            detail->ssl = connection->ssl;
+            detail->l2_package_to_queue_time = data_args->total_package_to_queue_time;
+            detail->l3_total_recv_time = data_args->l3_rcv_duration;
+            detail->l2_enter_queue_count = data_args->l2_enter_queue_count;
+            detail->l4_package_rcv_from_queue_time = data_args->total_package_receive_from_queue_time;
+
+            bpf_perf_event_output(ctx, &socket_detail_data_queue, BPF_F_CURRENT_CPU, detail, sizeof(*detail));
+        }
+    }
 
     // upload the socket data if need
     struct upload_data_args *upload_data_args = generate_socket_upload_args();
