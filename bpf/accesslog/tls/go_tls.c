@@ -47,7 +47,14 @@ int go_tls_write(struct pt_regs* ctx) {
     struct go_tls_connection_args_t data_args = {};
     assign_go_tls_arg(&data_args.connection_ptr, sizeof(data_args.connection_ptr), symaddrs->write_connection_loc, sp, regs);
     assign_go_tls_arg(&data_args.buffer_ptr, sizeof(data_args.buffer_ptr), symaddrs->write_buffer_loc, sp, regs);
+
+    struct go_interface conn_intf = {};
+    conn_intf.type = 1;
+    conn_intf.ptr = data_args.connection_ptr;
+    int fd = get_fd_from_go_tls_conn(conn_intf, symaddrs);
+    set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_GOTLS_WRITE);
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.fd = fd;
     bpf_map_update_elem(&go_tls_active_connection_args, &tgid_goid, &data_args, 0);
     return 0;
 }
@@ -87,15 +94,8 @@ int go_tls_write_ret(struct pt_regs* ctx) {
 
     struct go_tls_connection_args_t *args = bpf_map_lookup_elem(&go_tls_active_connection_args, &tgid_goid);
     if (args) {
-        struct go_interface conn_intf = {};
-        conn_intf.type = 1;
-        conn_intf.ptr = args->connection_ptr;
-        int fd = get_fd_from_go_tls_conn(conn_intf, symaddrs);
-
-        set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_GOTLS_WRITE);
-
         struct sock_data_args_t data_args = {};
-        data_args.fd = fd;
+        data_args.fd = args->fd;
         data_args.buf = args->buffer_ptr;
         data_args.start_nacs = args->start_nacs;
         data_args.data_id = get_socket_data_id(6, id, fd);
@@ -135,7 +135,14 @@ int go_tls_read(struct pt_regs* ctx) {
     struct go_tls_connection_args_t data_args = {};
     assign_go_tls_arg(&data_args.connection_ptr, sizeof(data_args.connection_ptr), symaddrs->read_connection_loc, sp, regs);
     assign_go_tls_arg(&data_args.buffer_ptr, sizeof(data_args.buffer_ptr), symaddrs->read_buffer_loc, sp, regs);
+    struct go_interface conn_intf = {};
+    conn_intf.type = 1;
+    conn_intf.ptr = data_args.connection_ptr;
+    int fd = get_fd_from_go_tls_conn(conn_intf, symaddrs);
+    set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_GOTLS_READ);
+
     data_args.start_nacs = bpf_ktime_get_ns();
+    data_args.fd = fd;
     bpf_map_update_elem(&go_tls_active_connection_args, &tgid_goid, &data_args, 0);
     return 0;
 }
@@ -175,15 +182,8 @@ int go_tls_read_ret(struct pt_regs* ctx) {
 
     struct go_tls_connection_args_t *args = bpf_map_lookup_elem(&go_tls_active_connection_args, &tgid_goid);
     if (args) {
-        struct go_interface conn_intf = {};
-        conn_intf.type = 1;
-        conn_intf.ptr = args->connection_ptr;
-        int fd = get_fd_from_go_tls_conn(conn_intf, symaddrs);
-
-        set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_GOTLS_READ);
-
         struct sock_data_args_t data_args = {};
-        data_args.fd = fd;
+        data_args.fd = args->fd;
         data_args.buf = args->buffer_ptr;
         data_args.start_nacs = args->start_nacs;
         data_args.data_id = get_socket_data_id(8, id, fd);
