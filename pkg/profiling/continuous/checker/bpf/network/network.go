@@ -147,7 +147,7 @@ func startBPFIfNeed() error {
 			n.ReceiveBufferEvent(event)
 		}
 	})
-	bpfLinker.ReadEventAsyncWithBufferSize(bpf.SocketBufferSendQueue, reader.Read, os.Getpagesize()*100, reader.BufferDataBPFSupplier)
+	bpfLinker.ReadEventAsyncWithBufferSize(bpf.SocketBufferSendQueue, reader.Read, os.Getpagesize()*100, 1, reader.BufferDataBPFSupplier)
 
 	if err := bpfLinker.HasError(); err != nil {
 		_ = bpfLinker.Close()

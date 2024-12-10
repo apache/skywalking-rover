@@ -13,6 +13,7 @@ Release Notes.
 * Fix the unaligned memory accesses for `upload_socket_data_buf`.
 * Support for connecting to the backend server over TLS without requiring `ca.pem`.
 * Fix missing the first socket detail event in HTTPS protocol.
+* Support parallel parsing protocol data in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
