@@ -43,6 +43,7 @@ type mapReceiver struct {
 	perCPUBuffer int
 	dataSupplier func() interface{}
 	router       func(data interface{}) string
+	parallels    int
 }
 
 func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
@@ -53,13 +54,14 @@ func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func(p
 	return &EventQueue{count: partitionCount, partitions: partitions}
 }
 
-func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize int, dataSupplier func() interface{},
+func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize, parallels int, dataSupplier func() interface{},
 	routeGenerator func(data interface{}) string) {
 	e.receivers = append(e.receivers, &mapReceiver{
 		emap:         emap,
 		perCPUBuffer: perCPUBufferSize,
 		dataSupplier: dataSupplier,
 		router:       routeGenerator,
+		parallels:    parallels,
 	})
 }
 
@@ -92,7 +94,7 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 		func(receiver *mapReceiver) {
 			linker.ReadEventAsyncWithBufferSize(receiver.emap, func(data interface{}) {
 				e.routerTransformer(data, receiver.router)
-			}, receiver.perCPUBuffer, receiver.dataSupplier)
+			}, receiver.perCPUBuffer, r.parallels, receiver.dataSupplier)
 		}(r)
 	}
 

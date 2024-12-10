@@ -77,12 +77,12 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	c.eventQueue = btf.NewEventQueue(ctx.Config.ConnectionAnalyze.Parallels, ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
 		return newConnectionPartitionContext(ctx, track)
 	})
-	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), func() interface{} {
+	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), 1, func() interface{} {
 		return &events.SocketConnectEvent{}
 	}, func(data interface{}) string {
 		return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
 	})
-	c.eventQueue.RegisterReceiver(ctx.BPF.SocketCloseEventQueue, int(perCPUBufferSize), func() interface{} {
+	c.eventQueue.RegisterReceiver(ctx.BPF.SocketCloseEventQueue, int(perCPUBufferSize), 1, func() interface{} {
 		return &events.SocketCloseEvent{}
 	}, func(data interface{}) string {
 		return fmt.Sprintf("%d", data.(*events.SocketCloseEvent).ConnectionID)
