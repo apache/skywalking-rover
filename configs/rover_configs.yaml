@@ -28,17 +28,17 @@ core:
     # The TLS switch
     enable_TLS: ${ROVER_BACKEND_ENABLE_TLS:false}
     # The file path of client.pem. The config only works when opening the TLS switch.
-    client_pem_path: ${ROVER_BACKEND_PEM_PATH:""}
+    client_pem_path: ${ROVER_BACKEND_PEM_PATH:}
     # The file path of client.key. The config only works when opening the TLS switch.
-    client_key_path: ${ROVER_BACKEND_KEY_PATH:""}
+    client_key_path: ${ROVER_BACKEND_KEY_PATH:}
     # InsecureSkipVerify controls whether a client verifies the server's certificate chain and host name.
     insecure_skip_verify: ${ROVER_BACKEND_INSECURE_SKIP_VERIFY:false}
     # The file path oca.pem. The config only works when opening the TLS switch.
-    ca_pem_path: ${ROVER_BACKEND_CA_PEM_PATH:""}
+    ca_pem_path: ${ROVER_BACKEND_CA_PEM_PATH:}
     # How frequently to check the connection(second)
     check_period: ${ROVER_BACKEND_CHECK_PERIOD:5}
     # The auth value when send request
-    authentication: ${ROVER_BACKEND_AUTHENTICATION:""}
+    authentication: ${ROVER_BACKEND_AUTHENTICATION:}
 
 process_discovery:
   # The period of report or keep alive process(second)
