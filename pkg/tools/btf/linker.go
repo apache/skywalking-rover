@@ -156,17 +156,28 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 }
 
 func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, dataSupplier func() interface{}) {
-	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), dataSupplier)
+	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), 1, dataSupplier)
 }
 
-func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer int, dataSupplier func() interface{}) {
+func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
+	parallels int, dataSupplier func() interface{}) {
 	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
 		return
 	}
+	if parallels < 1 {
+		m.errors = multierror.Append(m.errors, fmt.Errorf("parallels rading count must bigger than 1"))
+		return
+	}
 	m.closers = append(m.closers, rd)
 
+	for i := 0; i < parallels; i++ {
+		m.asyncReadEvent(rd, emap, dataSupplier, bufReader)
+	}
+}
+
+func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, dataSupplier func() interface{}, bufReader RingBufferReader) {
 	go func() {
 		for {
 			record, err := rd.Read()

@@ -62,8 +62,11 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 	if int(perCPUBufferSize) < os.Getpagesize() {
 		return nil, fmt.Errorf("the cpu buffer must bigger than %dB", os.Getpagesize())
 	}
-	if ctx.Config.ProtocolAnalyze.Parallels < 1 {
-		return nil, fmt.Errorf("the parallels cannot be small than 1")
+	if ctx.Config.ProtocolAnalyze.AnalyzeParallels < 1 {
+		return nil, fmt.Errorf("the analyze parallels cannot be small than 1")
+	}
+	if ctx.Config.ProtocolAnalyze.ParseParallels < 1 {
+		return nil, fmt.Errorf("the parse parallels cannot be small than 1")
 	}
 	if ctx.Config.ProtocolAnalyze.QueueSize < 1 {
 		return nil, fmt.Errorf("the queue size be small than 1")
@@ -85,20 +88,22 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
-	q.eventQueue = btf.NewEventQueue(q.context.Config.ProtocolAnalyze.Parallels, q.context.Config.ProtocolAnalyze.QueueSize,
+	q.eventQueue = btf.NewEventQueue(q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
 		func(num int) btf.PartitionContext {
 			return NewPartitionContext(q.context, num, q.supportAnalyzers(q.context))
 		})
-	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailDataQueue, int(q.perCPUBuffer), func() interface{} {
-		return q.detailSupplier()
-	}, func(data interface{}) string {
-		return fmt.Sprintf("%d", data.(events.SocketDetail).GetConnectionID())
-	})
-	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadEventQueue, int(q.perCPUBuffer), func() interface{} {
-		return &events.SocketDataUploadEvent{}
-	}, func(data interface{}) string {
-		return fmt.Sprintf("%d", data.(*events.SocketDataUploadEvent).ConnectionID)
-	})
+	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailDataQueue, int(q.perCPUBuffer),
+		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
+			return q.detailSupplier()
+		}, func(data interface{}) string {
+			return fmt.Sprintf("%d", data.(events.SocketDetail).GetConnectionID())
+		})
+	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadEventQueue, int(q.perCPUBuffer),
+		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
+			return &events.SocketDataUploadEvent{}
+		}, func(data interface{}) string {
+			return fmt.Sprintf("%d", data.(*events.SocketDataUploadEvent).ConnectionID)
+		})
 
 	q.eventQueue.Start(ctx, q.context.BPF.Linker)
 }
