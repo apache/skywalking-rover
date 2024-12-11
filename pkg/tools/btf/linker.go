@@ -159,7 +159,8 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, data
 	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), 1, dataSupplier)
 }
 
-func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer, parallels int, dataSupplier func() interface{}) {
+func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
+	parallels int, dataSupplier func() interface{}) {
 	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
