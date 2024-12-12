@@ -51,7 +51,8 @@ var DurationHistogramBuckets = []float64{
 
 type Analyzer struct {
 	// cache connection metrics if the connect event not receive or process
-	cache map[string]*ConnectionMetrics
+	cache  map[string]*ConnectionMetrics
+	reader *reader.Reader
 
 	sampleConfig *SamplingConfig
 }
@@ -67,7 +68,8 @@ type ConnectionMetrics struct {
 
 func NewHTTP1Analyzer() protocol.Protocol {
 	return &Analyzer{
-		cache: make(map[string]*ConnectionMetrics),
+		cache:  make(map[string]*ConnectionMetrics),
+		reader: reader.NewReader(),
 	}
 }
 
@@ -90,7 +92,7 @@ func (h *Analyzer) Init(config *profiling.TaskConfig) {
 
 func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, buf *buffer.Buffer) enums.ParseResult {
 	connectionMetrics := metrics.(*ConnectionMetrics)
-	messageType, err := reader.IdentityMessageType(buf)
+	messageType, err := h.reader.IdentityMessageType(buf)
 	if err != nil {
 		return enums.ParseResultSkipPackage
 	}
@@ -116,7 +118,7 @@ func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, 
 
 func (h *Analyzer) handleRequest(metrics *ConnectionMetrics, buf *buffer.Buffer) (enums.ParseResult, error) {
 	// parsing request
-	req, r, err := reader.ReadRequest(buf, true)
+	req, r, err := h.reader.ReadRequest(buf, true)
 	if err != nil {
 		return enums.ParseResultSkipPackage, err
 	}
@@ -137,7 +139,7 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 	request := metrics.halfData.Remove(firstElement).(*reader.Request)
 
 	// parsing request
-	response, r, err := reader.ReadResponse(request, buf, true)
+	response, r, err := h.reader.ReadResponse(request, buf, true)
 	if err != nil {
 		return enums.ParseResultSkipPackage, err
 	} else if r != enums.ParseResultSuccess {

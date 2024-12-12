@@ -19,6 +19,7 @@ package protocols
 
 import (
 	"container/list"
+	"fmt"
 	"io"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
@@ -33,16 +34,18 @@ import (
 )
 
 var http1Log = logger.GetLogger("accesslog", "collector", "protocols", "http1")
+var http1AnalyzeMaxRetryCount = 3
 
-type HTTP1ProtocolAnalyze func(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response)
+type HTTP1ProtocolAnalyze func(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) error
 
 type HTTP1Protocol struct {
 	ctx     *common.AccessLogContext
 	analyze HTTP1ProtocolAnalyze
+	reader  *reader.Reader
 }
 
 func NewHTTP1Analyzer(ctx *common.AccessLogContext, analyze HTTP1ProtocolAnalyze) *HTTP1Protocol {
-	protocol := &HTTP1Protocol{ctx: ctx}
+	protocol := &HTTP1Protocol{ctx: ctx, reader: reader.NewReader()}
 	if analyze == nil {
 		protocol.analyze = protocol.HandleHTTPData
 	} else {
@@ -55,15 +58,23 @@ type HTTP1Metrics struct {
 	ConnectionID uint64
 	RandomID     uint64
 
-	halfRequests *list.List
+	halfRequests      *list.List
+	analyzeUnFinished *list.List
 }
 
 func (p *HTTP1Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
 	return &HTTP1Metrics{
-		ConnectionID: connectionID,
-		RandomID:     randomID,
-		halfRequests: list.New(),
+		ConnectionID:      connectionID,
+		RandomID:          randomID,
+		halfRequests:      list.New(),
+		analyzeUnFinished: list.New(),
 	}
+}
+
+type HTTP1AnalyzeUnFinished struct {
+	request    *reader.Request
+	response   *reader.Response
+	retryCount int
 }
 
 func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelper) error {
@@ -71,13 +82,17 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 	buf := connection.Buffer(enums.ConnectionProtocolHTTP)
 	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d, data len: %d",
 		metrics.ConnectionID, metrics.RandomID, buf.DataLength())
+	p.handleUnFinishedEvents(metrics)
 	buf.ResetForLoopReading()
 	for {
 		if !buf.PrepareForReading() {
 			return nil
 		}
 
-		messageType, err := reader.IdentityMessageType(buf)
+		messageType, err := p.reader.IdentityMessageType(buf)
+		log.Debugf("ready to reading message type, messageType: %v, buf: %p, data id: %d, "+
+			"connection ID: %d, random ID: %d, error: %v", messageType, buf, buf.Position().DataID(),
+			metrics.ConnectionID, metrics.RandomID, err)
 		if err != nil {
 			http1Log.Debugf("failed to identity message type, %v", err)
 			if buf.SkipCurrentElement() {
@@ -89,19 +104,25 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		var result enums.ParseResult
 		switch messageType {
 		case reader.MessageTypeRequest:
-			result, _ = p.handleRequest(metrics, buf)
+			result, err = p.handleRequest(metrics, buf)
 		case reader.MessageTypeResponse:
-			result, _ = p.handleResponse(metrics, buf)
+			result, err = p.handleResponse(metrics, buf)
 		case reader.MessageTypeUnknown:
 			result = enums.ParseResultSkipPackage
+		}
+		if err != nil {
+			http1Log.Warnf("failed to handle HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d, error: %v",
+				metrics.ConnectionID, metrics.RandomID, buf.Position().DataID(), err)
 		}
 
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = buf.RemoveReadElements()
+			finishReading = buf.RemoveReadElements(false)
 		case enums.ParseResultSkipPackage:
 			finishReading = buf.SkipCurrentElement()
+			log.Debugf("skip current element, data id: %d, buf: %p, connection ID: %d, random ID: %d",
+				buf.Position().DataID(), buf, metrics.ConnectionID, metrics.RandomID)
 		}
 
 		if finishReading {
@@ -116,7 +137,7 @@ func (p *HTTP1Protocol) ForProtocol() enums.ConnectionProtocol {
 }
 
 func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer) (enums.ParseResult, error) {
-	req, result, err := reader.ReadRequest(buf, true)
+	req, result, err := p.reader.ReadRequest(buf, true)
 	if err != nil {
 		return enums.ParseResultSkipPackage, err
 	}
@@ -130,12 +151,14 @@ func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer)
 func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, b *buffer.Buffer) (enums.ParseResult, error) {
 	firstRequest := metrics.halfRequests.Front()
 	if firstRequest == nil {
+		log.Debugf("cannot found request for response, skip response, connection ID: %d, random ID: %d",
+			metrics.ConnectionID, metrics.RandomID)
 		return enums.ParseResultSkipPackage, nil
 	}
 	request := metrics.halfRequests.Remove(firstRequest).(*reader.Request)
 
 	// parsing response
-	response, result, err := reader.ReadResponse(request, b, true)
+	response, result, err := p.reader.ReadResponse(request, b, true)
 	defer func() {
 		// if parsing response failed, then put the request back to the list
 		if result != enums.ParseResultSuccess {
@@ -149,37 +172,71 @@ func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, b *buffer.Buffer) 
 	}
 
 	// getting the request and response, then send to the forwarder
-	p.analyze(metrics, request, response)
+	if analyzeError := p.analyze(metrics, request, response); analyzeError != nil {
+		p.appendAnalyzeUnFinished(metrics, request, response)
+	}
 	return enums.ParseResultSuccess, nil
 }
 
-func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) {
-	detailEvents := make([]events.SocketDetail, 0)
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, request.HeaderBuffer())
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, request.BodyBuffer())
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, response.HeaderBuffer())
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, response.BodyBuffer())
+func (p *HTTP1Protocol) appendAnalyzeUnFinished(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) {
+	metrics.analyzeUnFinished.PushBack(&HTTP1AnalyzeUnFinished{
+		request:    request,
+		response:   response,
+		retryCount: 0,
+	})
+}
 
-	if len(detailEvents) == 0 {
-		http1Log.Warnf("cannot found any detail events for HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d-%d",
-			metrics.ConnectionID, metrics.RandomID,
-			request.MinDataID(), response.BodyBuffer().LastSocketBuffer().DataID())
-		return
+func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics) {
+	for element := m.analyzeUnFinished.Front(); element != nil; {
+		unFinished := element.Value.(*HTTP1AnalyzeUnFinished)
+		err := p.analyze(m, unFinished.request, unFinished.response)
+		if err != nil {
+			unFinished.retryCount++
+			if unFinished.retryCount < http1AnalyzeMaxRetryCount {
+				element = element.Next()
+				continue
+			}
+			http1Log.Warnf("failed to analyze HTTP1 request and response, connection ID: %d, random ID: %d, "+
+				"retry count: %d, error: %v", m.ConnectionID, m.RandomID, unFinished.retryCount, err)
+		}
+		next := element.Next()
+		m.analyzeUnFinished.Remove(element)
+		element = next
 	}
-	http1Log.Debugf("found fully HTTP1 request and response, contains %d detail events , connection ID: %d, random ID: %d",
-		len(detailEvents), metrics.ConnectionID, metrics.RandomID)
+}
+
+func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) error {
+	details := make([]events.SocketDetail, 0)
+	var allInclude = true
+	var idRange *buffer.DataIDRange
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, request.HeaderBuffer(), idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, request.BodyBuffer(), idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, response.HeaderBuffer(), idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, response.BodyBuffer(), idRange, allInclude)
+
+	if !allInclude {
+		return fmt.Errorf("cannot found full detail events for HTTP/1.x protocol, "+
+			"data id: %d-%d, current details count: %d",
+			request.MinDataID(), response.BodyBuffer().LastSocketBuffer().DataID(), len(details))
+	}
+
+	http1Log.Debugf("found fully HTTP1 request and response, contains %d detail events, "+
+		"connection ID: %d, random ID: %d, data range: %d-%d(%t)",
+		len(details), metrics.ConnectionID, metrics.RandomID, idRange.From, idRange.To, idRange.IsToBufferReadFinished)
 	originalRequest := request.Original()
 	originalResponse := response.Original()
+	// delete details(each request or response is fine because it's will delete the original buffer)
+	idRange.DeleteDetails(request.HeaderBuffer())
 
 	defer func() {
 		p.CloseStream(originalRequest.Body)
 		p.CloseStream(originalResponse.Body)
 	}()
-	forwarder.SendTransferProtocolEvent(p.ctx, detailEvents, &v3.AccessLogProtocolLogs{
+	forwarder.SendTransferProtocolEvent(p.ctx, details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
-				StartTime: forwarder.BuildOffsetTimestamp(detailEvents[0].GetStartTime()),
-				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].GetEndTime()),
+				StartTime: forwarder.BuildOffsetTimestamp(details[0].GetStartTime()),
+				EndTime:   forwarder.BuildOffsetTimestamp(details[len(details)-1].GetEndTime()),
 				Version:   v3.AccessLogHTTPProtocolVersion_HTTP1,
 				Request: &v3.AccessLogHTTPProtocolRequest{
 					Method:             TransformHTTPMethod(originalRequest.Method),
@@ -198,6 +255,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, request *reader.Re
 			},
 		},
 	})
+	return nil
 }
 
 func (p *HTTP1Protocol) CloseStream(ioReader io.Closer) {

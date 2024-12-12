@@ -56,17 +56,29 @@ type Protocol interface {
 	Analyze(connection *PartitionConnection, helper *AnalyzeHelper) error
 }
 
-func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer) []events.SocketDetail {
-	if buf == nil || buf.DetailLength() == 0 {
-		return result
+func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer, dataIdRange *buffer.DataIDRange,
+	allDetailInclude bool) ([]events.SocketDetail, *buffer.DataIDRange, bool) {
+	if buf == nil || !allDetailInclude {
+		return result, dataIdRange, false
 	}
-	for e := buf.Details().Front(); e != nil; e = e.Next() {
+	details := buf.BuildDetails()
+	if details == nil || details.Len() == 0 {
+		return result, dataIdRange, false
+	}
+	currentDataIdRange := buf.BuildTotalDataIDRange()
+	if !currentDataIdRange.IsIncludeAllDetails(details) {
+		return result, dataIdRange, false
+	}
+	for e := details.Front(); e != nil; e = e.Next() {
 		if len(result) > 0 && result[len(result)-1] == e.Value {
 			continue
 		}
 		result = append(result, e.Value.(events.SocketDetail))
 	}
-	return result
+	if dataIdRange == nil {
+		return result, currentDataIdRange, true
+	}
+	return result, dataIdRange.Append(currentDataIdRange), true
 }
 
 func AnalyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {

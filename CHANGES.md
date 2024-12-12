@@ -14,6 +14,7 @@ Release Notes.
 * Support for connecting to the backend server over TLS without requiring `ca.pem`.
 * Fix missing the first socket detail event in HTTPS protocol.
 * Support parallel parsing protocol data in the access log module.
+* Reduce missing details issue in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
