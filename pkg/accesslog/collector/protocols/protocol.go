@@ -56,18 +56,18 @@ type Protocol interface {
 	Analyze(connection *PartitionConnection, helper *AnalyzeHelper) error
 }
 
-func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer, dataIdRange *buffer.DataIDRange,
+func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer, dataIDRange *buffer.DataIDRange,
 	allDetailInclude bool) ([]events.SocketDetail, *buffer.DataIDRange, bool) {
 	if buf == nil || !allDetailInclude {
-		return result, dataIdRange, false
+		return result, dataIDRange, false
 	}
 	details := buf.BuildDetails()
 	if details == nil || details.Len() == 0 {
-		return result, dataIdRange, false
+		return result, dataIDRange, false
 	}
-	currentDataIdRange := buf.BuildTotalDataIDRange()
-	if !currentDataIdRange.IsIncludeAllDetails(details) {
-		return result, dataIdRange, false
+	currentDataIDRange := buf.BuildTotalDataIDRange()
+	if !currentDataIDRange.IsIncludeAllDetails(details) {
+		return result, dataIDRange, false
 	}
 	for e := details.Front(); e != nil; e = e.Next() {
 		if len(result) > 0 && result[len(result)-1] == e.Value {
@@ -75,10 +75,10 @@ func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buf
 		}
 		result = append(result, e.Value.(events.SocketDetail))
 	}
-	if dataIdRange == nil {
-		return result, currentDataIdRange, true
+	if dataIDRange == nil {
+		return result, currentDataIDRange, true
 	}
-	return result, dataIdRange.Append(currentDataIdRange), true
+	return result, dataIDRange.Append(currentDataIDRange), true
 }
 
 func AnalyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {

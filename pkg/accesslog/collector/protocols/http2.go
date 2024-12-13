@@ -205,7 +205,7 @@ func (r *HTTP2Protocol) handleHeader(header *http2.FrameHeader, startPos *buffer
 	// is end of stream and in the response
 	if header.Flags.Has(http2.FlagHeadersEndStream) {
 		// should be end of the stream and send to the protocol
-		r.analyze(streaming)
+		_ = r.analyze(streaming)
 		// delete streaming
 		delete(metrics.streams, header.StreamID)
 	}
@@ -227,7 +227,7 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(metrics *HTTP2Metrics, id ui
 		http2Log.Infof("detect the HTTP/2 stream is too long, split the stream, connection ID: %d, stream ID: %d, headers: %v",
 			metrics.connectionID, id, streaming.ReqHeader)
 
-		r.analyze(streaming)
+		_ = r.analyze(streaming)
 
 		// clean sent buffers
 		if streaming.ReqBodyBuffer != nil {

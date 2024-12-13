@@ -127,11 +127,11 @@ func (s *SocketDataEventLimited) BufferStartPosition() int {
 	return s.From
 }
 
-func (i *DataIDRange) IsIncludeAllDetails(list *list.List) bool {
-	if list.Len() == 0 {
+func (i *DataIDRange) IsIncludeAllDetails(l *list.List) bool {
+	if l.Len() == 0 {
 		return false
 	}
-	for e := list.Front(); e != nil; e = e.Next() {
+	for e := l.Front(); e != nil; e = e.Next() {
 		if e.Value.(SocketDataDetail).DataID() < i.From || e.Value.(SocketDataDetail).DataID() > i.To {
 			return false
 		}
@@ -156,14 +156,14 @@ func (i *DataIDRange) DeleteDetails(buf *Buffer) {
 	}
 	for e := buf.detailEvents.Front(); e != nil; {
 		next := e.Next()
-		dataId := e.Value.(SocketDataDetail).DataID()
-		if dataId >= i.From && dataId <= i.To {
-			if !i.IsToBufferReadFinished && dataId == i.To {
+		dataID := e.Value.(SocketDataDetail).DataID()
+		if dataID >= i.From && dataID <= i.To {
+			if !i.IsToBufferReadFinished && dataID == i.To {
 				break
 			}
 			buf.detailEvents.Remove(e)
 			log.Debugf("delete detail event from buffer, data id: %d, ref: %p, range: %d-%d(%t)",
-				dataId, buf, i.From, i.To, i.IsToBufferReadFinished)
+				dataID, buf, i.From, i.To, i.IsToBufferReadFinished)
 		}
 		e = next
 	}
@@ -309,28 +309,28 @@ func (r *Buffer) BuildDetails() *list.List {
 	// if the original buffer is not empty, then query the details from original buffer
 	if r.originalBuffer != nil {
 		events := list.New()
-		fromDataId := r.head.DataID()
-		var endDataId uint64
+		fromDataID := r.head.DataID()
+		var endDataID uint64
 		if r.endPosition != nil {
-			endDataId = r.endPosition.DataID()
+			endDataID = r.endPosition.DataID()
 		} else {
-			endDataId = r.current.DataID()
+			endDataID = r.current.DataID()
 		}
 
 		for e := r.originalBuffer.detailEvents.Front(); e != nil; e = e.Next() {
-			if e.Value.(SocketDataDetail).DataID() >= fromDataId && e.Value.(SocketDataDetail).DataID() <= endDataId {
+			if e.Value.(SocketDataDetail).DataID() >= fromDataID && e.Value.(SocketDataDetail).DataID() <= endDataID {
 				events.PushBack(e.Value)
 			}
 		}
 		if events.Len() == 0 && log.Enable(logrus.DebugLevel) {
-			dataIdList := make([]uint64, 0)
+			dataIDList := make([]uint64, 0)
 			for e := r.originalBuffer.detailEvents.Front(); e != nil; e = e.Next() {
 				if e.Value != nil {
-					dataIdList = append(dataIdList, e.Value.(SocketDataDetail).DataID())
+					dataIDList = append(dataIDList, e.Value.(SocketDataDetail).DataID())
 				}
 			}
 			log.Debugf("cannot found details from original buffer, from data id: %d, end data id: %d, "+
-				"ref: %p, existing details data id list: %v", fromDataId, endDataId, r.originalBuffer, dataIdList)
+				"ref: %p, existing details data id list: %v", fromDataID, endDataID, r.originalBuffer, dataIDList)
 		}
 
 		return events
