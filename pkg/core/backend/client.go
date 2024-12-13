@@ -154,6 +154,9 @@ func configTLS(conf *Config) (tc *tls.Config, tlsErr error) {
 
 // checkTLSFile checks the TLS files.
 func checkTLSFile(path string) error {
+	if path == "" {
+		return nil
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return err
