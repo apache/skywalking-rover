@@ -265,7 +265,7 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
 	// if the first detail element been found, append the details until the last buffer data id
-	if firstDetailElement == nil {
+	if firstDetailElement == nil && r.detailEvents != nil {
 		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
 			if e.Value.(SocketDataDetail).DataID() == lastBuffer.DataID() {
 				detailEvents.PushBack(e.Value)
@@ -718,7 +718,10 @@ func (r *Buffer) AppendDetailEvent(event SocketDataDetail) {
 	}
 	beenAdded := false
 	for element := r.detailEvents.Front(); element != nil; element = element.Next() {
-		existEvent := element.Value.(SocketDataDetail)
+		existEvent, ok := element.Value.(SocketDataDetail)
+		if !ok {
+			continue
+		}
 		if existEvent.DataID() > event.DataID() {
 			// data id needs order
 			beenAdded = true
@@ -784,7 +787,10 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 
 	// detail event queue
 	count += r.deleteEventsWithJudgement(r.detailEvents, func(element *list.Element) bool {
-		detail := element.Value.(SocketDataDetail)
+		detail, ok := element.Value.(SocketDataDetail)
+		if !ok {
+			return true
+		}
 		isDelete := r.latestExpiredDataID > 0 && detail.DataID() <= r.latestExpiredDataID ||
 			(detail.Time() > 0 && expireTime.After(host.Time(detail.Time())))
 		if isDelete {
