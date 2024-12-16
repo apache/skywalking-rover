@@ -104,11 +104,19 @@ func (m *MessageOpt) ContentTotalSize() int {
 }
 
 func (m *MessageOpt) StartTime() uint64 {
-	return m.HeaderBuffer().FirstSocketBuffer().StartTime()
+	socketBuffer := m.HeaderBuffer().FirstSocketBuffer()
+	if socketBuffer == nil {
+		return 0
+	}
+	return socketBuffer.StartTime()
 }
 
 func (m *MessageOpt) EndTime() uint64 {
-	return m.BodyBuffer().LastSocketBuffer().EndTime()
+	socketBuffer := m.BodyBuffer().LastSocketBuffer()
+	if socketBuffer == nil {
+		return m.StartTime()
+	}
+	return socketBuffer.EndTime()
 }
 
 func (m *MessageOpt) Direction() enums.SocketDataDirection {
