@@ -134,7 +134,7 @@ func startBPFIfNeed() error {
 	}
 
 	bpf = &bpfObjects{}
-	if err := btf.LoadBPFAndAssign(loadBpf, &bpf); err != nil {
+	if err := btf.LoadBPFAndAssign(loadBpf, bpf); err != nil {
 		return err
 	}
 
