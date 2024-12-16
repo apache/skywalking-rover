@@ -35,6 +35,7 @@ type Response struct {
 	original     *http.Response
 	headerBuffer *buffer.Buffer
 	bodyBuffer   *buffer.Buffer
+	reader       *Reader
 }
 
 func (r *Response) Headers() http.Header {
@@ -49,15 +50,19 @@ func (r *Response) BodyBuffer() *buffer.Buffer {
 	return r.bodyBuffer
 }
 
+func (r *Response) Reader() *Reader {
+	return r.reader
+}
+
 func (r *Response) Original() *http.Response {
 	return r.original
 }
 
-func ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (*Response, enums.ParseResult, error) {
+func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (*Response, enums.ParseResult, error) {
 	bufReader := bufio.NewReader(buf)
 	tp := textproto.NewReader(bufReader)
 	resp := &http.Response{}
-	result := &Response{original: resp, req: req}
+	result := &Response{original: resp, req: req, reader: r}
 	result.MessageOpt = &MessageOpt{result}
 
 	headerStartPosition := buf.Position()

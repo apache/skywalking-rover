@@ -286,8 +286,8 @@ func (h *Trace) appendHTTPEvent(attaches []*v3.SpanAttachedEvent, process api.Pr
 
 func (h *Trace) appendSyscallEvents(attachEvents []*v3.SpanAttachedEvent, process api.ProcessInterface, traffic *base.ProcessTraffic,
 	message *reader.MessageOpt) []*v3.SpanAttachedEvent {
-	headerDetails := message.HeaderBuffer().Details()
-	bodyDetails := message.BodyBuffer().Details()
+	headerDetails := message.HeaderBuffer().BuildDetails()
+	bodyDetails := message.BodyBuffer().BuildDetails()
 	dataIDCache := make(map[uint64]bool)
 	for e := headerDetails.Front(); e != nil; e = e.Next() {
 		event := e.Value.(*events.SocketDetailEvent)

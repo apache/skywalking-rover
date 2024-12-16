@@ -185,7 +185,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = connection.buffer.RemoveReadElements()
+			finishReading = connection.buffer.RemoveReadElements(true)
 		case enums.ParseResultSkipPackage:
 			finishReading = connection.buffer.SkipCurrentElement()
 		}

@@ -34,6 +34,7 @@ type Request struct {
 	original     *http.Request
 	headerBuffer *buffer.Buffer
 	bodyBuffer   *buffer.Buffer
+	reader       *Reader
 }
 
 func (r *Request) Headers() http.Header {
@@ -48,6 +49,10 @@ func (r *Request) BodyBuffer() *buffer.Buffer {
 	return r.bodyBuffer
 }
 
+func (r *Request) Reader() *Reader {
+	return r.reader
+}
+
 func (r *Request) MinDataID() int {
 	return int(r.headerBuffer.FirstSocketBuffer().DataID())
 }
@@ -57,11 +62,11 @@ func (r *Request) Original() *http.Request {
 }
 
 // nolint
-func ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums.ParseResult, error) {
+func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums.ParseResult, error) {
 	bufReader := bufio.NewReader(buf)
 	tp := textproto.NewReader(bufReader)
 	req := &http.Request{}
-	result := &Request{original: req}
+	result := &Request{original: req, reader: r}
 	result.MessageOpt = &MessageOpt{result}
 
 	headerStartPosition := buf.Position()
