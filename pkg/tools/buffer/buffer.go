@@ -367,14 +367,14 @@ func (r *Buffer) DataSize() int64 {
 }
 
 func (r *Buffer) FirstSocketBuffer() SocketDataBuffer {
-	if r.dataEvents == nil || r.dataEvents.Len() == 0 {
+	if r == nil || r.dataEvents == nil || r.dataEvents.Len() == 0 {
 		return nil
 	}
 	return r.dataEvents.Front().Value.(SocketDataBuffer)
 }
 
 func (r *Buffer) LastSocketBuffer() SocketDataBuffer {
-	if r.dataEvents == nil || r.dataEvents.Len() == 0 {
+	if r == nil || r.dataEvents == nil || r.dataEvents.Len() == 0 {
 		return nil
 	}
 	return r.dataEvents.Back().Value.(SocketDataBuffer)
@@ -382,7 +382,7 @@ func (r *Buffer) LastSocketBuffer() SocketDataBuffer {
 
 // DetectNotSendingLastPosition detect the buffer contains not sending data: the BPF limited socket data count
 func (r *Buffer) DetectNotSendingLastPosition() *Position {
-	if r.dataEvents.Len() == 0 {
+	if r == nil || r.dataEvents.Len() == 0 {
 		return nil
 	}
 
