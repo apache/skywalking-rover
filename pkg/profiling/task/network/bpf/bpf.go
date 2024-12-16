@@ -34,7 +34,7 @@ type Loader struct {
 
 func NewLoader() (*Loader, error) {
 	objs := bpfObjects{}
-	if err := loadBpfObjects(&objs, btf.GetEBPFCollectionOptionsIfNeed()); err != nil {
+	if err := btf.LoadBPFAndAssign(loadBpf, &objs); err != nil {
 		return nil, err
 	}
 

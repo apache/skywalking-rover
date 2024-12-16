@@ -19,6 +19,7 @@
 #include "socket_opts.h"
 #include "socket_data.h"
 #include "socket_reader.h"
+#include "queue.h"
 #include "protocol_analyzer.h"
 #include "../common/connection.h"
 #include "../common/data_args.h"
@@ -68,15 +69,7 @@ struct socket_detail_t {
     __u8 ssl;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, __u32);
-    __type(value, struct socket_detail_t);
-    __uint(max_entries, 1);
-} socket_detail_event_per_cpu_map SEC(".maps");
-struct {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-} socket_detail_data_queue SEC(".maps");
+DATA_QUEUE(socket_detail_queue, 1024 * 1024);
 
 static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
                                         __u32 data_direction, const bool vecs, __u8 func_name, bool ssl) {
@@ -144,8 +137,8 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
     // 1. when the SSL connection sends SSL(unencrypted) message
     // 2. when the not SSL connection sends plain data
     if (conn->ssl == ssl) {
-        __u32 kZero = 0;
-        struct socket_detail_t *detail = bpf_map_lookup_elem(&socket_detail_event_per_cpu_map, &kZero);
+        struct socket_detail_t *detail;
+        detail = rover_reserve_buf(&socket_detail_queue, sizeof(*detail));
         if (detail != NULL) {
             detail->connection_id = conid;
             detail->random_id = conn->random_id;
@@ -177,7 +170,7 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
             detail->l2_enter_queue_count = args->l2_enter_queue_count;
             detail->l4_package_rcv_from_queue_time = args->total_package_receive_from_queue_time;
 
-            bpf_perf_event_output(ctx, &socket_detail_data_queue, BPF_F_CURRENT_CPU, detail, sizeof(*detail));
+            rover_submit_buf(ctx, &socket_detail_queue, detail, sizeof(*detail));
         }
     }
 

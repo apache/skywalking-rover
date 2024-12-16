@@ -19,11 +19,133 @@ package btf
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/perf"
+	"github.com/cilium/ebpf/ringbuf"
 )
+
+const dataQueuePrefix = "rover_data_queue_"
+
+var (
+	ringbufChecker   sync.Once
+	ringbufAvailable bool
+)
+
+func isRingbufAvailable() bool {
+	ringbufChecker.Do(func() {
+		buf, err := ebpf.NewMap(&ebpf.MapSpec{
+			Type:       ebpf.RingBuf,
+			MaxEntries: uint32(os.Getpagesize()),
+		})
+
+		buf.Close()
+
+		ringbufAvailable = err == nil
+
+		if ringbufAvailable {
+			log.Infof("detect the ring buffer is available in current system for enhancement of data queue")
+		}
+	})
+
+	return ringbufAvailable
+}
+
+func enhanceDataQueueOpts(bpfSpec *ebpf.CollectionSpec) {
+	it := bpfSpec.Types.Iterate()
+	for it.Next() {
+		if !strings.HasPrefix(it.Type.TypeName(), dataQueuePrefix) {
+			continue
+		}
+		if err := validateGlobalConstVoidPtrVar(it.Type); err != nil {
+			panic(fmt.Errorf("invalid global const void ptr var %s: %v", it.Type.TypeName(), err))
+		}
+
+		// if the ringbuf not available, use perf event array
+		if !isRingbufAvailable() {
+			mapName := strings.TrimPrefix(it.Type.TypeName(), dataQueuePrefix)
+			mapSpec := bpfSpec.Maps[mapName]
+			mapSpec.Type = ebpf.PerfEventArray
+			mapSpec.KeySize = 4
+			mapSpec.ValueSize = 4
+		}
+	}
+}
+
+type queueReader interface {
+	Read() ([]byte, error)
+	Close() error
+}
+
+func newQueueReader(emap *ebpf.Map, perCPUBuffer int) (queueReader, error) {
+	switch emap.Type() {
+	case ebpf.RingBuf:
+		return newRingBufReader(emap)
+	case ebpf.PerfEventArray:
+		return newPerfQueueReader(emap, perCPUBuffer)
+	}
+	return nil, fmt.Errorf("unsupported map type: %s", emap.Type().String())
+}
+
+type perfQueueReader struct {
+	name   string
+	reader *perf.Reader
+}
+
+func newPerfQueueReader(emap *ebpf.Map, perCPUBuffer int) (*perfQueueReader, error) {
+	reader, err := perf.NewReader(emap, perCPUBuffer)
+	if err != nil {
+		return nil, err
+	}
+	return &perfQueueReader{reader: reader, name: emap.String()}, nil
+}
+
+func (p *perfQueueReader) Read() ([]byte, error) {
+	read, err := p.reader.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	if read.LostSamples != 0 {
+		log.Warnf("perf event queue(%s) full, dropped %d samples", p.name, read.LostSamples)
+		return nil, nil
+	}
+
+	return read.RawSample, nil
+}
+
+func (p *perfQueueReader) Close() error {
+	return p.reader.Close()
+}
+
+type ringBufReader struct {
+	reader *ringbuf.Reader
+}
+
+func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
+	reader, err := ringbuf.NewReader(emap)
+	if err != nil {
+		return nil, err
+	}
+	return &ringBufReader{reader: reader}, nil
+}
+
+func (r *ringBufReader) Read() ([]byte, error) {
+	read, err := r.reader.Read()
+	if err != nil {
+		return nil, err
+	}
+	return read.RawSample, nil
+}
+
+func (r *ringBufReader) Close() error {
+	return r.reader.Close()
+}
 
 type PartitionContext interface {
 	Start(ctx context.Context)

@@ -92,13 +92,13 @@ func (q *AnalyzeQueue) Start(ctx context.Context) {
 		func(num int) btf.PartitionContext {
 			return NewPartitionContext(q.context, num, q.supportAnalyzers(q.context))
 		})
-	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailDataQueue, int(q.perCPUBuffer),
+	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
 			return q.detailSupplier()
 		}, func(data interface{}) string {
 			return fmt.Sprintf("%d", data.(events.SocketDetail).GetConnectionID())
 		})
-	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadEventQueue, int(q.perCPUBuffer),
+	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
 			return &events.SocketDataUploadEvent{}
 		}, func(data interface{}) string {

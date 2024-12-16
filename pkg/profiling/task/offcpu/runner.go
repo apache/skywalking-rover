@@ -113,7 +113,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	if !replacedPid {
 		return fmt.Errorf("replace the monitor pid failure")
 	}
-	if err1 := spec.LoadAndAssign(&objs, btf.GetEBPFCollectionOptionsIfNeed()); err1 != nil {
+	if err1 := spec.LoadAndAssign(&objs, btf.GetEBPFCollectionOptionsIfNeed(spec)); err1 != nil {
 		return err1
 	}
 	r.bpf = &objs

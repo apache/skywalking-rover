@@ -342,7 +342,7 @@ jobs:
         if: ${{ failure() }}
         name: Upload Logs
         with:
-          name: logs
+          name: logs ${{ matrix.test.name }}
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
 
   required:

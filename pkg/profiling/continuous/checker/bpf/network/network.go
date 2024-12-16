@@ -134,9 +134,10 @@ func startBPFIfNeed() error {
 	}
 
 	bpf = &bpfObjects{}
-	if err := loadBpfObjects(bpf, btf.GetEBPFCollectionOptionsIfNeed()); err != nil {
+	if err := btf.LoadBPFAndAssign(loadBpf, bpf); err != nil {
 		return err
 	}
+
 	bpfLinker = btf.NewLinker()
 	bpfLinker.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_sendmsg": bpf.TcpSendmsg})
 	bpfLinker.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_recvmsg": bpf.TcpRecvmsg})
