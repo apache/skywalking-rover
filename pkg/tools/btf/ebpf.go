@@ -20,6 +20,7 @@ package btf
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -41,7 +42,16 @@ var (
 	log = logger.GetLogger("tools", "btf")
 )
 
-func GetEBPFCollectionOptionsIfNeed() *ebpf.CollectionOptions {
+func LoadBPFAndAssign(loadBPF func() (*ebpf.CollectionSpec, error), objs interface{}) error {
+	bpf, err := loadBPF()
+	if err != nil {
+		return err
+	}
+
+	return bpf.LoadAndAssign(objs, GetEBPFCollectionOptionsIfNeed(bpf))
+}
+
+func GetEBPFCollectionOptionsIfNeed(bpfSpec *ebpf.CollectionSpec) *ebpf.CollectionOptions {
 	findBTFOnce.Do(func() {
 		readSpec, err := getKernelBTFAddress()
 		if err != nil {
@@ -52,6 +62,7 @@ func GetEBPFCollectionOptionsIfNeed() *ebpf.CollectionOptions {
 		spec = readSpec
 	})
 
+	enhanceDataQueueOpts(bpfSpec)
 	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{KernelTypes: spec}}
 }
 
@@ -86,4 +97,32 @@ func getKernelBTFAddress() (spec *btf.Spec, err error) {
 
 func asset(file string) ([]byte, error) {
 	return assets.ReadFile(filepath.ToSlash(file))
+}
+
+func validateGlobalConstVoidPtrVar(t btf.Type) error {
+	btfVar, ok := t.(*btf.Var)
+	if !ok {
+		return errors.New("not of type btf.Var")
+	}
+
+	if btfVar.Linkage != btf.GlobalVar {
+		return fmt.Errorf("%q is not a global variable", btfVar.Name)
+	}
+
+	btfPtr, ok := btfVar.Type.(*btf.Pointer)
+	if !ok {
+		return fmt.Errorf("%q is not a pointer", btfVar.Name)
+	}
+
+	btfConst, ok := btfPtr.Target.(*btf.Const)
+	if !ok {
+		return fmt.Errorf("%q is not const", btfVar.Name)
+	}
+
+	_, ok = btfConst.Type.(*btf.Void)
+	if !ok {
+		return fmt.Errorf("%q is not a const void pointer", btfVar.Name)
+	}
+
+	return nil
 }

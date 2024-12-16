@@ -161,7 +161,7 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, data
 
 func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
 	parallels int, dataSupplier func() interface{}) {
-	rd, err := perf.NewReader(emap, perCPUBuffer)
+	rd, err := newQueueReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
 		return
@@ -177,10 +177,10 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBuff
 	}
 }
 
-func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, dataSupplier func() interface{}, bufReader RingBufferReader) {
+func (m *Linker) asyncReadEvent(rd queueReader, emap *ebpf.Map, dataSupplier func() interface{}, bufReader RingBufferReader) {
 	go func() {
 		for {
-			record, err := rd.Read()
+			sample, err := rd.Read()
 			if err != nil {
 				if errors.Is(err, perf.ErrClosed) {
 					return
@@ -189,22 +189,17 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, dataSupplier fu
 				continue
 			}
 
-			if record.LostSamples != 0 {
-				log.Warnf("perf event queue(%s) full, dropped %d samples", emap.String(), record.LostSamples)
-				continue
-			}
-
 			data := dataSupplier()
 			if r, ok := data.(reader.EventReader); ok {
-				sampleReader := reader.NewReader(record.RawSample)
+				sampleReader := reader.NewReader(sample)
 				r.ReadFrom(sampleReader)
 				if readErr := sampleReader.HasError(); readErr != nil {
-					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(sample), err)
 					continue
 				}
 			} else {
-				if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
-					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+				if err := binary.Read(bytes.NewBuffer(sample), binary.LittleEndian, data); err != nil {
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(sample), err)
 					continue
 				}
 			}

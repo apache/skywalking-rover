@@ -15,6 +15,7 @@ Release Notes.
 * Fix missing the first socket detail event in HTTPS protocol.
 * Support parallel parsing protocol data in the access log module.
 * Upgrade Go library to `1.22`, eBPF library to `0.16.0`.
+* Introduce ringbuf queue to improve performance in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

@@ -19,6 +19,7 @@
 
 #include "socket_opts.h"
 #include "protocol_analyzer.h"
+#include "queue.h"
 
 #define SOCKET_UPLOAD_CHUNK_LIMIT 12
 
@@ -43,9 +44,7 @@ struct {
     __type(value, struct socket_data_upload_event);
     __uint(max_entries, 1);
 } socket_data_upload_event_per_cpu_map SEC(".maps");
-struct {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-} socket_data_upload_event_queue SEC(".maps");
+DATA_QUEUE(socket_data_upload_queue, 1024 * 1024);
 
 struct socket_data_sequence_t {
     __u64 data_id;
@@ -106,23 +105,40 @@ static __always_inline struct upload_data_args* generate_socket_upload_args() {
     return bpf_map_lookup_elem(&socket_data_upload_args_per_cpu_map, &kZero);
 }
 
-static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, __u8 have_reduce_after_chunk, struct socket_data_upload_event *event) {
-    if (size <= 0) {
+static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 index, char* buf, size_t size, __u32 is_finished, __u8 have_reduce_after_chunk, struct upload_data_args *args) {
+    struct socket_data_upload_event *socket_data_event;
+    socket_data_event = rover_reserve_buf(&socket_data_upload_queue, sizeof(*socket_data_event));
+    if (socket_data_event == NULL) {
         return;
     }
-    if (size > sizeof(event->buffer)) {
-        size = sizeof(event->buffer);
-    }
-    event->sequence = index;
-    event->data_len = size;
-    event->finished = is_finished;
-    event->have_reduce_after_chunk = have_reduce_after_chunk;
-    bpf_probe_read(&event->buffer, size, buf);
 
-    bpf_perf_event_output(ctx, &socket_data_upload_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    if (size > sizeof(socket_data_event->buffer)) {
+        size = sizeof(socket_data_event->buffer);
+    }
+    if (size <= 0) {
+        rover_discard_buf(socket_data_event);
+        return;
+    }
+
+    // basic data
+    socket_data_event->start_time = args->start_time;
+    socket_data_event->end_time = args->end_time;
+    socket_data_event->protocol = args->connection_protocol;
+    socket_data_event->direction = args->data_direction;
+    socket_data_event->conid = args->con_id;
+    socket_data_event->randomid = args->random_id;
+    socket_data_event->total_size = args->bytes_count;
+    socket_data_event->data_id = args->socket_data_id;
+
+    socket_data_event->sequence = index;
+    socket_data_event->data_len = size;
+    socket_data_event->finished = is_finished;
+    socket_data_event->have_reduce_after_chunk = have_reduce_after_chunk;
+    bpf_probe_read(&socket_data_event->buffer, size, buf);
+    rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event, sizeof(*socket_data_event));
 }
 
-static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct socket_data_upload_event *event, __u8 force_unfinished) {
+static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct upload_data_args *args, __u8 force_unfinished) {
     ssize_t already_send = 0;
 #pragma unroll
     for (__u8 index = 0; index < SOCKET_UPLOAD_CHUNK_LIMIT; index++) {
@@ -141,9 +157,9 @@ static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t
         __u8 sequence = index;
         if (force_unfinished == 1 && need_send_in_chunk > 0) {
             is_finished = 0;
-            sequence = generate_socket_sequence(event->conid, event->data_id);
+            sequence = generate_socket_sequence(args->con_id, args->socket_data_id);
         }
-        __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);
+        __upload_socket_data_with_buffer(ctx, sequence, buf + already_send, need_send_in_chunk, is_finished, have_reduce_after_chunk, args);
         already_send += need_send_in_chunk;
 
     }
@@ -170,12 +186,12 @@ if (iov_index < iovlen) {                                                   \
         have_reduce_after_chunk = 1;                                        \
     }                                                                       \
     __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;                            \
-    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, event);      \
+    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, args);      \
     already_send += need_send_in_chunk;                                                                                              \
     loop_count++;                                                                                                                    \
 }
 
-static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct socket_data_upload_event *event) {
+static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct upload_data_args *args) {
     ssize_t already_send = 0;
     ssize_t cur_iov_sended = 0;
     __u8 iov_index = 0;
@@ -198,26 +214,9 @@ static __inline void upload_socket_data(void *ctx, struct upload_data_args *args
     if (args->connection_protocol == CONNECTION_PROTOCOL_UNKNOWN || args->connection_ssl != args->socket_data_ssl || args->connection_skip_data_upload == 1) {
         return;
     }
-    // generate event
-    __u32 kZero = 0;
-    struct socket_data_upload_event *event = bpf_map_lookup_elem(&socket_data_upload_event_per_cpu_map, &kZero);
-    if (event == NULL) {
-        return;
-    }
-
-    // basic data
-    event->start_time = args->start_time;
-    event->end_time = args->end_time;
-    event->protocol = args->connection_protocol;
-    event->direction = args->data_direction;
-    event->conid = args->con_id;
-    event->randomid = args->random_id;
-    event->total_size = args->bytes_count;
-    event->data_id = args->socket_data_id;
-
     if (args->socket_data_buf != NULL) {
-        upload_socket_data_buf(ctx, args->socket_data_buf, args->bytes_count, event, args->socket_ssl_buffer_force_unfinished);
+        upload_socket_data_buf(ctx, args->socket_data_buf, args->bytes_count, args, args->socket_ssl_buffer_force_unfinished);
     } else if (args->socket_data_iovec != NULL) {
-        upload_socket_data_iov(ctx, args->socket_data_iovec, args->socket_data_iovlen, args->bytes_count, event);
+        upload_socket_data_iov(ctx, args->socket_data_iovec, args->socket_data_iovlen, args->bytes_count, args);
     }
 }
