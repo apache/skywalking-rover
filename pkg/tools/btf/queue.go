@@ -39,12 +39,12 @@ var (
 
 func isRingbufAvailable() bool {
 	ringbufChecker.Do(func() {
-		ringbuf, err := ebpf.NewMap(&ebpf.MapSpec{
+		buf, err := ebpf.NewMap(&ebpf.MapSpec{
 			Type:       ebpf.RingBuf,
 			MaxEntries: uint32(os.Getpagesize()),
 		})
 
-		ringbuf.Close()
+		buf.Close()
 
 		ringbufAvailable = err == nil
 

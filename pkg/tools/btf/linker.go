@@ -188,6 +188,9 @@ func (m *Linker) asyncReadEvent(rd queueReader, emap *ebpf.Map, dataSupplier fun
 				log.Warnf("read from %s ringbuffer error: %v", emap.String(), err)
 				continue
 			}
+			if len(sample) == 0 {
+				continue
+			}
 
 			data := dataSupplier()
 			if r, ok := data.(reader.EventReader); ok {
