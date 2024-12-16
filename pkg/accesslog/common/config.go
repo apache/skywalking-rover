@@ -37,7 +37,8 @@ type FlushConfig struct {
 
 type ConnectionAnalyzeConfig struct {
 	PerCPUBufferSize string `mapstructure:"per_cpu_buffer"`
-	Parallels        int    `mapstructure:"parallels"`
+	ParseParallels   int    `mapstructure:"parse_parallels"`
+	AnalyzeParallels int    `mapstructure:"analyze_parallels"`
 	QueueSize        int    `mapstructure:"queue_size"`
 }
 

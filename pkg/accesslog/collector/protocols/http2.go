@@ -19,6 +19,7 @@ package protocols
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ var maxHTTP2StreamingTime = time.Minute * 3
 
 var http2Log = logger.GetLogger("accesslog", "collector", "protocols", "http2")
 
-type HTTP2StreamAnalyze func(stream *HTTP2Streaming)
+type HTTP2StreamAnalyze func(stream *HTTP2Streaming) error
 
 type HTTP2Protocol struct {
 	ctx     *common.AccessLogContext
@@ -140,7 +141,7 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *Analyze
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = buf.RemoveReadElements()
+			finishReading = buf.RemoveReadElements(false)
 		case enums.ParseResultSkipPackage:
 			finishReading = buf.SkipCurrentElement()
 		}
@@ -194,17 +195,17 @@ func (r *HTTP2Protocol) handleHeader(header *http2.FrameHeader, startPos *buffer
 
 	if !streaming.IsInResponse {
 		r.AppendHeaders(streaming.ReqHeader, headers)
-		streaming.ReqHeaderBuffer = buffer.CombineSlices(true, streaming.ReqHeaderBuffer, buf.Slice(true, startPos, buf.Position()))
+		streaming.ReqHeaderBuffer = buffer.CombineSlices(true, buf, streaming.ReqHeaderBuffer, buf.Slice(true, startPos, buf.Position()))
 		return enums.ParseResultSuccess, false, nil
 	}
 
 	r.AppendHeaders(streaming.RespHeader, headers)
-	streaming.RespHeaderBuffer = buffer.CombineSlices(true, streaming.RespHeaderBuffer, buf.Slice(true, startPos, buf.Position()))
+	streaming.RespHeaderBuffer = buffer.CombineSlices(true, buf, streaming.RespHeaderBuffer, buf.Slice(true, startPos, buf.Position()))
 
 	// is end of stream and in the response
 	if header.Flags.Has(http2.FlagHeadersEndStream) {
 		// should be end of the stream and send to the protocol
-		r.analyze(streaming)
+		_ = r.analyze(streaming)
 		// delete streaming
 		delete(metrics.streams, header.StreamID)
 	}
@@ -226,7 +227,7 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(metrics *HTTP2Metrics, id ui
 		http2Log.Infof("detect the HTTP/2 stream is too long, split the stream, connection ID: %d, stream ID: %d, headers: %v",
 			metrics.connectionID, id, streaming.ReqHeader)
 
-		r.analyze(streaming)
+		_ = r.analyze(streaming)
 
 		// clean sent buffers
 		if streaming.ReqBodyBuffer != nil {
@@ -235,24 +236,27 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(metrics *HTTP2Metrics, id ui
 	}
 }
 
-func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) {
-	detailEvents := make([]events.SocketDetail, 0)
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, stream.ReqHeaderBuffer)
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, stream.ReqBodyBuffer)
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, stream.RespHeaderBuffer)
-	detailEvents = AppendSocketDetailsFromBuffer(detailEvents, stream.RespBodyBuffer)
+func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) error {
+	details := make([]events.SocketDetail, 0)
+	var allInclude = true
+	var idRange *buffer.DataIDRange
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.ReqHeaderBuffer, idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.ReqBodyBuffer, idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.RespHeaderBuffer, idRange, allInclude)
+	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.RespBodyBuffer, idRange, allInclude)
 
-	if len(detailEvents) == 0 {
-		http2Log.Warnf("cannot found any detail events for HTTP/2 protocol, data id: %d-%d",
-			stream.ReqHeaderBuffer.FirstSocketBuffer().DataID(), stream.RespBodyBuffer.LastSocketBuffer().DataID())
-		return
+	if !allInclude {
+		return fmt.Errorf("cannot found any detail events for HTTP/2 protocol, data id: %d-%d, current details count: %d",
+			stream.ReqHeaderBuffer.FirstSocketBuffer().DataID(), stream.RespBodyBuffer.LastSocketBuffer().DataID(),
+			len(details))
 	}
+	idRange.DeleteDetails(stream.ReqHeaderBuffer)
 
-	forwarder.SendTransferProtocolEvent(r.ctx, detailEvents, &v3.AccessLogProtocolLogs{
+	forwarder.SendTransferProtocolEvent(r.ctx, details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
-				StartTime: forwarder.BuildOffsetTimestamp(r.FirstDetail(stream.ReqBodyBuffer, detailEvents[0]).GetStartTime()),
-				EndTime:   forwarder.BuildOffsetTimestamp(detailEvents[len(detailEvents)-1].GetEndTime()),
+				StartTime: forwarder.BuildOffsetTimestamp(r.FirstDetail(stream.ReqBodyBuffer, details[0]).GetStartTime()),
+				EndTime:   forwarder.BuildOffsetTimestamp(details[len(details)-1].GetEndTime()),
 				Version:   v3.AccessLogHTTPProtocolVersion_HTTP2,
 				Request: &v3.AccessLogHTTPProtocolRequest{
 					Method:             r.ParseHTTPMethod(stream),
@@ -272,6 +276,7 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) {
 			},
 		},
 	})
+	return nil
 }
 
 func (r *HTTP2Protocol) ParseHTTPMethod(streaming *HTTP2Streaming) v3.AccessLogHTTPProtocolRequestMethod {
@@ -284,10 +289,14 @@ func (r *HTTP2Protocol) ParseHTTPMethod(streaming *HTTP2Streaming) v3.AccessLogH
 }
 
 func (r *HTTP2Protocol) FirstDetail(buf *buffer.Buffer, def events.SocketDetail) events.SocketDetail {
-	if buf == nil || buf.Details() == nil || buf.Details().Len() == 0 {
+	if buf == nil {
 		return def
 	}
-	return buf.Details().Front().Value.(events.SocketDetail)
+	details := buf.BuildDetails()
+	if details == nil || details.Len() == 0 {
+		return def
+	}
+	return details.Front().Value.(events.SocketDetail)
 }
 
 func (r *HTTP2Protocol) BufferSizeOfZero(buf *buffer.Buffer) uint64 {
@@ -315,9 +324,9 @@ func (r *HTTP2Protocol) handleData(header *http2.FrameHeader, startPos *buffer.P
 		return enums.ParseResultSkipPackage, false, err
 	}
 	if !streaming.IsInResponse {
-		streaming.ReqBodyBuffer = buffer.CombineSlices(true, streaming.ReqBodyBuffer, buf.Slice(true, startPos, buf.Position()))
+		streaming.ReqBodyBuffer = buffer.CombineSlices(true, buf, streaming.ReqBodyBuffer, buf.Slice(true, startPos, buf.Position()))
 	} else {
-		streaming.RespBodyBuffer = buffer.CombineSlices(true, streaming.RespBodyBuffer, buf.Slice(true, startPos, buf.Position()))
+		streaming.RespBodyBuffer = buffer.CombineSlices(true, buf, streaming.RespBodyBuffer, buf.Slice(true, startPos, buf.Position()))
 	}
 
 	r.validateIsStreamOpenTooLong(metrics, header.StreamID, streaming)

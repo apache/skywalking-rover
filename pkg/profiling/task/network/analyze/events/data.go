@@ -108,6 +108,10 @@ type SocketDetailEvent struct {
 	RTTTime          uint32
 }
 
+func (s *SocketDetailEvent) Time() uint64 {
+	return 0
+}
+
 func (s *SocketDetailEvent) DataID() uint64 {
 	return s.DataID0
 }

@@ -64,7 +64,10 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	if int(perCPUBufferSize) < os.Getpagesize() {
 		return fmt.Errorf("the cpu buffer must bigger than %dB", os.Getpagesize())
 	}
-	if ctx.Config.ConnectionAnalyze.Parallels < 1 {
+	if ctx.Config.ConnectionAnalyze.ParseParallels < 1 {
+		return fmt.Errorf("the parallels cannot be small than 1")
+	}
+	if ctx.Config.ConnectionAnalyze.AnalyzeParallels < 1 {
 		return fmt.Errorf("the parallels cannot be small than 1")
 	}
 	if ctx.Config.ConnectionAnalyze.QueueSize < 1 {
@@ -74,15 +77,17 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	if err != nil {
 		connectionLogger.Warnf("cannot create the connection tracker, %v", err)
 	}
-	c.eventQueue = btf.NewEventQueue(ctx.Config.ConnectionAnalyze.Parallels, ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
-		return newConnectionPartitionContext(ctx, track)
-	})
-	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize), 1, func() interface{} {
-		return &events.SocketConnectEvent{}
-	}, func(data interface{}) string {
-		return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
-	})
-	c.eventQueue.RegisterReceiver(ctx.BPF.SocketCloseEventQueue, int(perCPUBufferSize), 1, func() interface{} {
+	c.eventQueue = btf.NewEventQueue(ctx.Config.ConnectionAnalyze.AnalyzeParallels,
+		ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
+			return newConnectionPartitionContext(ctx, track)
+		})
+	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize),
+		ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
+			return &events.SocketConnectEvent{}
+		}, func(data interface{}) string {
+			return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
+		})
+	c.eventQueue.RegisterReceiver(ctx.BPF.SocketCloseEventQueue, int(perCPUBufferSize), ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
 		return &events.SocketCloseEvent{}
 	}, func(data interface{}) string {
 		return fmt.Sprintf("%d", data.(*events.SocketCloseEvent).ConnectionID)

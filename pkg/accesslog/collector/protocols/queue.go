@@ -215,9 +215,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 	case events.SocketDetail:
 		pid, _ := events.ParseConnectionID(event.GetConnectionID())
 		log.Debugf("receive the socket detail event, connection ID: %d, random ID: %d, pid: %d, data id: %d, "+
-			"function name: %s, package count: %d, package size: %d, ssl: %d",
+			"function name: %s, package count: %d, package size: %d, ssl: %d, protocol: %d",
 			event.GetConnectionID(), event.GetRandomID(), pid, event.DataID(), event.GetFunctionName(),
-			event.GetL4PackageCount(), event.GetL4TotalPackageSize(), event.GetSSL())
+			event.GetL4PackageCount(), event.GetL4TotalPackageSize(), event.GetSSL(), event.GetProtocol())
 		if event.GetProtocol() == enums.ConnectionProtocolUnknown {
 			// if the connection protocol is unknown, we just needs to add this into the kernel log
 			forwarder.SendTransferNoProtocolEvent(p.context, event)

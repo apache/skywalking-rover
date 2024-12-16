@@ -143,8 +143,10 @@ access_log:
   connection_analyze:
     # The size of connection buffer on each CPU
     per_cpu_buffer: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PER_CPU_BUFFER:200KB}
+    # The count of parallel connection event parse
+    parse_parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARSE_PARALLELS:1}
     # The count of parallel connection analyzer
-    parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARALLELS:1}
+    analyze_parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARALLELS:1}
     # The size of per paralleled analyzer queue
     queue_size: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_QUEUE_SIZE:2000}
   protocol_analyze:

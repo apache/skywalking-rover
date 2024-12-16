@@ -103,6 +103,10 @@ func (d *SocketDetailEvent) ReadFrom(r *reader.Reader) {
 	d.SSL = r.ReadUint8()
 }
 
+func (d *SocketDetailEvent) Time() uint64 {
+	return d.StartTime
+}
+
 func (d *SocketDetailEvent) GetConnectionID() uint64 {
 	return d.ConnectionID
 }

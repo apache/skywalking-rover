@@ -24,12 +24,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
 var (
 	ErrNotComplete = errors.New("socket: not complete event")
+	emptyList      = list.New()
+
+	log = logger.GetLogger("tools", "buffer")
 )
 
 type SocketDataBuffer interface {
@@ -67,6 +73,14 @@ type SocketDataBuffer interface {
 type SocketDataDetail interface {
 	// DataID data id of the buffer
 	DataID() uint64
+	// Time (BPF) of the detail event
+	Time() uint64
+}
+
+type DataIDRange struct {
+	From                   uint64
+	To                     uint64
+	IsToBufferReadFinished bool
 }
 
 type Buffer struct {
@@ -82,6 +96,13 @@ type Buffer struct {
 	// record the latest expired data id in connection for expire the older socket detail
 	// because the older socket detail may not be received in buffer
 	latestExpiredDataID uint64
+
+	// originalBuffer record this buffer is from Buffer.Slice or CombineSlices
+	// if it's not empty, then when getting the details should query from originalBuffer
+	// Because the BPF Queue is unsorted and can be delayed, so the details should query by real buffer
+	originalBuffer *Buffer
+	// endPosition record the end position of the originalBuffer
+	endPosition *Position
 }
 
 type SocketDataEventLimited struct {
@@ -104,6 +125,48 @@ func (s *SocketDataEventLimited) BufferLen() int {
 
 func (s *SocketDataEventLimited) BufferStartPosition() int {
 	return s.From
+}
+
+func (i *DataIDRange) IsIncludeAllDetails(l *list.List) bool {
+	if l.Len() == 0 {
+		return false
+	}
+	for e := l.Front(); e != nil; e = e.Next() {
+		if e.Value.(SocketDataDetail).DataID() < i.From || e.Value.(SocketDataDetail).DataID() > i.To {
+			return false
+		}
+	}
+	return true
+}
+
+func (i *DataIDRange) Append(other *DataIDRange) *DataIDRange {
+	if other.From < i.From {
+		i.From = other.From
+	}
+	if other.To > i.To {
+		i.To = other.To
+	}
+	i.IsToBufferReadFinished = other.IsToBufferReadFinished
+	return i
+}
+
+func (i *DataIDRange) DeleteDetails(buf *Buffer) {
+	if buf.originalBuffer != nil {
+		i.DeleteDetails(buf.originalBuffer)
+	}
+	for e := buf.detailEvents.Front(); e != nil; {
+		next := e.Next()
+		dataID := e.Value.(SocketDataDetail).DataID()
+		if dataID >= i.From && dataID <= i.To {
+			if !i.IsToBufferReadFinished && dataID == i.To {
+				break
+			}
+			buf.detailEvents.Remove(e)
+			log.Debugf("delete detail event from buffer, data id: %d, ref: %p, range: %d-%d(%t)",
+				dataID, buf, i.From, i.To, i.IsToBufferReadFinished)
+		}
+		e = next
+	}
 }
 
 type Position struct {
@@ -143,6 +206,26 @@ func (r *Buffer) FindFirstDataBuffer(dataID uint64) SocketDataBuffer {
 	return nil
 }
 
+func (r *Buffer) BuildTotalDataIDRange() *DataIDRange {
+	if r.dataEvents.Len() == 0 {
+		return nil
+	}
+	var toIndex uint64
+	var isToBufferReadFinished bool
+	if r.endPosition != nil {
+		toIndex = r.endPosition.DataID()
+		isToBufferReadFinished = r.endPosition.bufIndex == r.endPosition.element.Value.(SocketDataBuffer).BufferLen()
+	} else {
+		toIndex = r.current.DataID()
+		isToBufferReadFinished = r.current.bufIndex == r.current.element.Value.(SocketDataBuffer).BufferLen()
+	}
+	return &DataIDRange{
+		From:                   r.head.DataID(),
+		To:                     toIndex,
+		IsToBufferReadFinished: isToBufferReadFinished,
+	}
+}
+
 func (r *Buffer) Position() *Position {
 	return r.current.Clone()
 }
@@ -155,6 +238,7 @@ func (r *Buffer) Clean() {
 	r.detailEvents = list.New()
 	r.head = nil
 	r.current = nil
+	r.endPosition = nil
 }
 
 func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
@@ -181,7 +265,7 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
 	// if the first detail element been found, append the details until the last buffer data id
-	if firstDetailElement == nil {
+	if firstDetailElement == nil && r.detailEvents != nil {
 		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
 			if e.Value.(SocketDataDetail).DataID() == lastBuffer.DataID() {
 				detailEvents.PushBack(e.Value)
@@ -198,11 +282,13 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	}
 
 	return &Buffer{
-		dataEvents:   dataEvents,
-		detailEvents: detailEvents,
-		validated:    validated,
-		head:         &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
-		current:      &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
+		dataEvents:     dataEvents,
+		detailEvents:   detailEvents,
+		validated:      validated,
+		head:           &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
+		current:        &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
+		originalBuffer: r,
+		endPosition:    end,
 	}
 }
 
@@ -219,7 +305,36 @@ func (r *Buffer) Len() int {
 	return result
 }
 
-func (r *Buffer) Details() *list.List {
+func (r *Buffer) BuildDetails() *list.List {
+	// if the original buffer is not empty, then query the details from original buffer
+	if r.originalBuffer != nil {
+		events := list.New()
+		fromDataID := r.head.DataID()
+		var endDataID uint64
+		if r.endPosition != nil {
+			endDataID = r.endPosition.DataID()
+		} else {
+			endDataID = r.current.DataID()
+		}
+
+		for e := r.originalBuffer.detailEvents.Front(); e != nil; e = e.Next() {
+			if e.Value.(SocketDataDetail).DataID() >= fromDataID && e.Value.(SocketDataDetail).DataID() <= endDataID {
+				events.PushBack(e.Value)
+			}
+		}
+		if events.Len() == 0 && log.Enable(logrus.DebugLevel) {
+			dataIDList := make([]uint64, 0)
+			for e := r.originalBuffer.detailEvents.Front(); e != nil; e = e.Next() {
+				if e.Value != nil {
+					dataIDList = append(dataIDList, e.Value.(SocketDataDetail).DataID())
+				}
+			}
+			log.Debugf("cannot found details from original buffer, from data id: %d, end data id: %d, "+
+				"ref: %p, existing details data id list: %v", fromDataID, endDataID, r.originalBuffer, dataIDList)
+		}
+
+		return events
+	}
 	return r.detailEvents
 }
 
@@ -281,7 +396,7 @@ func (r *Buffer) DetectNotSendingLastPosition() *Position {
 	return nil
 }
 
-func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
+func CombineSlices(validated bool, originalBuffer *Buffer, buffers ...*Buffer) *Buffer {
 	if len(buffers) == 0 {
 		return nil
 	}
@@ -289,7 +404,6 @@ func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
 		return buffers[0]
 	}
 	dataEvents := list.New()
-	detailEvents := list.New()
 	for _, b := range buffers {
 		if b == nil || b.head == nil {
 			continue
@@ -304,15 +418,20 @@ func CombineSlices(validated bool, buffers ...*Buffer) *Buffer {
 		} else {
 			dataEvents.PushBackList(b.dataEvents)
 		}
-		detailEvents.PushBackList(b.detailEvents)
 	}
 
+	var endPosition = buffers[len(buffers)-1].endPosition
+	if endPosition == nil {
+		endPosition = buffers[len(buffers)-1].Position()
+	}
 	return &Buffer{
-		dataEvents:   dataEvents,
-		detailEvents: detailEvents,
-		validated:    validated,
-		head:         &Position{element: dataEvents.Front(), bufIndex: 0},
-		current:      &Position{element: dataEvents.Front(), bufIndex: 0},
+		dataEvents:     dataEvents,
+		detailEvents:   emptyList, // for the combined buffer, the details list should be queried from original buffer
+		validated:      validated,
+		head:           &Position{element: dataEvents.Front(), bufIndex: 0},
+		current:        &Position{element: dataEvents.Front(), bufIndex: 0},
+		originalBuffer: originalBuffer,
+		endPosition:    endPosition,
 	}
 }
 
@@ -505,12 +624,12 @@ func (r *Buffer) PrepareForReading() bool {
 }
 
 // nolint
-func (r *Buffer) RemoveReadElements() bool {
+func (r *Buffer) RemoveReadElements(includeDetails bool) bool {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
 	// delete until the last data id
-	if r.head.element != nil && r.current.element != nil {
+	if includeDetails && r.head.element != nil && r.current.element != nil {
 		firstDataID := r.head.element.Value.(SocketDataBuffer).DataID()
 		currentBuffer := r.current.element.Value.(SocketDataBuffer)
 		lastDataID := currentBuffer.DataID()
@@ -531,6 +650,7 @@ func (r *Buffer) RemoveReadElements() bool {
 			if startDelete {
 				tmp := e.Next()
 				r.detailEvents.Remove(e)
+				log.Debugf("delete detail event from readed buffer, data id: %d, ref: %p", event.DataID(), r)
 				e = tmp
 			} else {
 				e = e.Next()
@@ -588,13 +708,20 @@ func (r *Buffer) AppendDetailEvent(event SocketDataDetail) {
 		r.detailEvents.PushFront(event)
 		return
 	}
+	if r.detailEvents.Back().Value == nil {
+		r.detailEvents.PushFront(event)
+		return
+	}
 	if r.detailEvents.Back().Value.(SocketDataDetail).DataID() < event.DataID() {
 		r.detailEvents.PushBack(event)
 		return
 	}
 	beenAdded := false
 	for element := r.detailEvents.Front(); element != nil; element = element.Next() {
-		existEvent := element.Value.(SocketDataDetail)
+		existEvent, ok := element.Value.(SocketDataDetail)
+		if !ok {
+			continue
+		}
 		if existEvent.DataID() > event.DataID() {
 			// data id needs order
 			beenAdded = true
@@ -660,7 +787,16 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 
 	// detail event queue
 	count += r.deleteEventsWithJudgement(r.detailEvents, func(element *list.Element) bool {
-		return r.latestExpiredDataID > 0 && element.Value.(SocketDataDetail).DataID() <= r.latestExpiredDataID
+		detail, ok := element.Value.(SocketDataDetail)
+		if !ok {
+			return true
+		}
+		isDelete := r.latestExpiredDataID > 0 && detail.DataID() <= r.latestExpiredDataID ||
+			(detail.Time() > 0 && expireTime.After(host.Time(detail.Time())))
+		if isDelete {
+			log.Debugf("delete expired detail event, data id: %d, buf: %p", detail.DataID(), r)
+		}
+		return isDelete
 	})
 	return count
 }
@@ -670,13 +806,6 @@ func (r *Buffer) DataLength() int {
 		return 0
 	}
 	return r.dataEvents.Len()
-}
-
-func (r *Buffer) DetailLength() int {
-	if r.detailEvents == nil {
-		return 0
-	}
-	return r.detailEvents.Len()
 }
 
 func (r *Buffer) deleteEventsWithJudgement(l *list.List, checker func(element *list.Element) bool) int {

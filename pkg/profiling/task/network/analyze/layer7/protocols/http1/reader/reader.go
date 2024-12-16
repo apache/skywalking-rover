@@ -35,9 +35,6 @@ import (
 )
 
 var (
-	headBuffer = make([]byte, 16)
-	bodyBuffer = make([]byte, 4096)
-
 	requestMethods = []string{
 		"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH",
 	}
@@ -53,15 +50,27 @@ const (
 	MessageTypeUnknown
 )
 
-func IdentityMessageType(reader *buffer.Buffer) (MessageType, error) {
-	n, err := reader.Peek(headBuffer)
+type Reader struct {
+	headBuffer []byte
+	bodyBuffer []byte
+}
+
+func NewReader() *Reader {
+	return &Reader{
+		headBuffer: make([]byte, 16),
+		bodyBuffer: make([]byte, 4096),
+	}
+}
+
+func (r *Reader) IdentityMessageType(reader *buffer.Buffer) (MessageType, error) {
+	n, err := reader.Peek(r.headBuffer)
 	if err != nil {
 		return MessageTypeUnknown, err
-	} else if n != len(headBuffer) {
+	} else if n != len(r.headBuffer) {
 		return MessageTypeUnknown, fmt.Errorf("need more content for header")
 	}
 
-	headerString := string(headBuffer)
+	headerString := string(r.headBuffer)
 	isRequest := false
 	for _, method := range requestMethods {
 		if strings.HasPrefix(headerString, method) {
@@ -83,6 +92,7 @@ type Message interface {
 	Headers() http.Header
 	HeaderBuffer() *buffer.Buffer
 	BodyBuffer() *buffer.Buffer
+	Reader() *Reader
 }
 
 type MessageOpt struct {
@@ -192,7 +202,7 @@ func (m *MessageOpt) isChunked() bool {
 func (m *MessageOpt) readBodyUntilCurrentPackageFinished(buf *buffer.Buffer, reader *bufio.Reader) (*buffer.Buffer, enums.ParseResult, error) {
 	startPosition := buf.OffsetPosition(-reader.Buffered())
 	for !buf.IsCurrentPacketReadFinished() {
-		_, err := buf.Read(bodyBuffer)
+		_, err := buf.Read(m.Reader().bodyBuffer)
 		if err != nil {
 			return nil, enums.ParseResultSkipPackage, err
 		}
@@ -237,7 +247,7 @@ func (m *MessageOpt) checkChunkedBody(buf *buffer.Buffer, bodyReader *bufio.Read
 			return nil, enums.ParseResultSkipPackage, fmt.Errorf("the chunk data parding error, should be empty: %s", d)
 		}
 	}
-	return buffer.CombineSlices(true, buffers...), enums.ParseResultSuccess, nil
+	return buffer.CombineSlices(true, buf, buffers...), enums.ParseResultSuccess, nil
 }
 
 func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader, size int,
@@ -248,10 +258,10 @@ func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader,
 	startPosition := buf.OffsetPosition(-reader.Buffered())
 	for reduceSize > 0 {
 		readSize = reduceSize
-		if readSize > len(bodyBuffer) {
-			readSize = len(bodyBuffer)
+		if readSize > len(m.Reader().bodyBuffer) {
+			readSize = len(m.Reader().bodyBuffer)
 		}
-		lastReadSize, err = reader.Read(bodyBuffer[0:readSize])
+		lastReadSize, err = reader.Read(m.Reader().bodyBuffer[0:readSize])
 		if err != nil {
 			if err == buffer.ErrNotComplete {
 				return nil, enums.ParseResultSkipPackage, nil
