@@ -18,10 +18,9 @@
 package ip
 
 import (
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"net"
 	"syscall"
-
-	"github.com/apache/skywalking-rover/pkg/logger"
 
 	"github.com/florianl/go-conntrack"
 
@@ -36,9 +35,6 @@ var numberStrategies = []struct {
 }{{
 	name:  "tcp",
 	proto: syscall.IPPROTO_TCP,
-}, {
-	name:  "udp",
-	proto: syscall.IPPROTO_UDP,
 }}
 
 type ConnTrack struct {
@@ -76,19 +72,6 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 			addr.DestIP = res.Src.String()
 			return true
 		}
-	}
-
-	// using dump to query protocol
-	dump, e := c.tracker.Dump(conntrack.Conntrack, family)
-	if e != nil {
-		log.Debug("cannot dump the conntrack session, error: ", e)
-		return false
-	}
-	if res := c.filterValidateReply(dump, tuple); res != nil {
-		addr.DestIP = res.Src.String()
-		log.Debugf("found the connection from the dump all conntrack, src: %s:%d, dst: %s:%d, proto number: %d",
-			tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, *tuple.Proto.Number)
-		return true
 	}
 	return false
 }

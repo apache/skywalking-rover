@@ -77,7 +77,7 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	if err != nil {
 		connectionLogger.Warnf("cannot create the connection tracker, %v", err)
 	}
-	c.eventQueue = btf.NewEventQueue(ctx.Config.ConnectionAnalyze.AnalyzeParallels,
+	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallels,
 		ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
 			return newConnectionPartitionContext(ctx, track)
 		})

@@ -35,6 +35,7 @@ struct socket_data_upload_event {
     __u64 conid;
     __u64 randomid;
     __u64 data_id;
+    __u64 prev_data_id;
     __u64 total_size;
     char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
 };
@@ -44,7 +45,7 @@ struct {
     __type(value, struct socket_data_upload_event);
     __uint(max_entries, 1);
 } socket_data_upload_event_per_cpu_map SEC(".maps");
-DATA_QUEUE(socket_data_upload_queue, 1024 * 1024);
+DATA_QUEUE(socket_data_upload_queue);
 
 struct socket_data_sequence_t {
     __u64 data_id;
@@ -81,6 +82,7 @@ struct upload_data_args {
     __u64 random_id;
 
     __u64 socket_data_id;
+    __u64 prev_socket_data_id;
     struct iovec *socket_data_iovec;
     size_t socket_data_iovlen;
     ssize_t bytes_count;
@@ -129,11 +131,13 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     socket_data_event->randomid = args->random_id;
     socket_data_event->total_size = args->bytes_count;
     socket_data_event->data_id = args->socket_data_id;
+    socket_data_event->prev_data_id = args->prev_socket_data_id;
 
     socket_data_event->sequence = index;
     socket_data_event->data_len = size;
     socket_data_event->finished = is_finished;
     socket_data_event->have_reduce_after_chunk = have_reduce_after_chunk;
+    asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
     bpf_probe_read(&socket_data_event->buffer, size, buf);
     rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event, sizeof(*socket_data_event));
 }
@@ -208,15 +212,38 @@ static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov,
     UPLOAD_PER_SOCKET_DATA_IOV();
 }
 
+struct socket_data_last_id_t {
+    __u64 random_id;
+    __u64 socket_data_id;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 10000);
+	__type(key, __u64);
+	__type(value, struct socket_data_last_id_t);
+} socket_data_last_id_map SEC(".maps");
+
 static __inline void upload_socket_data(void *ctx, struct upload_data_args *args) {
     // must have protocol and ssl must same(plain)
     // if the connection data is needs to skip upload, then skip
     if (args->connection_protocol == CONNECTION_PROTOCOL_UNKNOWN || args->connection_ssl != args->socket_data_ssl || args->connection_skip_data_upload == 1) {
         return;
     }
+    struct socket_data_last_id_t *latest = bpf_map_lookup_elem(&socket_data_last_id_map, &args->con_id);
+    args->prev_socket_data_id = 0;
+    if (latest != NULL && latest->random_id == args->random_id) {
+        args->prev_socket_data_id = latest->socket_data_id;
+    }
     if (args->socket_data_buf != NULL) {
         upload_socket_data_buf(ctx, args->socket_data_buf, args->bytes_count, args, args->socket_ssl_buffer_force_unfinished);
     } else if (args->socket_data_iovec != NULL) {
         upload_socket_data_iov(ctx, args->socket_data_iovec, args->socket_data_iovlen, args->bytes_count, args);
+    }
+
+    if (latest == NULL || latest->socket_data_id != args->socket_data_id) {
+        struct socket_data_last_id_t data = {};
+        data.random_id = args->random_id;
+        data.socket_data_id = args->socket_data_id;
+        bpf_map_update_elem(&socket_data_last_id_map, &args->con_id, &data, BPF_ANY);
     }
 }

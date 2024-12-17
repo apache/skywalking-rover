@@ -22,6 +22,7 @@
 #include "data_args.h"
 #include "socket_opts.h"
 #include "queue.h"
+#include "socket_data.h"
 
 // syscall:connect
 struct connect_args_t {
@@ -107,7 +108,7 @@ struct socket_connect_event_t {
     __u64 conntrack_upstream_iph;
     __u32 conntrack_upstream_port;
 };
-DATA_QUEUE(socket_connection_event_queue, 1024 * 1024);
+DATA_QUEUE(socket_connection_event_queue);
 
 // active connection cached into the hashmap
 // if connection closed, then deleted
@@ -159,7 +160,7 @@ struct socket_close_event_t {
     // close success
     __u32 success;
 };
-DATA_QUEUE(socket_close_event_queue, 1024 * 1024);
+DATA_QUEUE(socket_close_event_queue);
 
 static __inline bool family_should_trace(const __u32 family) {
     return family != AF_UNKNOWN && family != AF_INET && family != AF_INET6 ? false : true;
@@ -303,6 +304,7 @@ static __inline void submit_connection_when_not_exists(void *ctx, __u64 id, stru
 }
 
 static __inline void notify_close_connection(void* ctx, __u64 conid, struct active_connection_t* con, __u64 start_time, __u64 end_time, int ret) {
+    bpf_map_delete_elem(&socket_data_last_id_map, &conid);
     struct socket_close_event_t *close_event;
     close_event = rover_reserve_buf(&socket_close_event_queue, sizeof(*close_event));
     if (close_event == NULL) {

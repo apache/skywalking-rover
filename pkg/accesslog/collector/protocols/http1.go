@@ -90,9 +90,6 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		}
 
 		messageType, err := p.reader.IdentityMessageType(buf)
-		log.Debugf("ready to reading message type, messageType: %v, buf: %p, data id: %d, "+
-			"connection ID: %d, random ID: %d, error: %v", messageType, buf, buf.Position().DataID(),
-			metrics.ConnectionID, metrics.RandomID, err)
 		if err != nil {
 			http1Log.Debugf("failed to identity message type, %v", err)
 			if buf.SkipCurrentElement() {
@@ -115,6 +112,9 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 				metrics.ConnectionID, metrics.RandomID, buf.Position().DataID(), err)
 		}
 
+		http1Log.Debugf("readed message, messageType: %v, buf: %p, data id: %d, "+
+			"connection ID: %d, random ID: %d, metrics : %p, handle result: %d",
+			messageType, buf, buf.Position().DataID(), metrics.ConnectionID, metrics.RandomID, metrics, result)
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
@@ -149,13 +149,13 @@ func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer)
 }
 
 func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, b *buffer.Buffer) (enums.ParseResult, error) {
-	firstRequest := metrics.halfRequests.Front()
-	if firstRequest == nil {
-		log.Debugf("cannot found request for response, skip response, connection ID: %d, random ID: %d",
-			metrics.ConnectionID, metrics.RandomID)
+	request := metrics.findMatchesRequest(b.Position().DataID(), b.Position().PrevDataID())
+	if request == nil {
+		log.Debugf("cannot found request for response, skip response, connection ID: %d, random ID: %d, "+
+			"required prev data id: %d, current data id: %d",
+			metrics.ConnectionID, metrics.RandomID, b.Position().PrevDataID(), b.Position().DataID())
 		return enums.ParseResultSkipPackage, nil
 	}
-	request := metrics.halfRequests.Remove(firstRequest).(*reader.Request)
 
 	// parsing response
 	response, result, err := p.reader.ReadResponse(request, b, true)
@@ -285,4 +285,17 @@ func (m *HTTP1Metrics) appendRequestToList(req *reader.Request) {
 	if !beenAdded {
 		m.halfRequests.PushBack(req)
 	}
+}
+
+func (m *HTTP1Metrics) findMatchesRequest(currentDataID, prevDataID uint64) *reader.Request {
+	for element := m.halfRequests.Front(); element != nil; element = element.Next() {
+		req := element.Value.(*reader.Request)
+		// if the tail data id of request is equals to the prev data id of response
+		// or tail request data id+1==first response data id, then return the request
+		if uint64(req.MaxDataID()) == prevDataID || uint64(req.MaxDataID()+1) == currentDataID {
+			m.halfRequests.Remove(element)
+			return req
+		}
+	}
+	return nil
 }

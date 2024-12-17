@@ -20,6 +20,7 @@ package buffer
 import (
 	"container/list"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -55,6 +56,8 @@ type SocketDataBuffer interface {
 	BufferLen() int
 	// DataID data id of the buffer
 	DataID() uint64
+	// PrevDataID the previous data id of the buffer
+	PrevDataID() uint64
 	// DataSequence the data sequence under same data id
 	DataSequence() int
 	// IsStart this buffer is start of the same data id
@@ -83,10 +86,18 @@ type DataIDRange struct {
 	IsToBufferReadFinished bool
 }
 
+func (r *DataIDRange) String() string {
+	return fmt.Sprintf("from: %d, to: %d, isToBufferReadFinished: %t", r.From, r.To, r.IsToBufferReadFinished)
+}
+
 type Buffer struct {
 	dataEvents   *list.List
 	detailEvents *list.List
 	validated    bool // the events list is validated or not
+
+	// shouldResetPosition means the buffer have new buffer appended into the buffer
+	// so the position should reset to the head, and re-read the buffer
+	shouldResetPosition bool
 
 	eventLocker sync.RWMutex
 
@@ -182,6 +193,10 @@ func (p *Position) Clone() *Position {
 
 func (p *Position) DataID() uint64 {
 	return p.element.Value.(SocketDataBuffer).DataID()
+}
+
+func (p *Position) PrevDataID() uint64 {
+	return p.element.Value.(SocketDataBuffer).PrevDataID()
 }
 
 func (p *Position) Seq() int {
@@ -609,6 +624,12 @@ func (r *Buffer) PrepareForReading() bool {
 	if r.dataEvents.Len() == 0 {
 		return false
 	}
+	// if the buffer should reset, then reset the position and cannot be read from current position
+	if r.shouldResetPosition {
+		r.ResetForLoopReading()
+		r.shouldResetPosition = false
+		return false
+	}
 	if r.head == nil || r.head.element == nil {
 		// read in the first element
 		r.eventLocker.RLock()
@@ -741,8 +762,16 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
+	defer func() {
+		// if the current position is not nil and the current reading data id is bigger than the event data id
+		if r.current != nil && r.current.DataID() > event.DataID() {
+			r.shouldResetPosition = true
+		}
+	}()
+
 	if r.dataEvents.Len() == 0 {
 		r.dataEvents.PushFront(event)
+		r.shouldResetPosition = true
 		return
 	}
 	if r.dataEvents.Back().Value.(SocketDataBuffer).DataID() < event.DataID() {
@@ -802,6 +831,8 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 }
 
 func (r *Buffer) DataLength() int {
+	r.eventLocker.RLock()
+	defer r.eventLocker.RUnlock()
 	if r.dataEvents == nil {
 		return 0
 	}

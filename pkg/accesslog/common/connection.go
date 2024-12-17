@@ -57,6 +57,9 @@ const (
 
 	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the connection information
 	connectionDeleteDelayTime = time.Second * 20
+
+	// the connection check exist time
+	connectionCheckExistTime = time.Second * 30
 )
 
 type addressProcessType int
@@ -144,13 +147,14 @@ type addressInfo struct {
 }
 
 type ConnectionInfo struct {
-	ConnectionID  uint64
-	RandomID      uint64
-	RPCConnection *v3.AccessLogConnection
-	MarkDeletable bool
-	PID           uint32
-	Socket        *ip.SocketPair
-	DeleteAfter   *time.Time
+	ConnectionID       uint64
+	RandomID           uint64
+	RPCConnection      *v3.AccessLogConnection
+	MarkDeletable      bool
+	PID                uint32
+	Socket             *ip.SocketPair
+	LastCheckExistTime time.Time
+	DeleteAfter        *time.Time
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
@@ -192,8 +196,10 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 
 					// if the connection is not existed, then delete it
 					if err := c.activeConnectionMap.Delete(conID); err != nil {
-						log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
-							pid, fd, conID, activateConn.RandomID, err)
+						if !errors.Is(err, ebpf.ErrKeyNotExist) {
+							log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
+								pid, fd, conID, activateConn.RandomID, err)
+						}
 						continue
 					}
 					log.Debugf("deleted the active connection as not exist in file system, pid: %d, fd: %d, connection ID: %d, random ID: %d",
@@ -318,22 +324,41 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 			c.allUnfinishedConnections[fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())] = &e.allProcessorFinished
 		}
 	case events.SocketDetail:
+		tlsMode := connection.RPCConnection.TlsMode
+		protocol := connection.RPCConnection.Protocol
 		if e.GetSSL() == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
-			connection.RPCConnection.TlsMode = v3.AccessLogConnectionTLSMode_TLS
+			tlsMode = v3.AccessLogConnectionTLSMode_TLS
 		}
 		if e.GetProtocol() != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
 			switch e.GetProtocol() {
 			case enums.ConnectionProtocolHTTP:
-				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_1
+				protocol = v3.AccessLogProtocolType_HTTP_1
 			case enums.ConnectionProtocolHTTP2:
-				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_2
+				protocol = v3.AccessLogProtocolType_HTTP_2
 			}
 		}
+		c.rebuildRPCConnectionWithTLSModeAndProtocol(connection, tlsMode, protocol)
 	}
 
 	// notify all flush listeners the connection is ready to flush
 	for _, flush := range c.flushListeners {
 		flush.ReadyToFlushConnection(connection, event)
+	}
+}
+
+// According to https://github.com/golang/protobuf/issues/1609
+// if the message is modified during marshalling, it may cause the error when send the message to the backend
+// so, we need to clone the message and change it before sending it to the channel
+func (c *ConnectionManager) rebuildRPCConnectionWithTLSModeAndProtocol(connection *ConnectionInfo,
+	tls v3.AccessLogConnectionTLSMode, protocol v3.AccessLogProtocolType) {
+	original := connection.RPCConnection
+	connection.RPCConnection = &v3.AccessLogConnection{
+		Local:      original.Local,
+		Remote:     original.Remote,
+		Role:       original.Role,
+		TlsMode:    tls,
+		Protocol:   protocol,
+		Attachment: original.Attachment,
 	}
 }
 
@@ -360,11 +385,12 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		Protocol: v3.AccessLogProtocolType_TCP,
 	}
 	return &ConnectionInfo{
-		ConnectionID:  event.ConID,
-		RandomID:      event.RandomID,
-		RPCConnection: connection,
-		PID:           event.PID,
-		Socket:        socket,
+		ConnectionID:       event.ConID,
+		RandomID:           event.RandomID,
+		RPCConnection:      connection,
+		PID:                event.PID,
+		Socket:             socket,
+		LastCheckExistTime: time.Now(),
 	}
 }
 
@@ -503,6 +529,15 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 	defer c.monitoringProcessLock.Unlock()
 
 	// adding monitoring process and IP addresses
+	var entity *api.ProcessEntity
+	if entities != nil && len(entities) > 0 {
+		entity = entities[0].Entity()
+	}
+	log.Infof("adding monitoring process, pid: %d, entity: %v", pid, entity)
+	if _, ok := c.monitoringProcesses[pid]; ok {
+		log.Infof("the process %d already monitoring, so no needs to add again", pid)
+		return
+	}
 	c.monitoringProcesses[pid] = monitorProcesses
 	c.updateMonitorStatusForProcess(pid, true)
 	for _, entity := range monitorProcesses {
@@ -543,6 +578,30 @@ func (c *ConnectionManager) printTotalAddressesWithPid(prefix string) {
 
 func (c *ConnectionManager) shouldMonitorProcesses(entities []api.ProcessInterface) []api.ProcessInterface {
 	return c.monitorFilter.ShouldIncludeProcesses(entities)
+}
+
+func (c *ConnectionManager) checkConnectionIsExist(con *ConnectionInfo) bool {
+	// skip the check if the check time is not reach
+	if time.Since(con.LastCheckExistTime) < connectionCheckExistTime {
+		return true
+	}
+	con.LastCheckExistTime = time.Now()
+	var activateConn ActiveConnection
+	c.activeConnectionMap.Lookup(con.ConnectionID, &activateConn)
+	if err := c.activeConnectionMap.Lookup(con.ConnectionID, &activateConn); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			con.MarkDeletable = true
+			return false
+		}
+		log.Warnf("cannot found the active connection: %d-%d, err: %v", con.ConnectionID, con.RandomID, err)
+		return false
+	} else if activateConn.RandomID != 0 && activateConn.RandomID != con.RandomID {
+		log.Debugf("detect the connection: %d-%d is already closed(by difference random ID), so remove from the connection manager",
+			con.ConnectionID, con.RandomID)
+		con.MarkDeletable = true
+		return false
+	}
+	return true
 }
 
 func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
@@ -623,7 +682,7 @@ func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor boo
 func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	// delete all connections which marked as deletable
 	// all deletable connection events been sent
-	deletableConnections := make(map[string]bool, 0)
+	deletableConnections := make(map[string]bool)
 	now := time.Now()
 	c.connections.IterCb(func(key string, v interface{}) {
 		con, ok := v.(*ConnectionInfo)
@@ -632,6 +691,9 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 		}
 		// already mark as deletable or process not monitoring
 		shouldDelete := con.MarkDeletable || !c.ProcessIsMonitor(con.PID)
+		if !shouldDelete {
+			shouldDelete = !c.checkConnectionIsExist(con)
+		}
 
 		if shouldDelete && con.DeleteAfter == nil {
 			deleteAfterTime := now.Add(connectionDeleteDelayTime)

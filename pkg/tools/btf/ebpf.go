@@ -62,7 +62,6 @@ func GetEBPFCollectionOptionsIfNeed(bpfSpec *ebpf.CollectionSpec) *ebpf.Collecti
 		spec = readSpec
 	})
 
-	enhanceDataQueueOpts(bpfSpec)
 	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{KernelTypes: spec}}
 }
 
