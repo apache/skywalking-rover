@@ -192,8 +192,10 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 
 					// if the connection is not existed, then delete it
 					if err := c.activeConnectionMap.Delete(conID); err != nil {
-						log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
-							pid, fd, conID, activateConn.RandomID, err)
+						if !errors.Is(err, ebpf.ErrKeyNotExist) {
+							log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
+								pid, fd, conID, activateConn.RandomID, err)
+						}
 						continue
 					}
 					log.Debugf("deleted the active connection as not exist in file system, pid: %d, fd: %d, connection ID: %d, random ID: %d",
