@@ -47,6 +47,7 @@ func isRingbufAvailable() bool {
 		buf.Close()
 
 		ringbufAvailable = err == nil
+		ringbufAvailable = false
 
 		if ringbufAvailable {
 			log.Infof("detect the ring buffer is available in current system for enhancement of data queue")
