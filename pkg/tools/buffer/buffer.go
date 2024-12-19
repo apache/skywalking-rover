@@ -743,6 +743,8 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 
 	if r.dataEvents.Len() == 0 {
 		r.dataEvents.PushFront(event)
+		// reset the head position
+		r.head = nil
 		return
 	}
 	if r.dataEvents.Back().Value.(SocketDataBuffer).DataID() < event.DataID() {
@@ -761,6 +763,8 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 		}
 		if beenAdded {
 			r.dataEvents.InsertBefore(event, element)
+			// reset the head position, encase the older data not be read
+			r.head = nil
 			break
 		}
 	}

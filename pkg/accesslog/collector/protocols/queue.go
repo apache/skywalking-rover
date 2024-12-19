@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -227,8 +228,21 @@ func (p *PartitionContext) Consume(data interface{}) {
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
-		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
-			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0)
+		status := 0
+		if event.Protocol0 == enums.ConnectionProtocolHTTP {
+			headerString := string(event.BufferData())
+			for _, method := range []string{"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH"} {
+				if strings.HasPrefix(headerString, method) {
+					status = 1
+					break
+				}
+			}
+			if strings.HasPrefix(headerString, "HTTP") {
+				status = 2
+			}
+		}
+		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d, http1 type: %d",
+			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0, status)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
