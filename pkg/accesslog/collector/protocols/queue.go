@@ -241,7 +241,7 @@ func (p *PartitionContext) Consume(data interface{}) {
 				status = 2
 			}
 		}
-		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
+		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
 			"data id: %d, sequence: %d, protocol: %d, http1 type: %d",
 			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0, status)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0, 2)
@@ -263,9 +263,6 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 	}
 	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 	p.connections.Set(conKey, result)
-	log.Infof("create the new connection context, connection ID: %d, random ID: %d, partition number: %d, "+
-		"protoocl: %d, current data ID: %d, partition context: %p",
-		connectionID, randomID, p.partitionNum, protocol, currentDataID, p)
 	return result
 }
 
@@ -302,7 +299,7 @@ func (p *PartitionContext) processEvents() {
 				info.closeCallback()
 			}
 			closedConnections = append(closedConnections, conKey)
-			log.Infof("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
+			log.Debugf("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
 				info.connectionID, info.randomID, p.partitionNum)
 		}
 	})
@@ -323,8 +320,6 @@ func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnec
 	if time.Since(con.lastCheckCloseTime) <= time.Second*30 {
 		return
 	}
-	log.Infof("checking the connection is closed or not, connection ID: %d, random ID: %d, current: %s, last check: %s",
-		con.connectionID, con.randomID, timeToStr(time.Now()), timeToStr(con.lastCheckCloseTime))
 	con.lastCheckCloseTime = time.Now()
 	var activateConn common.ActiveConnection
 	if err := p.context.BPF.ActiveConnectionMap.Lookup(con.connectionID, &activateConn); err != nil {

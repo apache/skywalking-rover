@@ -225,11 +225,17 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 		go func(ctx context.Context, inx int) {
 			p := e.partitions[inx]
 			p.ctx.Start(ctx)
+			var t = 0
 			for {
 				select {
 				// consume the data
 				case data := <-p.channel:
 					p.ctx.Consume(data)
+					t++
+					if t%1000 == 0 {
+						log.Infof("reducing count in partion: %d, %d", p.index, len(p.channel))
+						t = 0
+					}
 				// shutdown the consumer
 				case <-ctx.Done():
 					return
