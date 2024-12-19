@@ -17,7 +17,10 @@
 
 package logger
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+	"time"
+)
 
 const (
 	DefaultLoggerLevel = logrus.InfoLevel
@@ -45,8 +48,9 @@ func initializeDefaultLogger() *logrus.Logger {
 	l := logrus.New()
 	l.SetLevel(DefaultLoggerLevel)
 	l.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-		DisableColors: true,
+		FullTimestamp:   true,
+		DisableColors:   true,
+		TimestampFormat: time.RFC3339Nano,
 	})
 	return l
 }

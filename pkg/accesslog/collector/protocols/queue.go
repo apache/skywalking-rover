@@ -252,6 +252,9 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
+	log.Infof("get the connection context, connection ID: %d, random ID: %d, partition number: %d, connection exist: %t"+
+		"protoocl: %d, current data ID: %d, partition context: %p",
+		connectionID, randomID, p.partitionNum, exist, protocol, currentDataID, p)
 	if exist {
 		connection := conn.(*PartitionConnection)
 		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
@@ -259,9 +262,9 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 	}
 	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 	p.connections.Set(conKey, result)
-	log.Infof("create the new connection context, connection ID: %d, random ID: %d, partition number: %d"+
-		"protoocl: %d, current data ID: %d",
-		connectionID, randomID, p.partitionNum, protocol, currentDataID)
+	log.Infof("create the new connection context, connection ID: %d, random ID: %d, partition number: %d, "+
+		"protoocl: %d, current data ID: %d, partition context: %p",
+		connectionID, randomID, p.partitionNum, protocol, currentDataID, p)
 	return result
 }
 
