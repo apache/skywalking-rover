@@ -20,6 +20,7 @@ package buffer
 import (
 	"container/list"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -83,6 +84,10 @@ type DataIDRange struct {
 	From                   uint64
 	To                     uint64
 	IsToBufferReadFinished bool
+}
+
+func (r *DataIDRange) String() string {
+	return fmt.Sprintf("from: %d, to: %d, isToBufferReadFinished: %t", r.From, r.To, r.IsToBufferReadFinished)
 }
 
 type Buffer struct {
