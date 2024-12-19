@@ -227,7 +227,7 @@ func (p *PartitionContext) Consume(data interface{}) {
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
-		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
+		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
 			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
