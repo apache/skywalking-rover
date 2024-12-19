@@ -88,6 +88,10 @@ type Buffer struct {
 	detailEvents *list.List
 	validated    bool // the events list is validated or not
 
+	// shouldResetPosition means the buffer have new buffer appended into the buffer
+	// so the position should reset to the head, and re-read the buffer
+	shouldResetPosition bool
+
 	eventLocker sync.RWMutex
 
 	head    *Position
@@ -609,6 +613,12 @@ func (r *Buffer) PrepareForReading() bool {
 	if r.dataEvents.Len() == 0 {
 		return false
 	}
+	// if the buffer should reset, then reset the position and cannot be read from current position
+	if r.shouldResetPosition {
+		r.ResetForLoopReading()
+		r.shouldResetPosition = false
+		return false
+	}
 	if r.head == nil || r.head.element == nil {
 		// read in the first element
 		r.eventLocker.RLock()
@@ -741,10 +751,16 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
+	defer func() {
+		// if the current position is not nil and the current reading data id is bigger than the event data id
+		if r.current != nil && r.current.DataID() > event.DataID() {
+			r.shouldResetPosition = true
+		}
+	}()
+
 	if r.dataEvents.Len() == 0 {
 		r.dataEvents.PushFront(event)
-		// reset the head position
-		r.head = nil
+		r.shouldResetPosition = true
 		return
 	}
 	if r.dataEvents.Back().Value.(SocketDataBuffer).DataID() < event.DataID() {
@@ -763,8 +779,6 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 		}
 		if beenAdded {
 			r.dataEvents.InsertBefore(event, element)
-			// reset the head position, encase the older data not be read
-			r.head = nil
 			break
 		}
 	}
