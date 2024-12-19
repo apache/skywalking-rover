@@ -175,7 +175,6 @@ func (p *PartitionContext) OnConnectionClose(event *events.SocketCloseEvent, clo
 	}
 	connection := conn.(*PartitionConnection)
 	connection.closeCallback = closeCallback
-	connection.closed = true
 	log.Debugf("receive the connection close event and mark is closable, connection ID: %d, random ID: %d, partition number: %d",
 		event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
 }
@@ -313,10 +312,19 @@ func (p *PartitionContext) processEvents() {
 	}
 }
 
+func timeToStr(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
 func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnection) {
 	if time.Since(con.lastCheckCloseTime) <= time.Second*30 {
 		return
 	}
+	log.Infof("checking the connection is closed or not, connection ID: %d, random ID: %d, current: %s, last check: %s",
+		con.connectionID, con.randomID, timeToStr(time.Now()), timeToStr(con.lastCheckCloseTime))
 	con.lastCheckCloseTime = time.Now()
 	var activateConn common.ActiveConnection
 	if err := p.context.BPF.ActiveConnectionMap.Lookup(con.connectionID, &activateConn); err != nil {
