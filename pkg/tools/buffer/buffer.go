@@ -55,6 +55,8 @@ type SocketDataBuffer interface {
 	BufferLen() int
 	// DataID data id of the buffer
 	DataID() uint64
+	// PrevDataID the previous data id of the buffer
+	PrevDataID() uint64
 	// DataSequence the data sequence under same data id
 	DataSequence() int
 	// IsStart this buffer is start of the same data id
@@ -186,6 +188,10 @@ func (p *Position) Clone() *Position {
 
 func (p *Position) DataID() uint64 {
 	return p.element.Value.(SocketDataBuffer).DataID()
+}
+
+func (p *Position) PrevDataID() uint64 {
+	return p.element.Value.(SocketDataBuffer).PrevDataID()
 }
 
 func (p *Position) Seq() int {
@@ -821,6 +827,8 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 }
 
 func (r *Buffer) DataLength() int {
+	r.eventLocker.RLock()
+	defer r.eventLocker.RUnlock()
 	if r.dataEvents == nil {
 		return 0
 	}

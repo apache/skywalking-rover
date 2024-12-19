@@ -154,6 +154,7 @@ func (a *ProtocolAnalyzer) processEvents() {
 
 	for _, conKey := range closedConnections {
 		a.connections.Remove(conKey)
+		log.Infof("remove the closed connection in analyzer: %s", conKey)
 	}
 }
 

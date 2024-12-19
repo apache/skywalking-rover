@@ -57,6 +57,13 @@ func (r *Request) MinDataID() int {
 	return int(r.headerBuffer.FirstSocketBuffer().DataID())
 }
 
+func (r *Request) MaxDataID() int {
+	if r.bodyBuffer != nil {
+		return int(r.bodyBuffer.LastSocketBuffer().DataID())
+	}
+	return int(r.headerBuffer.LastSocketBuffer().DataID())
+}
+
 func (r *Request) Original() *http.Request {
 	return r.original
 }

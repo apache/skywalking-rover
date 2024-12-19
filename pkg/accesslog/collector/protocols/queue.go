@@ -241,8 +241,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 				status = 2
 			}
 		}
-		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d, http1 type: %d",
-			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0, status)
+		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
+			"data id: %d, sequence: %d, protocol: %d, http1 type: %d",
+			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0, status)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
@@ -252,7 +253,7 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
-	log.Infof("get the connection context, connection ID: %d, random ID: %d, partition number: %d, connection exist: %t"+
+	log.Infof("get the connection context, connection ID: %d, random ID: %d, partition number: %d, connection exist: %t, "+
 		"protoocl: %d, current data ID: %d, partition context: %p",
 		connectionID, randomID, p.partitionNum, exist, protocol, currentDataID, p)
 	if exist {
@@ -301,7 +302,7 @@ func (p *PartitionContext) processEvents() {
 				info.closeCallback()
 			}
 			closedConnections = append(closedConnections, conKey)
-			log.Debugf("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
+			log.Infof("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
 				info.connectionID, info.randomID, p.partitionNum)
 		}
 	})

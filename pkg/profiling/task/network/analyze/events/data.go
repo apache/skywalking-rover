@@ -35,6 +35,7 @@ type SocketDataUploadEvent struct {
 	ConnectionID uint64
 	RandomID     uint64
 	DataID0      uint64
+	PrevDataID0  uint64
 	TotalSize0   uint64
 	Buffer       [2048]byte
 }
@@ -77,6 +78,10 @@ func (s *SocketDataUploadEvent) IsFinished() bool {
 
 func (s *SocketDataUploadEvent) DataID() uint64 {
 	return s.DataID0
+}
+
+func (s *SocketDataUploadEvent) PrevDataID() uint64 {
+	return s.PrevDataID0
 }
 
 func (s *SocketDataUploadEvent) DataSequence() int {
