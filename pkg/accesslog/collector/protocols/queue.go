@@ -129,12 +129,13 @@ type PartitionContext struct {
 func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	connection := &PartitionConnection{
-		connectionID:     conID,
-		randomID:         randomID,
-		dataBuffers:      make(map[enums.ConnectionProtocol]*buffer.Buffer),
-		protocol:         make(map[enums.ConnectionProtocol]uint64),
-		protocolAnalyzer: make(map[enums.ConnectionProtocol]Protocol),
-		protocolMetrics:  make(map[enums.ConnectionProtocol]ProtocolMetrics),
+		connectionID:       conID,
+		randomID:           randomID,
+		dataBuffers:        make(map[enums.ConnectionProtocol]*buffer.Buffer),
+		protocol:           make(map[enums.ConnectionProtocol]uint64),
+		protocolAnalyzer:   make(map[enums.ConnectionProtocol]Protocol),
+		protocolMetrics:    make(map[enums.ConnectionProtocol]ProtocolMetrics),
+		lastCheckCloseTime: time.Now(),
 	}
 	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol, currentDataID)
 	return connection
