@@ -259,6 +259,9 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 	}
 	result := newPartitionConnection(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
 	p.connections.Set(conKey, result)
+	log.Infof("create the new connection context, connection ID: %d, random ID: %d, partition number: %d"+
+		"protoocl: %d, current data ID: %d",
+		connectionID, randomID, p.partitionNum, protocol, currentDataID)
 	return result
 }
 

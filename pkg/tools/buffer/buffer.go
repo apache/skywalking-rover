@@ -617,6 +617,7 @@ func (r *Buffer) PrepareForReading() bool {
 	if r.shouldResetPosition {
 		r.ResetForLoopReading()
 		r.shouldResetPosition = false
+		log.Infof("should reset the buffer position, ref: %p", r)
 		return false
 	}
 	if r.head == nil || r.head.element == nil {
