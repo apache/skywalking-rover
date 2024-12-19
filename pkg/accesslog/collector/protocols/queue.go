@@ -224,7 +224,7 @@ func (p *PartitionContext) Consume(data interface{}) {
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
 			return
 		}
-		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol(), event.DataID())
+		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol(), event.DataID(), 1)
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
@@ -244,18 +244,18 @@ func (p *PartitionContext) Consume(data interface{}) {
 		log.Infof("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
 			"data id: %d, sequence: %d, protocol: %d, http1 type: %d",
 			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0, status)
-		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
+		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0, 2)
 		connection.AppendData(event)
 	}
 }
 
 func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
-	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
+	protocol enums.ConnectionProtocol, currentDataID uint64, from int) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
 	log.Infof("get the connection context, connection ID: %d, random ID: %d, partition number: %d, connection exist: %t, "+
-		"protoocl: %d, current data ID: %d, partition context: %p",
-		connectionID, randomID, p.partitionNum, exist, protocol, currentDataID, p)
+		"protoocl: %d, current data ID: %d, partition context: %p, from: %d",
+		connectionID, randomID, p.partitionNum, exist, protocol, currentDataID, p, from)
 	if exist {
 		connection := conn.(*PartitionConnection)
 		connection.appendProtocolIfNeed(p.protocolMgr, connectionID, randomID, protocol, currentDataID)
