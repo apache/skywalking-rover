@@ -36,8 +36,6 @@ func SendConnectEvent(context *common.AccessLogContext, event *events.SocketConn
 		SocketPair:         socketPair,
 	}
 	context.Queue.AppendKernelLog(common.LogTypeConnect, connect)
-	// pre-sending to the connection mgr to building the connection
-	context.ConnectionMgr.Find(connect)
 }
 
 func connectLogBuilder(event events.Event) *v3.AccessLogKernelLog {
