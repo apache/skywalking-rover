@@ -31,10 +31,13 @@ func init() {
 }
 
 func SendConnectEvent(context *common.AccessLogContext, event *events.SocketConnectEvent, socketPair *ip.SocketPair) {
-	context.Queue.AppendKernelLog(common.LogTypeConnect, &common.ConnectEventWithSocket{
+	connect := &common.ConnectEventWithSocket{
 		SocketConnectEvent: event,
 		SocketPair:         socketPair,
-	})
+	}
+	context.Queue.AppendKernelLog(common.LogTypeConnect, connect)
+	// pre-sending to the connection mgr to building the connection
+	context.ConnectionMgr.Find(connect)
 }
 
 func connectLogBuilder(event events.Event) *v3.AccessLogKernelLog {
