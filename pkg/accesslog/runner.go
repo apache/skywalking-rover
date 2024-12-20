@@ -204,7 +204,7 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 }
 
 func (r *Runner) sendLogs(allLogs map[*common.ConnectionInfo]*connectionLogs) error {
-	timeout, cancelFunc := context.WithTimeout(r.ctx, time.Second*20)
+	timeout, cancelFunc := context.WithTimeout(r.ctx, time.Second*30)
 	defer cancelFunc()
 	streaming, err := r.alsClient.Collect(timeout)
 	if err != nil {
@@ -244,7 +244,7 @@ func (r *Runner) sendLogs(allLogs map[*common.ConnectionInfo]*connectionLogs) er
 
 func (r *Runner) sendLogToTheStream(streaming v3.EBPFAccessLogService_CollectClient, logMsg *v3.EBPFAccessLogMessage) {
 	if err := streaming.Send(logMsg); err != nil {
-		log.Warnf("send access log failure: %v", err)
+		log.Warnf("send access log message failure: %v", err)
 	}
 }
 
