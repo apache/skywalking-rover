@@ -76,7 +76,7 @@ func (l *BatchLogs) splitBatchLogs() []*BatchLogs {
 	currentCount := 0
 	var currentBatch *BatchLogs
 	for connection, logs := range l.logs {
-		if currentCount == 0 {
+		if currentCount%maxLogsPerSend == 0 {
 			currentBatch = newBatchLogs()
 			result = append(result, currentBatch)
 			currentCount = 0
