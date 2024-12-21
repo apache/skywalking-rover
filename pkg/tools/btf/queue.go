@@ -75,6 +75,11 @@ func enhanceDataQueueOpts(bpfSpec *ebpf.CollectionSpec) {
 			mapSpec.Type = ebpf.PerfEventArray
 			mapSpec.KeySize = 4
 			mapSpec.ValueSize = 4
+		} else {
+			mapName := strings.TrimPrefix(it.Type.TypeName(), dataQueuePrefix)
+			mapSpec := bpfSpec.Maps[mapName]
+			mapSpec.Type = ebpf.RingBuf
+			mapSpec.MaxEntries = uint32(os.Getpagesize() * 1024 * 1024)
 		}
 	}
 }
