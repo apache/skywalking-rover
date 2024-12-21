@@ -113,9 +113,12 @@ func (g *GRPCSender) handleLogs() (int, error) {
 			return 0, nil
 		}
 		// send logs
+		now := time.Now()
 		if err := g.sendLogs(logs); err != nil {
 			return len(logs.logs), err
 		}
+		log.Infof("sending access log success, connection count: %d, use time: %s",
+			logs.ConnectionCount(), time.Since(now).String())
 	}
 }
 
