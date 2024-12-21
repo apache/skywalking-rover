@@ -89,7 +89,8 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
-	q.eventQueue = btf.NewEventQueue(q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
+	q.eventQueue = btf.NewEventQueue("socket data analyzer",
+		q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
 		func(num int) btf.PartitionContext {
 			return NewPartitionContext(q.context, num, q.supportAnalyzers(q.context))
 		})

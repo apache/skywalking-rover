@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
@@ -31,6 +32,10 @@ import (
 )
 
 const dataQueuePrefix = "rover_data_queue_"
+
+// queueChannelReducingCountCheckInterval is the interval to check the queue channel reducing count
+// if the reducing count is almost full, then added a warning log
+const queueChannelReducingCountCheckInterval = time.Second * 5
 
 var (
 	ringbufChecker   sync.Once
@@ -155,6 +160,7 @@ type PartitionContext interface {
 }
 
 type EventQueue struct {
+	name       string
 	count      int
 	receivers  []*mapReceiver
 	partitions []*partition
@@ -170,12 +176,12 @@ type mapReceiver struct {
 	parallels    int
 }
 
-func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
+func NewEventQueue(name string, partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
 	partitions := make([]*partition, 0)
 	for i := 0; i < partitionCount; i++ {
 		partitions = append(partitions, newPartition(i, sizePerPartition, contextGenerator(i)))
 	}
-	return &EventQueue{count: partitionCount, partitions: partitions}
+	return &EventQueue{name: name, count: partitionCount, partitions: partitions}
 }
 
 func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize, parallels int, dataSupplier func() interface{},
@@ -226,17 +232,11 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 		go func(ctx context.Context, inx int) {
 			p := e.partitions[inx]
 			p.ctx.Start(ctx)
-			var t = 0
 			for {
 				select {
 				// consume the data
 				case data := <-p.channel:
 					p.ctx.Consume(data)
-					t++
-					if t%1000 == 0 {
-						log.Infof("reducing count in partion: %d, %d", p.index, len(p.channel))
-						t = 0
-					}
 				// shutdown the consumer
 				case <-ctx.Done():
 					return
@@ -244,6 +244,27 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 			}
 		}(ctx, i)
 	}
+
+	// channel reducing count check
+	go func() {
+		ticker := time.NewTicker(queueChannelReducingCountCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				for _, p := range e.partitions {
+					reducingCount := len(p.channel)
+					if reducingCount > cap(p.channel)*9/10 {
+						log.Warnf("queue %s partition %d reducing count is almost full, "+
+							"please trying to increase the parallels count or queue size, status: %d/%d",
+							e.name, p.index, reducingCount, cap(p.channel))
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 func (e *EventQueue) routerTransformer(data interface{}, routeGenerator func(data interface{}) string) {
