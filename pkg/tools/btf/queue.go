@@ -144,7 +144,6 @@ func (r *ringBufReader) Read() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("ringbuf read of (%s): %d/%d", r.name, read.Remaining, r.reader.BufferSize())
 	return read.RawSample, nil
 }
 
