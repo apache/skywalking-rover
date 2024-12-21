@@ -127,6 +127,7 @@ func (p *perfQueueReader) Close() error {
 
 type ringBufReader struct {
 	reader *ringbuf.Reader
+	name   string
 }
 
 func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
@@ -134,7 +135,7 @@ func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ringBufReader{reader: reader}, nil
+	return &ringBufReader{reader: reader, name: emap.String()}, nil
 }
 
 func (r *ringBufReader) Read() ([]byte, error) {
@@ -142,6 +143,7 @@ func (r *ringBufReader) Read() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("ringbuf read of (%s): %d", r.name, read.Remaining)
 	return read.RawSample, nil
 }
 
