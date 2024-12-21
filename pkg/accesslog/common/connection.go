@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gogo/protobuf/proto"
 	"sync"
 	"time"
 
@@ -324,23 +325,34 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 			c.allUnfinishedConnections[fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())] = &e.allProcessorFinished
 		}
 	case events.SocketDetail:
+		tlsMode := connection.RPCConnection.TlsMode
+		protocol := connection.RPCConnection.Protocol
 		if e.GetSSL() == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
-			connection.RPCConnection.TlsMode = v3.AccessLogConnectionTLSMode_TLS
+			tlsMode = v3.AccessLogConnectionTLSMode_TLS
 		}
 		if e.GetProtocol() != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
 			switch e.GetProtocol() {
 			case enums.ConnectionProtocolHTTP:
-				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_1
+				protocol = v3.AccessLogProtocolType_HTTP_1
 			case enums.ConnectionProtocolHTTP2:
-				connection.RPCConnection.Protocol = v3.AccessLogProtocolType_HTTP_2
+				protocol = v3.AccessLogProtocolType_HTTP_2
 			}
 		}
+		c.rebuildRPCConnectionWithTLSModeAndProtocol(connection, tlsMode, protocol)
 	}
 
 	// notify all flush listeners the connection is ready to flush
 	for _, flush := range c.flushListeners {
 		flush.ReadyToFlushConnection(connection, event)
 	}
+}
+
+func (c *ConnectionManager) rebuildRPCConnectionWithTLSModeAndProtocol(connection *ConnectionInfo,
+	tls v3.AccessLogConnectionTLSMode, protocol v3.AccessLogProtocolType) {
+	logConnection := proto.Clone(connection.RPCConnection).(*v3.AccessLogConnection)
+	logConnection.TlsMode = tls
+	logConnection.Protocol = protocol
+	connection.RPCConnection = logConnection
 }
 
 func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
