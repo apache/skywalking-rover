@@ -19,7 +19,9 @@ package ip
 
 import (
 	"net"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 
@@ -39,15 +41,35 @@ var numberStrategies = []struct {
 }}
 
 type ConnTrack struct {
-	tracker *conntrack.Nfct
+	tracker          *conntrack.Nfct
+	getTotalCount    *int64
+	getSuccessCount  *int64
+	dumpTotalCount   *int64
+	dumpSuccessCount *int64
 }
 
 func NewConnTrack() (*ConnTrack, error) {
 	nfct, err := conntrack.Open(&conntrack.Config{})
+	var getTotalCount, getSuccessCount, dumpTotalCount, dumpSuccessCount int64 = 0, 0, 0, 0
 	if err != nil {
 		return nil, err
 	}
-	return &ConnTrack{tracker: nfct}, nil
+
+	go func() {
+		for {
+			log.Infof("conntrack get total count: %d, success count: %d, dump total count: %d, success count: %d",
+				atomic.LoadInt64(&getTotalCount), atomic.LoadInt64(&getSuccessCount),
+				atomic.LoadInt64(&dumpTotalCount), atomic.LoadInt64(&dumpSuccessCount))
+			time.Sleep(30 * time.Second)
+		}
+	}()
+	return &ConnTrack{
+		tracker:          nfct,
+		getTotalCount:    &getTotalCount,
+		getSuccessCount:  &getSuccessCount,
+		dumpTotalCount:   &dumpTotalCount,
+		dumpSuccessCount: &dumpSuccessCount,
+	}, nil
 }
 
 func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
@@ -57,6 +79,7 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 	}
 
 	tuple := c.parseSocketToTuple(addr)
+	atomic.AddInt64(c.getTotalCount, 1)
 	for _, info := range numberStrategies {
 		tuple.Proto.Number = &(info.proto)
 
@@ -71,12 +94,14 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 
 		if res := c.filterValidateReply(session, tuple); res != nil {
 			addr.DestIP = res.Src.String()
+			atomic.AddInt64(c.getSuccessCount, 1)
 			return true
 		}
 	}
 
 	// using dump to query protocol
 	dump, e := c.tracker.Dump(conntrack.Conntrack, family)
+	atomic.AddInt64(c.dumpTotalCount, 1)
 	if e != nil {
 		log.Debug("cannot dump the conntrack session, error: ", e)
 		return false
@@ -85,6 +110,7 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 		addr.DestIP = res.Src.String()
 		log.Debugf("found the connection from the dump all conntrack, src: %s:%d, dst: %s:%d, proto number: %d",
 			tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, *tuple.Proto.Number)
+		atomic.AddInt64(c.dumpSuccessCount, 1)
 		return true
 	}
 	return false
