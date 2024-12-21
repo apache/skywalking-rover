@@ -36,9 +36,6 @@ var numberStrategies = []struct {
 }{{
 	name:  "tcp",
 	proto: syscall.IPPROTO_TCP,
-}, {
-	name:  "udp",
-	proto: syscall.IPPROTO_UDP,
 }}
 
 type ConnTrack struct {
