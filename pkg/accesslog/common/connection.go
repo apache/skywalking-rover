@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/gogo/protobuf/proto"
 	"sync"
 	"time"
 
@@ -352,10 +351,15 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 // so, we need to clone the message and change it before sending it to the channel
 func (c *ConnectionManager) rebuildRPCConnectionWithTLSModeAndProtocol(connection *ConnectionInfo,
 	tls v3.AccessLogConnectionTLSMode, protocol v3.AccessLogProtocolType) {
-	logConnection := proto.Clone(connection.RPCConnection).(*v3.AccessLogConnection)
-	logConnection.TlsMode = tls
-	logConnection.Protocol = protocol
-	connection.RPCConnection = logConnection
+	original := connection.RPCConnection
+	connection.RPCConnection = &v3.AccessLogConnection{
+		Local:      original.Local,
+		Remote:     original.Remote,
+		Role:       original.Role,
+		TlsMode:    tls,
+		Protocol:   protocol,
+		Attachment: original.Attachment,
+	}
 }
 
 func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
