@@ -218,7 +218,7 @@ struct socket_data_last_id_t {
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
-	__uint(max_entries, 1000);
+	__uint(max_entries, 10000);
 	__type(key, __u64);
 	__type(value, struct socket_data_last_id_t);
 } socket_data_last_id_map SEC(".maps");
@@ -230,6 +230,7 @@ static __inline void upload_socket_data(void *ctx, struct upload_data_args *args
         return;
     }
     struct socket_data_last_id_t *latest = bpf_map_lookup_elem(&socket_data_last_id_map, &args->con_id);
+    args->prev_socket_data_id = 0;
     if (latest != NULL && latest->random_id == args->random_id) {
         args->prev_socket_data_id = latest->socket_data_id;
     }
