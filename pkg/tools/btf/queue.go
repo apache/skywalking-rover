@@ -21,8 +21,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -36,52 +34,6 @@ const dataQueuePrefix = "rover_data_queue_"
 // queueChannelReducingCountCheckInterval is the interval to check the queue channel reducing count
 // if the reducing count is almost full, then added a warning log
 const queueChannelReducingCountCheckInterval = time.Second * 5
-
-var (
-	ringbufChecker   sync.Once
-	ringbufAvailable bool
-)
-
-func isRingbufAvailable() bool {
-	ringbufChecker.Do(func() {
-		buf, err := ebpf.NewMap(&ebpf.MapSpec{
-			Type:       ebpf.RingBuf,
-			MaxEntries: uint32(os.Getpagesize()),
-		})
-
-		buf.Close()
-
-		ringbufAvailable = err == nil
-		ringbufAvailable = false
-
-		if ringbufAvailable {
-			log.Infof("detect the ring buffer is available in current system for enhancement of data queue")
-		}
-	})
-
-	return ringbufAvailable
-}
-
-func enhanceDataQueueOpts(bpfSpec *ebpf.CollectionSpec) {
-	it := bpfSpec.Types.Iterate()
-	for it.Next() {
-		if !strings.HasPrefix(it.Type.TypeName(), dataQueuePrefix) {
-			continue
-		}
-		if err := validateGlobalConstVoidPtrVar(it.Type); err != nil {
-			panic(fmt.Errorf("invalid global const void ptr var %s: %v", it.Type.TypeName(), err))
-		}
-
-		// if the ringbuf not available, use perf event array
-		if !isRingbufAvailable() {
-			mapName := strings.TrimPrefix(it.Type.TypeName(), dataQueuePrefix)
-			mapSpec := bpfSpec.Maps[mapName]
-			mapSpec.Type = ebpf.PerfEventArray
-			mapSpec.KeySize = 4
-			mapSpec.ValueSize = 4
-		}
-	}
-}
 
 type queueReader interface {
 	Read() ([]byte, error)

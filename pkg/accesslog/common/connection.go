@@ -533,7 +533,7 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 	if entities != nil && len(entities) > 0 {
 		entity = entities[0].Entity()
 	}
-	log.Infof("adding monitoring process, pid: %d, entities: %v", pid, entity)
+	log.Infof("adding monitoring process, pid: %d, entity: %v", pid, entity)
 	if _, ok := c.monitoringProcesses[pid]; ok {
 		log.Infof("the process %d already monitoring, so no needs to add again", pid)
 		return

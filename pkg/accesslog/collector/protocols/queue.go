@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -229,22 +228,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
-		status := 0
-		if event.Protocol0 == enums.ConnectionProtocolHTTP {
-			headerString := string(event.BufferData())
-			for _, method := range []string{"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH"} {
-				if strings.HasPrefix(headerString, method) {
-					status = 1
-					break
-				}
-			}
-			if strings.HasPrefix(headerString, "HTTP") {
-				status = 2
-			}
-		}
 		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
-			"data id: %d, sequence: %d, protocol: %d, http1 type: %d",
-			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0, status)
+			"data id: %d, sequence: %d, protocol: %d",
+			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
@@ -305,13 +291,6 @@ func (p *PartitionContext) processEvents() {
 	for _, conKey := range closedConnections {
 		p.connections.Remove(conKey)
 	}
-}
-
-func timeToStr(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format("2006-01-02 15:04:05")
 }
 
 func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnection) {
