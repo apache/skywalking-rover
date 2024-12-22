@@ -49,7 +49,7 @@ func (l *BatchLogs) AppendKernelLog(connection *common.ConnectionInfo, log *v3.A
 	logs.kernels = append(logs.kernels, log)
 }
 
-func (l *BatchLogs) AppendProtocolLog(connection *common.ConnectionInfo, log *v3.AccessLogProtocolLogs) {
+func (l *BatchLogs) AppendProtocolLog(connection *common.ConnectionInfo, kernels []*v3.AccessLogKernelLog, protocols *v3.AccessLogProtocolLogs) {
 	logs, ok := l.logs[connection]
 	if !ok {
 		logs = newConnectionLogs()
@@ -57,7 +57,8 @@ func (l *BatchLogs) AppendProtocolLog(connection *common.ConnectionInfo, log *v3
 	}
 
 	logs.protocols = append(logs.protocols, &ConnectionProtocolLog{
-		protocol: log,
+		kernels:  kernels,
+		protocol: protocols,
 	})
 }
 

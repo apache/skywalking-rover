@@ -165,7 +165,7 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, batch *se
 					conID, randomID, connection != nil, delay)
 			}
 			if connection != nil && len(kernelLogs) > 0 && protocolLogs != nil {
-				batch.AppendProtocolLog(connection, protocolLogs)
+				batch.AppendProtocolLog(connection, kernelLogs, protocolLogs)
 			} else if delay {
 				delayAppends = append(delayAppends, protocolLog)
 			}
