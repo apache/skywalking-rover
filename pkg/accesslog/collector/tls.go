@@ -18,6 +18,8 @@
 package collector
 
 import (
+	"sync"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
@@ -33,6 +35,7 @@ type TLSCollector struct {
 	context            *common.AccessLogContext
 	monitoredProcesses map[int32]bool
 	linker             *btf.Linker
+	mutex              sync.Mutex
 }
 
 func NewTLSCollector() *TLSCollector {
@@ -57,6 +60,14 @@ func (c *TLSCollector) Stop() {
 }
 
 func (c *TLSCollector) OnNewProcessMonitoring(pid int32) {
+	go func() {
+		c.addProcess(pid)
+	}()
+}
+
+func (c *TLSCollector) addProcess(pid int32) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	if _, ok := c.monitoredProcesses[pid]; ok {
 		return
 	}
@@ -83,5 +94,7 @@ func (c *TLSCollector) OnNewProcessMonitoring(pid int32) {
 }
 
 func (c *TLSCollector) OnProcessRemoved(pid int32) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	delete(c.monitoredProcesses, pid)
 }

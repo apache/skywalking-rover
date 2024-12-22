@@ -108,7 +108,7 @@ struct socket_connect_event_t {
     __u64 conntrack_upstream_iph;
     __u32 conntrack_upstream_port;
 };
-DATA_QUEUE(socket_connection_event_queue, 1024 * 1024);
+DATA_QUEUE(socket_connection_event_queue);
 
 // active connection cached into the hashmap
 // if connection closed, then deleted
@@ -160,7 +160,7 @@ struct socket_close_event_t {
     // close success
     __u32 success;
 };
-DATA_QUEUE(socket_close_event_queue, 1024 * 1024);
+DATA_QUEUE(socket_close_event_queue);
 
 static __inline bool family_should_trace(const __u32 family) {
     return family != AF_UNKNOWN && family != AF_INET && family != AF_INET6 ? false : true;
