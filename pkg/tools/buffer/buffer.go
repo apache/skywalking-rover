@@ -86,8 +86,8 @@ type DataIDRange struct {
 	IsToBufferReadFinished bool
 }
 
-func (r *DataIDRange) String() string {
-	return fmt.Sprintf("from: %d, to: %d, isToBufferReadFinished: %t", r.From, r.To, r.IsToBufferReadFinished)
+func (i *DataIDRange) String() string {
+	return fmt.Sprintf("from: %d, to: %d, isToBufferReadFinished: %t", i.From, i.To, i.IsToBufferReadFinished)
 }
 
 type Buffer struct {

@@ -145,11 +145,13 @@ func (g *GRPCSender) sendLogs(batch *BatchLogs) error {
 		}
 
 		if len(logs.kernels) > 0 {
-			sendError = g.sendLogToTheStream(streaming, g.buildAccessLogMessage(firstLog, firstConnection, connection, logs.kernels, nil))
+			sendError = g.sendLogToTheStream(streaming,
+				g.buildAccessLogMessage(firstLog, firstConnection, connection, logs.kernels, nil))
 			firstLog, firstConnection = false, false
 		}
 		for _, protocolLog := range logs.protocols {
-			sendError = g.sendLogToTheStream(streaming, g.buildAccessLogMessage(firstLog, firstConnection, connection, protocolLog.kernels, protocolLog.protocol))
+			sendError = g.sendLogToTheStream(streaming,
+				g.buildAccessLogMessage(firstLog, firstConnection, connection, protocolLog.kernels, protocolLog.protocol))
 			firstLog, firstConnection = false, false
 		}
 		if sendError != nil {
