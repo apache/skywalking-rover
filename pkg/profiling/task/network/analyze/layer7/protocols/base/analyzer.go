@@ -172,6 +172,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 	// reset the status for prepare reading
 	metrics := connection.metrics
 	connectionID := connection.connectionID
+	randomID := connection.randomID
 	connection.buffer.ResetForLoopReading()
 	// loop to read the protocol data
 	for {
@@ -181,7 +182,7 @@ func (a *ProtocolAnalyzer) processConnectionEvents(connection *connectionInfo) {
 			return
 		}
 
-		result := a.protocol.ParseProtocol(connectionID, metrics, connection.buffer)
+		result := a.protocol.ParseProtocol(connectionID, randomID, metrics, connection.buffer)
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:

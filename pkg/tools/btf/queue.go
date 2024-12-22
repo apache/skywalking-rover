@@ -29,8 +29,6 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-const dataQueuePrefix = "rover_data_queue_"
-
 // queueChannelReducingCountCheckInterval is the interval to check the queue channel reducing count
 // if the reducing count is almost full, then added a warning log
 const queueChannelReducingCountCheckInterval = time.Second * 5

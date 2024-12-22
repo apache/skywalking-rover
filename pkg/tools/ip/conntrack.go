@@ -18,11 +18,12 @@
 package ip
 
 import (
-	"github.com/apache/skywalking-rover/pkg/logger"
 	"net"
 	"syscall"
 
 	"github.com/florianl/go-conntrack"
+
+	"github.com/apache/skywalking-rover/pkg/logger"
 
 	"golang.org/x/sys/unix"
 )

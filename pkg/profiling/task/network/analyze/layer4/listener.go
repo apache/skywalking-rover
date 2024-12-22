@@ -108,8 +108,9 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 		keyWithContext[l.generateConID(connection.ConnectionID, connection.RandomID)] = connection
 
 		if log.Enable(logrus.DebugLevel) {
-			log.Debugf("found connection: %d, %s relation: %s:%d(%d) -> %s:%d, protocol: %s, is_ssl: %t, is_closed: %t, write: %d bytes/%d, read: %d bytes/%d",
-				connection.ConnectionID, connection.Role.String(),
+			log.Debugf("found connection: %d_%d, %s relation: %s:%d(%d) -> %s:%d, protocol: %s, is_ssl: %t, "+
+				"is_closed: %t, write: %d bytes/%d, read: %d bytes/%d",
+				connection.ConnectionID, connection.RandomID, connection.Role.String(),
 				connection.LocalIP, connection.LocalPort, connection.LocalPid, connection.RemoteIP, connection.RemotePort,
 				enums.ConnectionProtocolString(connection.Protocol), connection.IsSSL, connection.ConnectionClosed, layer4.WriteCounter.Cur.Bytes,
 				layer4.WriteCounter.Cur.Count, layer4.ReadCounter.Cur.Bytes, layer4.ReadCounter.Cur.Count)

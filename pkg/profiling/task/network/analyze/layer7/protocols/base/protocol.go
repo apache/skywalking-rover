@@ -31,7 +31,7 @@ type Protocol interface {
 	GenerateMetrics() Metrics
 	Init(config *profiling.TaskConfig)
 
-	ParseProtocol(connectionID uint64, metrics Metrics, reader *buffer.Buffer) enums.ParseResult
+	ParseProtocol(connectionID, randomID uint64, metrics Metrics, reader *buffer.Buffer) enums.ParseResult
 	PackageMaxExpireDuration() time.Duration
 	UpdateExtensionConfig(config *profiling.ExtensionConfig)
 }

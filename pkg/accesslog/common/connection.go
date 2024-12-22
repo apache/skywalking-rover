@@ -347,7 +347,7 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 }
 
 // According to https://github.com/golang/protobuf/issues/1609
-// if the message is modified during marshalling, it may cause the error when send the message to the backend
+// if the message is modified during marshaling, it may cause the error when send the message to the backend
 // so, we need to clone the message and change it before sending it to the channel
 func (c *ConnectionManager) rebuildRPCConnectionWithTLSModeAndProtocol(connection *ConnectionInfo,
 	tls v3.AccessLogConnectionTLSMode, protocol v3.AccessLogProtocolType) {
@@ -530,7 +530,7 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 
 	// adding monitoring process and IP addresses
 	var entity *api.ProcessEntity
-	if entities != nil && len(entities) > 0 {
+	if len(entities) > 0 {
 		entity = entities[0].Entity()
 	}
 	log.Infof("adding monitoring process, pid: %d, entity: %v", pid, entity)
@@ -587,7 +587,6 @@ func (c *ConnectionManager) checkConnectionIsExist(con *ConnectionInfo) bool {
 	}
 	con.LastCheckExistTime = time.Now()
 	var activateConn ActiveConnection
-	c.activeConnectionMap.Lookup(con.ConnectionID, &activateConn)
 	if err := c.activeConnectionMap.Lookup(con.ConnectionID, &activateConn); err != nil {
 		if errors.Is(err, ebpf.ErrKeyNotExist) {
 			con.MarkDeletable = true
