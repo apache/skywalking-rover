@@ -107,6 +107,9 @@ func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, 
 		return enums.ParseResultSkipPackage
 	}
 
+	log.Debugf("readed message, messageType: %v, buf: %p, data id: %d, "+
+		"connection ID: %d, metrics : %p, handle result: %d",
+		messageType, buf, buf.Position().DataID(), connectionID, metrics, result)
 	if err != nil {
 		log.Warnf("reading %v error: %v", messageType, err)
 		return enums.ParseResultSkipPackage
@@ -134,6 +137,8 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 	// find the first request
 	firstElement := metrics.halfData.Front()
 	if firstElement == nil {
+		log.Debugf("cannot found request for response, skip response, connection ID: %d, current data id: %d",
+			connectionID, buf.Position().DataID())
 		return enums.ParseResultSkipPackage, nil
 	}
 	request := metrics.halfData.Remove(firstElement).(*reader.Request)
