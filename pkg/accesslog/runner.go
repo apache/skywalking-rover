@@ -37,6 +37,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/core/backend"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
+
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
