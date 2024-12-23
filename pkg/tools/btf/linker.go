@@ -83,6 +83,7 @@ type Linker struct {
 	closeOnce sync.Once
 
 	linkedUProbes map[string]bool
+	linkMutex     sync.Mutex
 }
 
 func NewLinker() *Linker {
@@ -136,6 +137,8 @@ func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Progr
 	if p == nil {
 		return
 	}
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
 	kprobe, err := linkK(syscallPrefix+call, p, nil)
 
 	if err != nil {
@@ -147,10 +150,13 @@ func (m *Linker) AddSysCallWithKProbe(call string, linkK LinkFunc, p *ebpf.Progr
 }
 
 func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
 	l, e := link.Tracepoint(sys, name, p, nil)
 	if e != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open %s error: %v", name, e))
 	} else {
+		log.Debugf("attach to the tracepoint: sys: %s, name: %s", sys, name)
 		m.closers = append(m.closers, l)
 	}
 }
@@ -264,6 +270,8 @@ func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 }
 
 func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Program, customizeAddress uint64) (link.Link, error) {
+	u.linker.linkMutex.Lock()
+	defer u.linker.linkMutex.Unlock()
 	// check already linked
 	uprobeIdentity := fmt.Sprintf("%s_%s_%t_%d", u.addr, symbol, enter, customizeAddress)
 	if u.linker.linkedUProbes[uprobeIdentity] {

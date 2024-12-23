@@ -19,12 +19,10 @@
 
 #include "api.h"
 
-#define DATA_QUEUE(name, size)               \
-	struct {                                    \
-		__uint(type, BPF_MAP_TYPE_RINGBUF); \
-		__uint(max_entries, size);          \
-	} name SEC(".maps");                        \
-	const void *rover_data_queue_##name __attribute__((unused));
+#define DATA_QUEUE(name)                            \
+	struct {                                        \
+		__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);\
+	} name SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -36,26 +34,12 @@ struct {
 static __always_inline void *rover_reserve_buf(void *map, __u64 size) {
 	static const int zero = 0;
 
-	if (bpf_core_enum_value_exists(enum bpf_func_id,
-				       BPF_FUNC_ringbuf_reserve))
-		return bpf_ringbuf_reserve(map, size, 0);
-
 	return bpf_map_lookup_elem(&rover_data_heap, &zero);
 }
 
-static __always_inline void rover_discard_buf(void *buf)
-{
-	if (bpf_core_enum_value_exists(enum bpf_func_id,
-				       BPF_FUNC_ringbuf_discard))
-		bpf_ringbuf_discard(buf, 0);
+static __always_inline void rover_discard_buf(void *buf) {
 }
 
 static __always_inline long rover_submit_buf(void *ctx, void *map, void *buf, __u64 size) {
-	if (bpf_core_enum_value_exists(enum bpf_func_id,
-				       BPF_FUNC_ringbuf_submit)) {
-		bpf_ringbuf_submit(buf, 0);
-		return 0;
-	}
-
 	return bpf_perf_event_output(ctx, map, BPF_F_CURRENT_CPU, buf, size);
 }

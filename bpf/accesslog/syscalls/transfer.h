@@ -69,7 +69,7 @@ struct socket_detail_t {
     __u8 ssl;
 };
 
-DATA_QUEUE(socket_detail_queue, 1024 * 1024);
+DATA_QUEUE(socket_detail_queue);
 
 static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_data_args_t *args, ssize_t bytes_count,
                                         __u32 data_direction, const bool vecs, __u8 func_name, bool ssl) {

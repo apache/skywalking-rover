@@ -44,7 +44,8 @@ type ConnectionContext struct {
 	Metrics *ConnectionMetricsContext
 
 	// Flush the data content to the oap count
-	FlushDataCount int
+	FlushDataCount   int
+	DeleteFlushCount int
 }
 
 func (c *AnalyzerContext) NewConnectionContext(conID, randomID uint64, pid, fd uint32, processes []api.ProcessInterface,

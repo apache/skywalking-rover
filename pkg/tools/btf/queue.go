@@ -21,61 +21,17 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"os"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-const dataQueuePrefix = "rover_data_queue_"
-
-var (
-	ringbufChecker   sync.Once
-	ringbufAvailable bool
-)
-
-func isRingbufAvailable() bool {
-	ringbufChecker.Do(func() {
-		buf, err := ebpf.NewMap(&ebpf.MapSpec{
-			Type:       ebpf.RingBuf,
-			MaxEntries: uint32(os.Getpagesize()),
-		})
-
-		buf.Close()
-
-		ringbufAvailable = err == nil
-
-		if ringbufAvailable {
-			log.Infof("detect the ring buffer is available in current system for enhancement of data queue")
-		}
-	})
-
-	return ringbufAvailable
-}
-
-func enhanceDataQueueOpts(bpfSpec *ebpf.CollectionSpec) {
-	it := bpfSpec.Types.Iterate()
-	for it.Next() {
-		if !strings.HasPrefix(it.Type.TypeName(), dataQueuePrefix) {
-			continue
-		}
-		if err := validateGlobalConstVoidPtrVar(it.Type); err != nil {
-			panic(fmt.Errorf("invalid global const void ptr var %s: %v", it.Type.TypeName(), err))
-		}
-
-		// if the ringbuf not available, use perf event array
-		if !isRingbufAvailable() {
-			mapName := strings.TrimPrefix(it.Type.TypeName(), dataQueuePrefix)
-			mapSpec := bpfSpec.Maps[mapName]
-			mapSpec.Type = ebpf.PerfEventArray
-			mapSpec.KeySize = 4
-			mapSpec.ValueSize = 4
-		}
-	}
-}
+// queueChannelReducingCountCheckInterval is the interval to check the queue channel reducing count
+// if the reducing count is almost full, then added a warning log
+const queueChannelReducingCountCheckInterval = time.Second * 5
 
 type queueReader interface {
 	Read() ([]byte, error)
@@ -125,6 +81,7 @@ func (p *perfQueueReader) Close() error {
 
 type ringBufReader struct {
 	reader *ringbuf.Reader
+	name   string
 }
 
 func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
@@ -132,7 +89,7 @@ func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ringBufReader{reader: reader}, nil
+	return &ringBufReader{reader: reader, name: emap.String()}, nil
 }
 
 func (r *ringBufReader) Read() ([]byte, error) {
@@ -153,6 +110,7 @@ type PartitionContext interface {
 }
 
 type EventQueue struct {
+	name       string
 	count      int
 	receivers  []*mapReceiver
 	partitions []*partition
@@ -168,12 +126,12 @@ type mapReceiver struct {
 	parallels    int
 }
 
-func NewEventQueue(partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
+func NewEventQueue(name string, partitionCount, sizePerPartition int, contextGenerator func(partitionNum int) PartitionContext) *EventQueue {
 	partitions := make([]*partition, 0)
 	for i := 0; i < partitionCount; i++ {
 		partitions = append(partitions, newPartition(i, sizePerPartition, contextGenerator(i)))
 	}
-	return &EventQueue{count: partitionCount, partitions: partitions}
+	return &EventQueue{name: name, count: partitionCount, partitions: partitions}
 }
 
 func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize, parallels int, dataSupplier func() interface{},
@@ -236,6 +194,27 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 			}
 		}(ctx, i)
 	}
+
+	// channel reducing count check
+	go func() {
+		ticker := time.NewTicker(queueChannelReducingCountCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				for _, p := range e.partitions {
+					reducingCount := len(p.channel)
+					if reducingCount > cap(p.channel)*9/10 {
+						log.Warnf("queue %s partition %d reducing count is almost full, "+
+							"please trying to increase the parallels count or queue size, status: %d/%d",
+							e.name, p.index, reducingCount, cap(p.channel))
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 func (e *EventQueue) routerTransformer(data interface{}, routeGenerator func(data interface{}) string) {

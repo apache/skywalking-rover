@@ -17,7 +17,9 @@
 
 package logger
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+)
 
 const (
 	DefaultLoggerLevel = logrus.InfoLevel

@@ -319,6 +319,7 @@ func (c *AnalyzerContext) lookupTheActiveConnectionInBPf(connection *ConnectionC
 
 func (c *AnalyzerContext) deleteConnectionOnly(ccs []string) {
 	for _, cc := range ccs {
+		log.Debugf("delete the closed connection in activate connections context: %s", cc)
 		c.activeConnections.Remove(cc)
 	}
 }
@@ -401,8 +402,17 @@ func (c *AnalyzerContext) flushClosedConnection() []*ConnectionContext {
 	c.closedConnectionLocker.Lock()
 	defer c.closedConnectionLocker.Unlock()
 
+	// encase the connection still have buffer not flush, then keep it
+	keepClosedConnections := make([]*ConnectionContext, 0)
 	connections := c.closedConnections
-	c.closedConnections = make([]*ConnectionContext, 0)
+	for _, connection := range connections {
+		if connection.DeleteFlushCount > 1 {
+			continue
+		}
+		keepClosedConnections = append(keepClosedConnections, connection)
+		connection.DeleteFlushCount++
+	}
+	c.closedConnections = keepClosedConnections
 	return connections
 }
 
@@ -411,4 +421,6 @@ func (c *AnalyzerContext) appendClosedConnection(con *ConnectionContext) {
 	defer c.closedConnectionLocker.RUnlock()
 
 	c.closedConnections = append(c.closedConnections, con)
+	log.Debugf("append the closed connection to the closed connection list, conid: %d, randomid: %d",
+		con.ConnectionID, con.RandomID)
 }

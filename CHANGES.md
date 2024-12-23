@@ -16,7 +16,10 @@ Release Notes.
 * Support parallel parsing protocol data in the access log module.
 * Upgrade Go library to `1.22`, eBPF library to `0.16.0`.
 * Reduce missing details issue in the access log module.
-* Introduce ringbuf queue to improve performance in the access log module.
+* Improve HTTP/1.x protocol parsing strategy to encase missing data.
+* Add gRPC sender to sending the access log to the backend.
+* Add warning log when the event queue almost full in the access log module.
+* Reduce unessential `conntrack` query when detect new connection.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

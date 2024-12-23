@@ -90,7 +90,7 @@ func (h *Analyzer) Init(config *profiling.TaskConfig) {
 	h.sampleConfig = NewSamplingConfig(config)
 }
 
-func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, buf *buffer.Buffer) enums.ParseResult {
+func (h *Analyzer) ParseProtocol(connectionID, randomID uint64, metrics protocol.Metrics, buf *buffer.Buffer) enums.ParseResult {
 	connectionMetrics := metrics.(*ConnectionMetrics)
 	messageType, err := h.reader.IdentityMessageType(buf)
 	if err != nil {
@@ -102,11 +102,14 @@ func (h *Analyzer) ParseProtocol(connectionID uint64, metrics protocol.Metrics, 
 	case reader.MessageTypeRequest:
 		result, err = h.handleRequest(connectionMetrics, buf)
 	case reader.MessageTypeResponse:
-		result, err = h.handleResponse(connectionID, connectionMetrics, buf)
+		result, err = h.handleResponse(connectionID, randomID, connectionMetrics, buf)
 	case reader.MessageTypeUnknown:
 		return enums.ParseResultSkipPackage
 	}
 
+	log.Debugf("readed message, messageType: %v, buf: %p, data id: %d, "+
+		"connection ID: %d, random ID: %d, metrics : %p, handle result: %d",
+		messageType, buf, buf.Position().DataID(), connectionID, randomID, metrics, result)
 	if err != nil {
 		log.Warnf("reading %v error: %v", messageType, err)
 		return enums.ParseResultSkipPackage
@@ -130,10 +133,13 @@ func (h *Analyzer) handleRequest(metrics *ConnectionMetrics, buf *buffer.Buffer)
 	return enums.ParseResultSuccess, nil
 }
 
-func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetrics, buf *buffer.Buffer) (enums.ParseResult, error) {
+func (h *Analyzer) handleResponse(connectionID, randomID uint64, metrics *ConnectionMetrics,
+	buf *buffer.Buffer) (enums.ParseResult, error) {
 	// find the first request
 	firstElement := metrics.halfData.Front()
 	if firstElement == nil {
+		log.Debugf("cannot found request for response, skip response, connection ID: %d, random ID: %d, "+
+			"current data id: %d", connectionID, randomID, buf.Position().DataID())
 		return enums.ParseResultSkipPackage, nil
 	}
 	request := metrics.halfData.Remove(firstElement).(*reader.Request)
@@ -162,7 +168,8 @@ func (h *Analyzer) handleResponse(connectionID uint64, metrics *ConnectionMetric
 
 	if log.Enable(logrus.DebugLevel) {
 		metricsJSON, _ := json.Marshal(data)
-		log.Debugf("generated metrics, connection id: %d, side: %s, metrisc: %s", connectionID, side.String(), string(metricsJSON))
+		log.Debugf("generated metrics, connection id: %d, random id: %d, side: %s, metrisc: %s, metrics pointer: %p",
+			connectionID, randomID, side.String(), string(metricsJSON), metrics)
 	}
 	return enums.ParseResultSuccess, nil
 }
@@ -217,8 +224,8 @@ func (m *ConnectionMetrics) MergeMetricsFromConnection(connection *base.Connecti
 	if log.Enable(logrus.DebugLevel) {
 		clientMetrics, _ := json.Marshal(m.clientMetrics)
 		serverMetrics, _ := json.Marshal(m.serverMetrics)
-		log.Debugf("combine metrics: conid: %d_%d, client side metrics: %s, server side metrics: %s",
-			connection.ConnectionID, connection.RandomID, clientMetrics, serverMetrics)
+		log.Debugf("combine metrics: conid: %d_%d, porinters: %p-%p, client side metrics: %s, server side metrics: %s",
+			connection.ConnectionID, connection.RandomID, m, other, clientMetrics, serverMetrics)
 	}
 }
 

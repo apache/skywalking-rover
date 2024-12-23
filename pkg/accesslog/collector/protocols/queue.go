@@ -88,7 +88,8 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
-	q.eventQueue = btf.NewEventQueue(q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
+	q.eventQueue = btf.NewEventQueue("socket data analyzer",
+		q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
 		func(num int) btf.PartitionContext {
 			return NewPartitionContext(q.context, num, q.supportAnalyzers(q.context))
 		})
@@ -128,12 +129,13 @@ type PartitionContext struct {
 func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	connection := &PartitionConnection{
-		connectionID:     conID,
-		randomID:         randomID,
-		dataBuffers:      make(map[enums.ConnectionProtocol]*buffer.Buffer),
-		protocol:         make(map[enums.ConnectionProtocol]uint64),
-		protocolAnalyzer: make(map[enums.ConnectionProtocol]Protocol),
-		protocolMetrics:  make(map[enums.ConnectionProtocol]ProtocolMetrics),
+		connectionID:       conID,
+		randomID:           randomID,
+		dataBuffers:        make(map[enums.ConnectionProtocol]*buffer.Buffer),
+		protocol:           make(map[enums.ConnectionProtocol]uint64),
+		protocolAnalyzer:   make(map[enums.ConnectionProtocol]Protocol),
+		protocolMetrics:    make(map[enums.ConnectionProtocol]ProtocolMetrics),
+		lastCheckCloseTime: time.Now(),
 	}
 	connection.appendProtocolIfNeed(protocolMgr, conID, randomID, protocol, currentDataID)
 	return connection
@@ -173,7 +175,6 @@ func (p *PartitionContext) OnConnectionClose(event *events.SocketCloseEvent, clo
 	}
 	connection := conn.(*PartitionConnection)
 	connection.closeCallback = closeCallback
-	connection.closed = true
 	log.Debugf("receive the connection close event and mark is closable, connection ID: %d, random ID: %d, partition number: %d",
 		event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
 }
@@ -227,8 +228,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
-		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, data id: %d, sequence: %d, protocol: %d",
-			event.ConnectionID, event.RandomID, pid, event.DataID0, event.Sequence0, event.Protocol0)
+		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
+			"data id: %d, sequence: %d, protocol: %d",
+			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0)
 		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}

@@ -32,14 +32,12 @@ import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
+	"github.com/apache/skywalking-rover/pkg/accesslog/sender"
 	"github.com/apache/skywalking-rover/pkg/core"
 	"github.com/apache/skywalking-rover/pkg/core/backend"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
-	"github.com/apache/skywalking-rover/pkg/process"
-	"github.com/apache/skywalking-rover/pkg/tools/host"
 
-	v32 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
@@ -53,8 +51,8 @@ type Runner struct {
 	mgr        *module.Manager
 	backendOp  backend.Operator
 	cluster    string
-	alsClient  v3.EBPFAccessLogServiceClient
 	ctx        context.Context
+	sender     *sender.GRPCSender
 }
 
 func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
@@ -70,17 +68,18 @@ func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
 	backendOP := coreModule.BackendOperator()
 	clusterName := coreModule.ClusterName()
 	monitorFilter := common.NewStaticMonitorFilter(strings.Split(config.ExcludeNamespaces, ","), strings.Split(config.ExcludeClusters, ","))
+	connectionMgr := common.NewConnectionManager(config, mgr, bpfLoader, monitorFilter)
 	runner := &Runner{
 		context: &common.AccessLogContext{
 			BPF:           bpfLoader,
 			Config:        config,
-			ConnectionMgr: common.NewConnectionManager(config, mgr, bpfLoader, monitorFilter),
+			ConnectionMgr: connectionMgr,
 		},
 		collectors: collector.Collectors(),
 		mgr:        mgr,
 		backendOp:  backendOP,
 		cluster:    clusterName,
-		alsClient:  v3.NewEBPFAccessLogServiceClient(backendOP.GetConnection()),
+		sender:     sender.NewGRPCSender(mgr, connectionMgr),
 	}
 	runner.context.Queue = common.NewQueue(config.Flush.MaxCountOneStream, flushDuration, runner)
 	return runner, nil
@@ -91,6 +90,7 @@ func (r *Runner) Start(ctx context.Context) error {
 	r.context.RuntimeContext = ctx
 	r.context.Queue.Start(ctx)
 	r.context.ConnectionMgr.Start(ctx, r.context)
+	r.sender.Start(ctx)
 	for _, c := range r.collectors {
 		err := c.Start(r.mgr, r.context)
 		if err != nil {
@@ -111,26 +111,20 @@ func (r *Runner) Consume(kernels chan *common.KernelLog, protocols chan *common.
 		return
 	}
 
-	allLogs := r.buildConnectionLogs(kernels, protocols)
-	log.Debugf("ready to send access log, connection count: %d", len(allLogs))
-	if len(allLogs) == 0 {
-		return
-	}
-	if err := r.sendLogs(allLogs); err != nil {
-		log.Warnf("send access log failure: %v", err)
-	}
+	batch := r.sender.NewBatch()
+	r.buildConnectionLogs(batch, kernels, protocols)
+	log.Debugf("ready to send access log, connection count: %d", batch.ConnectionCount())
+	r.sender.AddBatch(batch)
 }
 
-func (r *Runner) buildConnectionLogs(kernels chan *common.KernelLog, protocols chan *common.ProtocolLog) map[*common.ConnectionInfo]*connectionLogs {
-	result := make(map[*common.ConnectionInfo]*connectionLogs)
-	r.buildKernelLogs(kernels, result)
-	r.buildProtocolLogs(protocols, result)
+func (r *Runner) buildConnectionLogs(batch *sender.BatchLogs, kernels chan *common.KernelLog, protocols chan *common.ProtocolLog) {
+	r.buildKernelLogs(kernels, batch)
+	r.buildProtocolLogs(protocols, batch)
 
 	r.context.ConnectionMgr.OnBuildConnectionLogFinished()
-	return result
 }
 
-func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, result map[*common.ConnectionInfo]*connectionLogs) {
+func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, batch *sender.BatchLogs) {
 	delayAppends := make([]*common.KernelLog, 0)
 	for {
 		select {
@@ -139,13 +133,7 @@ func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, result map[*com
 			log.Debugf("building kernel log result, connetaion ID: %d, random ID: %d, exist connection: %t, delay: %t",
 				kernelLog.Event.GetConnectionID(), kernelLog.Event.GetRandomID(), connection != nil, delay)
 			if connection != nil && curLog != nil {
-				logs, exist := result[connection]
-				if !exist {
-					logs = newConnectionLogs()
-					result[connection] = logs
-				}
-
-				logs.kernels = append(logs.kernels, curLog)
+				batch.AppendKernelLog(connection, curLog)
 			} else if delay {
 				delayAppends = append(delayAppends, kernelLog)
 			}
@@ -162,7 +150,7 @@ func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, result map[*com
 	}
 }
 
-func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result map[*common.ConnectionInfo]*connectionLogs) {
+func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, batch *sender.BatchLogs) {
 	delayAppends := make([]*common.ProtocolLog, 0)
 	for {
 		select {
@@ -178,15 +166,7 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 					conID, randomID, connection != nil, delay)
 			}
 			if connection != nil && len(kernelLogs) > 0 && protocolLogs != nil {
-				logs, exist := result[connection]
-				if !exist {
-					logs = newConnectionLogs()
-					result[connection] = logs
-				}
-				logs.protocols = append(logs.protocols, &connectionProtocolLog{
-					kernels:  kernelLogs,
-					protocol: protocolLogs,
-				})
+				batch.AppendProtocolLog(connection, kernelLogs, protocolLogs)
 			} else if delay {
 				delayAppends = append(delayAppends, protocolLog)
 			}
@@ -200,95 +180,6 @@ func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, result ma
 			}
 			return
 		}
-	}
-}
-
-func (r *Runner) sendLogs(allLogs map[*common.ConnectionInfo]*connectionLogs) error {
-	timeout, cancelFunc := context.WithTimeout(r.ctx, time.Second*20)
-	defer cancelFunc()
-	streaming, err := r.alsClient.Collect(timeout)
-	if err != nil {
-		return err
-	}
-
-	firstLog := true
-	firstConnection := true
-	for connection, logs := range allLogs {
-		if len(logs.kernels) == 0 && len(logs.protocols) == 0 {
-			continue
-		}
-		if log.Enable(logrus.DebugLevel) {
-			log.Debugf("ready to sending access log with connection, connection ID: %d, random ID: %d, "+
-				"local: %s, remote: %s, role: %s, kernel logs count: %d, protocol log count: %d",
-				connection.ConnectionID, connection.RandomID, connection.RPCConnection.Local, connection.RPCConnection.Remote,
-				connection.RPCConnection.Role, len(logs.kernels), len(logs.protocols))
-		}
-
-		if len(logs.kernels) > 0 {
-			r.sendLogToTheStream(streaming, r.buildAccessLogMessage(firstLog, firstConnection, connection, logs.kernels, nil))
-			firstLog, firstConnection = false, false
-		}
-		for _, protocolLog := range logs.protocols {
-			r.sendLogToTheStream(streaming, r.buildAccessLogMessage(firstLog, firstConnection, connection, protocolLog.kernels, protocolLog.protocol))
-			firstLog, firstConnection = false, false
-		}
-
-		firstConnection = true
-	}
-
-	if _, err := streaming.CloseAndRecv(); err != nil {
-		log.Warnf("closing the access log streaming error: %v", err)
-	}
-	return nil
-}
-
-func (r *Runner) sendLogToTheStream(streaming v3.EBPFAccessLogService_CollectClient, logMsg *v3.EBPFAccessLogMessage) {
-	if err := streaming.Send(logMsg); err != nil {
-		log.Warnf("send access log failure: %v", err)
-	}
-}
-
-func (r *Runner) buildAccessLogMessage(firstLog, firstConnection bool, conn *common.ConnectionInfo,
-	kernelLogs []*v3.AccessLogKernelLog, protocolLog *v3.AccessLogProtocolLogs) *v3.EBPFAccessLogMessage {
-	var rpcCon *v3.AccessLogConnection
-	if firstConnection {
-		rpcCon = conn.RPCConnection
-	}
-	return &v3.EBPFAccessLogMessage{
-		Node:        r.BuildNodeInfo(firstLog),
-		Connection:  rpcCon,
-		KernelLogs:  kernelLogs,
-		ProtocolLog: protocolLog,
-	}
-}
-
-func (r *Runner) BuildNodeInfo(needs bool) *v3.EBPFAccessLogNodeInfo {
-	if !needs {
-		return nil
-	}
-	netInterfaces := make([]*v3.EBPFAccessLogNodeNetInterface, 0)
-	for i, n := range host.AllNetworkInterfaces() {
-		netInterfaces = append(netInterfaces, &v3.EBPFAccessLogNodeNetInterface{
-			Index: int32(i),
-			Mtu:   int32(n.MTU),
-			Name:  n.Name,
-		})
-	}
-	return &v3.EBPFAccessLogNodeInfo{
-		Name:          r.mgr.FindModule(process.ModuleName).(process.K8sOperator).NodeName(),
-		NetInterfaces: netInterfaces,
-		BootTime:      r.convertTimeToInstant(host.BootTime),
-		ClusterName:   r.cluster,
-		Policy: &v3.EBPFAccessLogPolicy{
-			ExcludeNamespaces: r.context.ConnectionMgr.GetExcludeNamespaces(),
-		},
-	}
-}
-
-func (r *Runner) convertTimeToInstant(t time.Time) *v32.Instant {
-	return &v32.Instant{
-		Seconds: t.Unix(),
-		Nanos:   int32(t.Nanosecond()),
 	}
 }
 
@@ -363,21 +254,4 @@ func (r *Runner) buildKernelLog(kernelLog *common.KernelLog) (*common.Connection
 func (r *Runner) Stop() error {
 	r.context.ConnectionMgr.Stop()
 	return nil
-}
-
-type connectionLogs struct {
-	kernels   []*v3.AccessLogKernelLog
-	protocols []*connectionProtocolLog
-}
-
-type connectionProtocolLog struct {
-	kernels  []*v3.AccessLogKernelLog
-	protocol *v3.AccessLogProtocolLogs
-}
-
-func newConnectionLogs() *connectionLogs {
-	return &connectionLogs{
-		kernels:   make([]*v3.AccessLogKernelLog, 0),
-		protocols: make([]*connectionProtocolLog, 0),
-	}
 }
