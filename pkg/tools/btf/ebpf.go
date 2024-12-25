@@ -68,7 +68,7 @@ func GetEBPFCollectionOptionsIfNeed(bpfSpec *ebpf.CollectionSpec) *ebpf.Collecti
 
 // getKernelBTFAddress means get the kernel BTF file path
 func getKernelBTFAddress() (spec *btf.Spec, fromKernel bool, err error) {
-	spec, err = btf.LoadKernelSpec()
+	_, err = btf.LoadKernelSpec()
 	if err == nil {
 		return nil, true, nil
 	}
