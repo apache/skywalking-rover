@@ -18,6 +18,8 @@
 package kubernetes
 
 import (
+	"sync"
+
 	"github.com/shirou/gopsutil/process"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
@@ -29,24 +31,23 @@ type Process struct {
 	original *process.Process
 
 	// process data
-	pid          int32
-	cmd          string
-	profiling    *profiling.Info
-	podContainer *PodContainer
+	pid           int32
+	cmd           string
+	profilingOnce sync.Once
+	profiling     *profiling.Info
+	podContainer  *PodContainer
 
 	// entity for the backend
 	entity *api.ProcessEntity
 }
 
 func NewProcess(p *process.Process, cmdline string, pc *PodContainer, entity *api.ProcessEntity) *Process {
-	stat, _ := base.BuildProfilingStat(p)
 	return &Process{
 		original:     p,
 		pid:          p.Pid,
 		cmd:          cmdline,
 		podContainer: pc,
 		entity:       entity,
-		profiling:    stat,
 	}
 }
 
@@ -67,6 +68,10 @@ func (p *Process) DetectType() api.ProcessDetectType {
 }
 
 func (p *Process) ProfilingStat() *profiling.Info {
+	p.profilingOnce.Do(func() {
+		stat, _ := base.BuildProfilingStat(p.original)
+		p.profiling = stat
+	})
 	return p.profiling
 }
 

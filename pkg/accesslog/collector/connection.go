@@ -84,13 +84,13 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize),
 		ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
 			return &events.SocketConnectEvent{}
-		}, func(data interface{}) string {
-			return fmt.Sprintf("%d", data.(*events.SocketConnectEvent).ConID)
+		}, func(data interface{}) int {
+			return int(data.(*events.SocketConnectEvent).ConID)
 		})
 	c.eventQueue.RegisterReceiver(ctx.BPF.SocketCloseEventQueue, int(perCPUBufferSize), ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
 		return &events.SocketCloseEvent{}
-	}, func(data interface{}) string {
-		return fmt.Sprintf("%d", data.(*events.SocketCloseEvent).ConnectionID)
+	}, func(data interface{}) int {
+		return int(data.(*events.SocketCloseEvent).ConnectionID)
 	})
 	c.eventQueue.Start(ctx.RuntimeContext, ctx.BPF.Linker)
 

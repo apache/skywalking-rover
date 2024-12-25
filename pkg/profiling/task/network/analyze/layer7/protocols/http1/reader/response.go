@@ -59,7 +59,10 @@ func (r *Response) Original() *http.Response {
 }
 
 func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (*Response, enums.ParseResult, error) {
-	bufReader := bufio.NewReader(buf)
+	bufReader := newPooledReaderFromBuffer(buf)
+	defer func() {
+		releasePooledReader(bufReader)
+	}()
 	tp := textproto.NewReader(bufReader)
 	resp := &http.Response{}
 	result := &Response{original: resp, req: req, reader: r}

@@ -38,15 +38,15 @@ func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket buffer data
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDataUploadQueue, l.protocolPerCPUBuffer, 1, func() interface{} {
 		return &analyzeBase.SocketDataUploadEvent{}
-	}, func(data interface{}) string {
-		return data.(*analyzeBase.SocketDataUploadEvent).GenerateConnectionID()
+	}, func(data interface{}) int {
+		return int(data.(*analyzeBase.SocketDataUploadEvent).ConnectionID)
 	})
 
 	// socket detail
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDetailDataQueue, l.protocolPerCPUBuffer, 1, func() interface{} {
 		return &analyzeBase.SocketDetailEvent{}
-	}, func(data interface{}) string {
-		return data.(*analyzeBase.SocketDetailEvent).GenerateConnectionID()
+	}, func(data interface{}) int {
+		return int(data.(*analyzeBase.SocketDetailEvent).ConnectionID)
 	})
 
 	l.socketDataQueue.Start(ctx, bpfLoader.Linker)
