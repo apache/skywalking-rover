@@ -20,6 +20,7 @@ Release Notes.
 * Add gRPC sender to sending the access log to the backend.
 * Add warning log when the event queue almost full in the access log module.
 * Reduce unessential `conntrack` query when detect new connection.
+* Reduce CPU and memory usage in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

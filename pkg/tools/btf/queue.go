@@ -20,7 +20,6 @@ package btf
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"time"
 
@@ -122,7 +121,7 @@ type mapReceiver struct {
 	emap         *ebpf.Map
 	perCPUBuffer int
 	dataSupplier func() interface{}
-	router       func(data interface{}) string
+	router       func(data interface{}) int
 	parallels    int
 }
 
@@ -135,7 +134,7 @@ func NewEventQueue(name string, partitionCount, sizePerPartition int, contextGen
 }
 
 func (e *EventQueue) RegisterReceiver(emap *ebpf.Map, perCPUBufferSize, parallels int, dataSupplier func() interface{},
-	routeGenerator func(data interface{}) string) {
+	routeGenerator func(data interface{}) int) {
 	e.receivers = append(e.receivers, &mapReceiver{
 		emap:         emap,
 		perCPUBuffer: perCPUBufferSize,
@@ -151,14 +150,9 @@ func (e *EventQueue) Start(ctx context.Context, linker *Linker) {
 	})
 }
 
-func (e *EventQueue) Push(key string, data interface{}) {
-	// calculate hash of key
-	h := fnv.New32a()
-	h.Write([]byte(key))
-	sum32 := int(h.Sum32())
-
+func (e *EventQueue) Push(key int, data interface{}) {
 	// append data
-	e.partitions[sum32%e.count].channel <- data
+	e.partitions[key%e.count].channel <- data
 }
 
 func (e *EventQueue) PartitionContexts() []PartitionContext {
@@ -217,7 +211,7 @@ func (e *EventQueue) start0(ctx context.Context, linker *Linker) {
 	}()
 }
 
-func (e *EventQueue) routerTransformer(data interface{}, routeGenerator func(data interface{}) string) {
+func (e *EventQueue) routerTransformer(data interface{}, routeGenerator func(data interface{}) int) {
 	key := routeGenerator(data)
 	e.Push(key, data)
 }

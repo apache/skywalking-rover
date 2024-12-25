@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
@@ -37,6 +38,11 @@ import (
 var (
 	requestMethods = []string{
 		"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH",
+	}
+	pooledReader = sync.Pool{
+		New: func() any {
+			return bufio.NewReader(nil)
+		},
 	}
 )
 
@@ -312,4 +318,14 @@ func (c *charsetReadWrapper) Read(p []byte) (n int, err error) {
 
 func (c *charsetReadWrapper) Close() error {
 	return nil
+}
+
+func newPooledReaderFromBuffer(b *buffer.Buffer) *bufio.Reader {
+	reader := pooledReader.Get().(*bufio.Reader)
+	reader.Reset(b)
+	return reader
+}
+
+func releasePooledReader(r *bufio.Reader) {
+	pooledReader.Put(r)
 }

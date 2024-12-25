@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -96,14 +97,14 @@ func (q *AnalyzeQueue) Start(ctx context.Context) {
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDetailQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
 			return q.detailSupplier()
-		}, func(data interface{}) string {
-			return fmt.Sprintf("%d", data.(events.SocketDetail).GetConnectionID())
+		}, func(data interface{}) int {
+			return int(data.(events.SocketDetail).GetConnectionID())
 		})
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
 			return &events.SocketDataUploadEvent{}
-		}, func(data interface{}) string {
-			return fmt.Sprintf("%d", data.(*events.SocketDataUploadEvent).ConnectionID)
+		}, func(data interface{}) int {
+			return int(data.(*events.SocketDataUploadEvent).ConnectionID)
 		})
 
 	q.eventQueue.Start(ctx, q.context.BPF.Linker)
@@ -251,7 +252,11 @@ func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
 }
 
 func (p *PartitionContext) buildConnectionKey(conID, ranID uint64) string {
-	return fmt.Sprintf("%d_%d", conID, ranID)
+	buf := make([]byte, 0, 42) // 21 + 1 + 21
+	buf = strconv.AppendUint(buf, conID, 10)
+	buf = append(buf, '_')
+	buf = strconv.AppendUint(buf, ranID, 10)
+	return string(buf)
 }
 
 func (p *PartitionContext) processEvents() {

@@ -52,45 +52,47 @@ func LoadBPFAndAssign(loadBPF func() (*ebpf.CollectionSpec, error), objs interfa
 
 func GetEBPFCollectionOptionsIfNeed(bpfSpec *ebpf.CollectionSpec) *ebpf.CollectionOptions {
 	findBTFOnce.Do(func() {
-		readSpec, err := getKernelBTFAddress()
+		readSpec, kernel, err := getKernelBTFAddress()
 		if err != nil {
 			log.Warnf("found BTF failure: %v", err)
 			return
 		}
 
-		spec = readSpec
+		if !kernel {
+			spec = readSpec
+		}
 	})
 
 	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{KernelTypes: spec}}
 }
 
 // getKernelBTFAddress means get the kernel BTF file path
-func getKernelBTFAddress() (spec *btf.Spec, err error) {
+func getKernelBTFAddress() (spec *btf.Spec, fromKernel bool, err error) {
 	spec, err = btf.LoadKernelSpec()
 	if err == nil {
-		return spec, nil
+		return nil, true, nil
 	}
 
 	distributeInfo, err := operator.GetDistributionInfo()
 	if err != nil {
-		return nil, fmt.Errorf("could not load the system distribute info: %v", err)
+		return nil, false, fmt.Errorf("could not load the system distribute info: %v", err)
 	}
 	uname, err := operator.GetOSUname()
 	if err != nil {
-		return nil, fmt.Errorf("could not load the uname info: %v", err)
+		return nil, false, fmt.Errorf("could not load the uname info: %v", err)
 	}
 
 	path := fmt.Sprintf("files/%s/%s/%s/%s.btf", distributeInfo.Name, distributeInfo.Version,
 		distributeInfo.Architecture, uname.Release)
 	bpfObjBuff, err := asset(path)
 	if err != nil {
-		return nil, fmt.Errorf("could not found customized BTF file: %s", path)
+		return nil, false, fmt.Errorf("could not found customized BTF file: %s", path)
 	}
 	spec, err = btf.LoadSpecFromReader(bytes.NewReader(bpfObjBuff))
 	if err != nil {
-		return nil, fmt.Errorf("could not load customized BTF file: %s", path)
+		return nil, false, fmt.Errorf("could not load customized BTF file: %s", path)
 	}
-	return spec, nil
+	return spec, false, nil
 }
 
 func asset(file string) ([]byte, error) {

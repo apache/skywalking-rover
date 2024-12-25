@@ -18,6 +18,7 @@
 package kubernetes
 
 import (
+	"reflect"
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -133,14 +134,17 @@ func chooseServiceName(a, b string) string {
 	return b
 }
 
-func (r *Registry) OnAdd(_ interface{}) {
+func (r *Registry) OnAdd(d interface{}) {
 	r.recomposePodServiceName()
 }
 
-func (r *Registry) OnUpdate(_, _ interface{}) {
-	r.recomposePodServiceName()
+func (r *Registry) OnUpdate(d, u interface{}) {
+	same := reflect.DeepEqual(d, u)
+	if !same {
+		r.recomposePodServiceName()
+	}
 }
 
-func (r *Registry) OnDelete(_ interface{}) {
+func (r *Registry) OnDelete(d interface{}) {
 	r.recomposePodServiceName()
 }
