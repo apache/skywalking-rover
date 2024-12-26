@@ -256,11 +256,12 @@ func (r *Buffer) Clean() {
 	r.endPosition = nil
 }
 
+// nolint
 func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents := list.New()
 	detailEvents := list.New()
 	var firstDetailElement *list.Element
-	var lastBufferDataId = start.DataID()
+	var lastBufferDataID = start.DataID()
 	for nextElement := start.element; nextElement != end.element; nextElement = nextElement.Next() {
 		if nextElement == nil || nextElement.Value == nil {
 			break
@@ -280,29 +281,29 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 			}
 		}
 		dataEvents.PushBack(currentBuffer)
-		lastBufferDataId = currentBuffer.DataID()
+		lastBufferDataID = currentBuffer.DataID()
 	}
 	lastBuffer := end.element.Value.(SocketDataBuffer)
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
 	// if the first detail element been found, append the details until the last buffer data id
-	var lastBufferId = lastBufferDataId
+	var lastBufferID = lastBufferDataID
 	if lastBuffer != nil {
-		lastBufferId = lastBuffer.DataID()
+		lastBufferID = lastBuffer.DataID()
 	}
 	if firstDetailElement == nil && r.detailEvents != nil {
 		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-			if e.Value != nil && e.Value.(SocketDataDetail).DataID() == lastBufferId {
+			if e.Value != nil && e.Value.(SocketDataDetail).DataID() == lastBufferID {
 				detailEvents.PushBack(e.Value)
 				break
 			}
 		}
-	} else if firstDetailElement != nil && firstDetailElement.Value.(SocketDataDetail).DataID() != lastBufferId {
+	} else if firstDetailElement != nil && firstDetailElement.Value.(SocketDataDetail).DataID() != lastBufferID {
 		for tmp := firstDetailElement.Next(); tmp != nil; tmp = tmp.Next() {
 			if tmp.Value == nil {
 				continue
 			}
-			if tmp.Value.(SocketDataDetail).DataID() > lastBufferId {
+			if tmp.Value.(SocketDataDetail).DataID() > lastBufferID {
 				break
 			}
 			detailEvents.PushBack(tmp.Value)
