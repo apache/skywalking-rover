@@ -260,36 +260,49 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents := list.New()
 	detailEvents := list.New()
 	var firstDetailElement *list.Element
+	var lastBufferDataId = start.DataID()
 	for nextElement := start.element; nextElement != end.element; nextElement = nextElement.Next() {
-		if nextElement == nil {
+		if nextElement == nil || nextElement.Value == nil {
 			break
 		}
+		currentBuffer := nextElement.Value.(SocketDataBuffer)
 		// found first matches detail event
 		if detailEvents.Len() == 0 || firstDetailElement == nil {
 			for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-				if e.Value.(SocketDataDetail).DataID() >= nextElement.Value.(SocketDataBuffer).DataID() {
+				if e.Value == nil {
+					continue
+				}
+				if e.Value.(SocketDataDetail).DataID() >= currentBuffer.DataID() {
 					detailEvents.PushBack(e.Value)
 					firstDetailElement = e
 					break
 				}
 			}
 		}
-		dataEvents.PushBack(nextElement.Value)
+		dataEvents.PushBack(currentBuffer)
+		lastBufferDataId = currentBuffer.DataID()
 	}
 	lastBuffer := end.element.Value.(SocketDataBuffer)
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
 	// if the first detail element been found, append the details until the last buffer data id
+	var lastBufferId = lastBufferDataId
+	if lastBuffer != nil {
+		lastBufferId = lastBuffer.DataID()
+	}
 	if firstDetailElement == nil && r.detailEvents != nil {
 		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-			if e.Value.(SocketDataDetail).DataID() == lastBuffer.DataID() {
+			if e.Value != nil && e.Value.(SocketDataDetail).DataID() == lastBufferId {
 				detailEvents.PushBack(e.Value)
 				break
 			}
 		}
-	} else if firstDetailElement != nil && firstDetailElement.Value.(SocketDataDetail).DataID() != lastBuffer.DataID() {
+	} else if firstDetailElement != nil && firstDetailElement.Value.(SocketDataDetail).DataID() != lastBufferId {
 		for tmp := firstDetailElement.Next(); tmp != nil; tmp = tmp.Next() {
-			if tmp.Value.(SocketDataDetail).DataID() > lastBuffer.DataID() {
+			if tmp.Value == nil {
+				continue
+			}
+			if tmp.Value.(SocketDataDetail).DataID() > lastBufferId {
 				break
 			}
 			detailEvents.PushBack(tmp.Value)
