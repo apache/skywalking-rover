@@ -102,7 +102,7 @@ func (q *AnalyzeQueue) Start(ctx context.Context) {
 		})
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
-			return &events.SocketDataUploadEvent{}
+			return &events.SocketDataUploadEvent{Buffer: *buffer.BorrowNewBuffer()}
 		}, func(data interface{}) int {
 			return int(data.(*events.SocketDataUploadEvent).ConnectionID)
 		})
@@ -166,20 +166,6 @@ func NewPartitionContext(ctx *common.AccessLogContext, num int, protocols []Prot
 	return pc
 }
 
-func (p *PartitionContext) OnConnectionClose(event *events.SocketCloseEvent, closeCallback common.ConnectionProcessFinishCallback) {
-	conn, exist := p.connections.Get(p.buildConnectionKey(event.GetConnectionID(), event.GetRandomID()))
-	if !exist {
-		log.Debugf("connection is not exist in the partion context, connection ID: %d, random ID: %d, partition number: %d",
-			event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
-		closeCallback()
-		return
-	}
-	connection := conn.(*PartitionConnection)
-	connection.closeCallback = closeCallback
-	log.Debugf("receive the connection close event and mark is closable, connection ID: %d, random ID: %d, partition number: %d",
-		event.GetConnectionID(), event.GetRandomID(), p.partitionNum)
-}
-
 func (p *PartitionContext) Start(ctx context.Context) {
 	// process events with interval
 	flushDuration, _ := time.ParseDuration(p.context.Config.Flush.Period)
@@ -189,7 +175,7 @@ func (p *PartitionContext) Start(ctx context.Context) {
 			select {
 			case <-timeTicker.C:
 				// process event with interval
-				p.processEvents()
+				p.ProcessEvents()
 			case <-ctx.Done():
 				timeTicker.Stop()
 				return
@@ -203,7 +189,7 @@ func (p *PartitionContext) Start(ctx context.Context) {
 		for {
 			select {
 			case <-expireTicker.C:
-				p.processExpireEvents()
+				p.ProcessExpireEvents()
 			case <-ctx.Done():
 				expireTicker.Stop()
 				return
@@ -225,19 +211,19 @@ func (p *PartitionContext) Consume(data interface{}) {
 			forwarder.SendTransferNoProtocolEvent(p.context, event)
 			return
 		}
-		connection := p.getConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol(), event.DataID())
+		connection := p.GetConnectionContext(event.GetConnectionID(), event.GetRandomID(), event.GetProtocol(), event.DataID())
 		connection.AppendDetail(p.context, event)
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
 		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
 			"data id: %d, sequence: %d, protocol: %d",
 			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0)
-		connection := p.getConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
+		connection := p.GetConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
 }
 
-func (p *PartitionContext) getConnectionContext(connectionID, randomID uint64,
+func (p *PartitionContext) GetConnectionContext(connectionID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) *PartitionConnection {
 	conKey := p.buildConnectionKey(connectionID, randomID)
 	conn, exist := p.connections.Get(conKey)
@@ -259,7 +245,7 @@ func (p *PartitionContext) buildConnectionKey(conID, ranID uint64) string {
 	return string(buf)
 }
 
-func (p *PartitionContext) processEvents() {
+func (p *PartitionContext) ProcessEvents() {
 	// it could be triggered by interval or reach counter
 	// if any trigger bean locked, the other one just ignore process
 	if !p.analyzeLocker.TryLock() {
@@ -284,9 +270,6 @@ func (p *PartitionContext) processEvents() {
 			p.checkTheConnectionIsAlreadyClose(info)
 		}
 		if info.closed {
-			if info.closeCallback != nil {
-				info.closeCallback()
-			}
 			closedConnections = append(closedConnections, conKey)
 			log.Debugf("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
 				info.connectionID, info.randomID, p.partitionNum)
@@ -320,7 +303,7 @@ func (p *PartitionContext) checkTheConnectionIsAlreadyClose(con *PartitionConnec
 	}
 }
 
-func (p *PartitionContext) processExpireEvents() {
+func (p *PartitionContext) ProcessExpireEvents() {
 	// the expiry must be mutual exclusion with events processor
 	p.analyzeLocker.Lock()
 	defer p.analyzeLocker.Unlock()

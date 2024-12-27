@@ -25,6 +25,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders"
+	"github.com/apache/skywalking-rover/pkg/process/finders/kubernetes"
 )
 
 const ModuleName = "process_discovery"
@@ -104,4 +105,12 @@ func (m *Module) ShouldMonitor(pid int32) bool {
 
 func (m *Module) NodeName() string {
 	return m.config.Kubernetes.NodeName
+}
+
+func (m *Module) IsPodIP(ip string) (bool, error) {
+	k8sFinder, exist := m.manager.Finder(api.Kubernetes)
+	if !exist {
+		return false, nil
+	}
+	return k8sFinder.(*kubernetes.ProcessFinder).IsPodIP(ip)
 }

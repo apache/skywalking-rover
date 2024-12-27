@@ -19,89 +19,15 @@ package btf
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/perf"
-	"github.com/cilium/ebpf/ringbuf"
 )
 
 // queueChannelReducingCountCheckInterval is the interval to check the queue channel reducing count
 // if the reducing count is almost full, then added a warning log
 const queueChannelReducingCountCheckInterval = time.Second * 5
-
-type queueReader interface {
-	Read() ([]byte, error)
-	Close() error
-}
-
-func newQueueReader(emap *ebpf.Map, perCPUBuffer int) (queueReader, error) {
-	switch emap.Type() {
-	case ebpf.RingBuf:
-		return newRingBufReader(emap)
-	case ebpf.PerfEventArray:
-		return newPerfQueueReader(emap, perCPUBuffer)
-	}
-	return nil, fmt.Errorf("unsupported map type: %s", emap.Type().String())
-}
-
-type perfQueueReader struct {
-	name   string
-	reader *perf.Reader
-}
-
-func newPerfQueueReader(emap *ebpf.Map, perCPUBuffer int) (*perfQueueReader, error) {
-	reader, err := perf.NewReader(emap, perCPUBuffer)
-	if err != nil {
-		return nil, err
-	}
-	return &perfQueueReader{reader: reader, name: emap.String()}, nil
-}
-
-func (p *perfQueueReader) Read() ([]byte, error) {
-	read, err := p.reader.Read()
-	if err != nil {
-		return nil, err
-	}
-
-	if read.LostSamples != 0 {
-		log.Warnf("perf event queue(%s) full, dropped %d samples", p.name, read.LostSamples)
-		return nil, nil
-	}
-
-	return read.RawSample, nil
-}
-
-func (p *perfQueueReader) Close() error {
-	return p.reader.Close()
-}
-
-type ringBufReader struct {
-	reader *ringbuf.Reader
-	name   string
-}
-
-func newRingBufReader(emap *ebpf.Map) (*ringBufReader, error) {
-	reader, err := ringbuf.NewReader(emap)
-	if err != nil {
-		return nil, err
-	}
-	return &ringBufReader{reader: reader, name: emap.String()}, nil
-}
-
-func (r *ringBufReader) Read() ([]byte, error) {
-	read, err := r.reader.Read()
-	if err != nil {
-		return nil, err
-	}
-	return read.RawSample, nil
-}
-
-func (r *ringBufReader) Close() error {
-	return r.reader.Close()
-}
 
 type PartitionContext interface {
 	Start(ctx context.Context)

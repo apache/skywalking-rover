@@ -33,6 +33,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/apache/skywalking-rover/pkg/process"
+	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/tools"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
@@ -56,7 +58,7 @@ func NewConnectionCollector() *ConnectCollector {
 	return &ConnectCollector{}
 }
 
-func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
+func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext) error {
 	perCPUBufferSize, err := units.RAMInBytes(ctx.Config.ConnectionAnalyze.PerCPUBufferSize)
 	if err != nil {
 		return err
@@ -73,13 +75,9 @@ func (c *ConnectCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	if ctx.Config.ConnectionAnalyze.QueueSize < 1 {
 		return fmt.Errorf("the queue size be small than 1")
 	}
-	track, err := ip.NewConnTrack()
-	if err != nil {
-		connectionLogger.Warnf("cannot create the connection tracker, %v", err)
-	}
 	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallels,
 		ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
-			return newConnectionPartitionContext(ctx, track)
+			return NewConnectionPartitionContext(ctx, m.FindModule(process.ModuleName).(process.K8sOperator))
 		})
 	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize),
 		ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
@@ -130,18 +128,18 @@ func (c *ConnectCollector) Stop() {
 
 type ConnectionPartitionContext struct {
 	context     *common.AccessLogContext
-	connTracker *ip.ConnTrack
+	k8sOperator process.K8sOperator
 }
 
-func newConnectionPartitionContext(ctx *common.AccessLogContext, connTracker *ip.ConnTrack) *ConnectionPartitionContext {
+func NewConnectionPartitionContext(ctx *common.AccessLogContext,
+	k8sOperator process.K8sOperator) *ConnectionPartitionContext {
 	return &ConnectionPartitionContext{
 		context:     ctx,
-		connTracker: connTracker,
+		k8sOperator: k8sOperator,
 	}
 }
 
 func (c *ConnectionPartitionContext) Start(ctx context.Context) {
-
 }
 
 func (c *ConnectionPartitionContext) Consume(data interface{}) {
@@ -151,7 +149,7 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 			"pid: %d, fd: %d, role: %s: func: %s, family: %d, success: %d, conntrack exist: %t",
 			event.ConID, event.RandomID, event.PID, event.SocketFD, enums.ConnectionRole(event.Role), enums.SocketFunctionName(event.FuncName),
 			event.SocketFamily, event.ConnectSuccess, event.ConnTrackUpstreamPort != 0)
-		socketPair := c.buildSocketFromConnectEvent(event)
+		socketPair := c.BuildSocketFromConnectEvent(event)
 		if socketPair == nil {
 			connectionLogger.Debugf("cannot found the socket paire from connect event, connection ID: %d, randomID: %d",
 				event.ConID, event.RandomID)
@@ -159,7 +157,6 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 		}
 		connectionLogger.Debugf("build socket pair success, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d",
 			event.ConID, event.RandomID, socketPair.Role, socketPair.SrcIP, socketPair.SrcPort, socketPair.DestIP, socketPair.DestPort)
-		c.context.ConnectionMgr.OnConnectEvent(event, socketPair)
 		forwarder.SendConnectEvent(c.context, event, socketPair)
 	case *events.SocketCloseEvent:
 		connectionLogger.Debugf("receive close event, connection ID: %d, randomID: %d, pid: %d, fd: %d",
@@ -169,7 +166,7 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 	}
 }
 
-func (c *ConnectionPartitionContext) fixSocketFamilyIfNeed(event *events.SocketConnectEvent, result *ip.SocketPair) {
+func (c *ConnectionPartitionContext) FixSocketFamilyIfNeed(event *events.SocketConnectEvent, result *ip.SocketPair) {
 	if result == nil {
 		return
 	}
@@ -189,39 +186,39 @@ func (c *ConnectionPartitionContext) fixSocketFamilyIfNeed(event *events.SocketC
 	}
 }
 
-func (c *ConnectionPartitionContext) buildSocketFromConnectEvent(event *events.SocketConnectEvent) *ip.SocketPair {
+func (c *ConnectionPartitionContext) BuildSocketFromConnectEvent(event *events.SocketConnectEvent) *ip.SocketPair {
 	if event.SocketFamily != unix.AF_INET && event.SocketFamily != unix.AF_INET6 && event.SocketFamily != enums.SocketFamilyUnknown {
 		// if not ipv4, ipv6 or unknown, ignore
 		return nil
 	}
-	socketPair := c.buildSocketPair(event)
-	if socketPair != nil && socketPair.IsValid() {
+	pair := c.BuildSocketPair(event)
+	if pair != nil && pair.IsValid() {
 		connectionLogger.Debugf("found the connection from the connect event is valid, connection ID: %d, randomID: %d",
 			event.ConID, event.RandomID)
-		return socketPair
+		return pair
 	}
 	// if only the local port not success, maybe the upstream port is not open, so it could be continued
-	if c.isOnlyLocalPortEmpty(socketPair) {
+	if c.IsOnlyLocalPortEmpty(pair) {
 		event.ConnectSuccess = 0
 		connectionLogger.Debugf("the connection from the connect event is only the local port is empty, connection ID: %d, randomID: %d",
 			event.ConID, event.RandomID)
-		return socketPair
+		return pair
 	}
 
 	pair, err := ip.ParseSocket(event.PID, event.SocketFD)
 	if err != nil {
-		connectionLogger.Debugf("cannot found the socket, pid: %d, socket FD: %d", event.PID, event.SocketFD)
+		connectionLogger.Debugf("cannot found the socket, pid: %d, socket FD: %d, error: %v", event.PID, event.SocketFD, err)
 		return nil
 	}
 	connectionLogger.Debugf("found the connection from the socket, connection ID: %d, randomID: %d",
 		event.ConID, event.RandomID)
 	pair.Role = enums.ConnectionRole(event.Role)
-	c.fixSocketFamilyIfNeed(event, pair)
-	c.tryToUpdateSocketFromConntrack(event, pair)
+	c.FixSocketFamilyIfNeed(event, pair)
+	c.CheckNeedConntrack(event, pair)
 	return pair
 }
 
-func (c *ConnectionPartitionContext) isOnlyLocalPortEmpty(socketPair *ip.SocketPair) bool {
+func (c *ConnectionPartitionContext) IsOnlyLocalPortEmpty(socketPair *ip.SocketPair) bool {
 	if socketPair == nil {
 		return false
 	}
@@ -233,7 +230,7 @@ func (c *ConnectionPartitionContext) isOnlyLocalPortEmpty(socketPair *ip.SocketP
 	return socketPair.IsValid()
 }
 
-func (c *ConnectionPartitionContext) buildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
+func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
 	var result *ip.SocketPair
 	haveConnTrack := false
 	if event.SocketFamily == unix.AF_INET {
@@ -288,22 +285,28 @@ func (c *ConnectionPartitionContext) buildSocketPair(event *events.SocketConnect
 		return result
 	}
 
-	c.fixSocketFamilyIfNeed(event, result)
-	c.tryToUpdateSocketFromConntrack(event, result)
+	c.FixSocketFamilyIfNeed(event, result)
+	c.CheckNeedConntrack(event, result)
 	return result
 }
 
-func (c *ConnectionPartitionContext) tryToUpdateSocketFromConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
-	if socket != nil && socket.IsValid() && c.connTracker != nil && !tools.IsLocalHostAddress(socket.DestIP) &&
-		event.FuncName != enums.SocketFunctionNameAccept { // accept event don't need to update the remote address
-		// if no contract and socket data is valid, then trying to get the remote address from the socket
-		// to encase the remote address is not the real remote address
-		originalIP := socket.DestIP
-		originalPort := socket.DestPort
-		if c.connTracker.UpdateRealPeerAddress(socket) {
-			connectionLogger.Debugf("update the socket address from conntrack success, "+
-				"connection ID: %d, randomID: %d, original remote: %s:%d, new remote: %s:%d",
-				event.ConID, event.RandomID, originalIP, originalPort, socket.DestIP, socket.DestPort)
-		}
+func (c *ConnectionPartitionContext) CheckNeedConntrack(event *events.SocketConnectEvent, socket *ip.SocketPair) {
+	if socket == nil || !socket.IsValid() || tools.IsLocalHostAddress(socket.DestIP) ||
+		event.FuncName == enums.SocketFunctionNameAccept || // accept event don't need to update the remote address
+		!c.context.ConnectionMgr.ProcessIsDetectBy(event.PID, api.Kubernetes) { // only the k8s process need to update the remote address from conntrack
+		return
 	}
+
+	isPodIP, err := c.k8sOperator.IsPodIP(socket.DestIP)
+	if err != nil {
+		connectionLogger.Warnf("cannot found the pod IP, connection ID: %d, randomID: %d, error: %v",
+			event.ConID, event.RandomID, err)
+	}
+	if isPodIP {
+		connectionLogger.Debugf("detect the remote IP is pod IP, connection ID: %d, randomID: %d, remote: %s",
+			event.ConID, event.RandomID, socket.DestIP)
+		return
+	}
+	// update to the socket need to update the remote address from conntrack
+	socket.NeedConnTrack = true
 }

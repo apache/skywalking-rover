@@ -20,7 +20,7 @@ package events
 import (
 	"fmt"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -41,7 +41,11 @@ type SocketDataUploadEvent struct {
 	Buffer       [2048]byte
 }
 
-func (s *SocketDataUploadEvent) ReadFrom(r *reader.Reader) {
+func (s *SocketDataUploadEvent) ReleaseBuffer() *[2048]byte {
+	return &s.Buffer
+}
+
+func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
 	s.HaveReduce = r.ReadUint8()
 	s.Direction0 = enums.SocketDataDirection(r.ReadUint8())

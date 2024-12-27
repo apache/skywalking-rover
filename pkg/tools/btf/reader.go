@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package reader
+package btf
 
 import (
 	"encoding/binary"
@@ -25,11 +25,20 @@ import (
 // EventReader read the sample data by self, instant of binary.Read
 type EventReader interface {
 	// ReadFrom read buffer data
-	ReadFrom(reader *Reader)
+	ReadFrom(reader Reader)
 }
 
-// Reader buffer sample reader
-type Reader struct {
+type Reader interface {
+	HasError() error
+	ReadUint64() uint64
+	ReadUint32() uint32
+	ReadUint16() uint16
+	ReadUint8() uint8
+	ReadUint8Array(a []uint8, size int)
+}
+
+// BytesReader buffer sample reader
+type BytesReader struct {
 	Sample        []byte
 	CurrentOffset int
 	sampleLen     int
@@ -37,8 +46,8 @@ type Reader struct {
 }
 
 // NewReader create a reader from BPF buffer
-func NewReader(sample []byte) *Reader {
-	return &Reader{
+func NewReader(sample []byte) Reader {
+	return &BytesReader{
 		Sample:        sample,
 		CurrentOffset: 0,
 		sampleLen:     len(sample),
@@ -46,11 +55,11 @@ func NewReader(sample []byte) *Reader {
 }
 
 // HasError is there have error when reading buffer
-func (r *Reader) HasError() error {
+func (r *BytesReader) HasError() error {
 	return r.err
 }
 
-func (r *Reader) ReadUint64() uint64 {
+func (r *BytesReader) ReadUint64() uint64 {
 	bytes, err := r.read(8)
 	if err != nil {
 		return 0
@@ -58,7 +67,7 @@ func (r *Reader) ReadUint64() uint64 {
 	return binary.LittleEndian.Uint64(bytes)
 }
 
-func (r *Reader) ReadUint32() uint32 {
+func (r *BytesReader) ReadUint32() uint32 {
 	bytes, err := r.read(4)
 	if err != nil {
 		return 0
@@ -66,7 +75,7 @@ func (r *Reader) ReadUint32() uint32 {
 	return binary.LittleEndian.Uint32(bytes)
 }
 
-func (r *Reader) ReadUint16() uint16 {
+func (r *BytesReader) ReadUint16() uint16 {
 	bytes, err := r.read(2)
 	if err != nil {
 		return 0
@@ -74,7 +83,7 @@ func (r *Reader) ReadUint16() uint16 {
 	return binary.LittleEndian.Uint16(bytes)
 }
 
-func (r *Reader) ReadUint8() uint8 {
+func (r *BytesReader) ReadUint8() uint8 {
 	bytes, err := r.read(1)
 	if err != nil {
 		return 0
@@ -82,7 +91,7 @@ func (r *Reader) ReadUint8() uint8 {
 	return bytes[0]
 }
 
-func (r *Reader) ReadUint8Array(a []uint8, size int) {
+func (r *BytesReader) ReadUint8Array(a []uint8, size int) {
 	read, err := r.read(size)
 	if err != nil {
 		return
@@ -90,7 +99,7 @@ func (r *Reader) ReadUint8Array(a []uint8, size int) {
 	copy(a, read)
 }
 
-func (r *Reader) read(size int) ([]byte, error) {
+func (r *BytesReader) read(size int) ([]byte, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -102,4 +111,44 @@ func (r *Reader) read(size int) ([]byte, error) {
 	bytes := r.Sample[r.CurrentOffset : r.CurrentOffset+size]
 	r.CurrentOffset += size
 	return bytes, nil
+}
+
+type sizeCalcReader struct {
+	size int
+}
+
+func newSizeCalcReader() *sizeCalcReader {
+	return &sizeCalcReader{}
+}
+
+func (r *sizeCalcReader) HasError() error {
+	return nil
+}
+
+func (r *sizeCalcReader) ReadUint64() uint64 {
+	r.size += 8
+	return 0
+}
+
+func (r *sizeCalcReader) ReadUint32() uint32 {
+	r.size += 4
+	return 0
+}
+
+func (r *sizeCalcReader) ReadUint16() uint16 {
+	r.size += 2
+	return 0
+}
+
+func (r *sizeCalcReader) ReadUint8() uint8 {
+	r.size++
+	return 0
+}
+
+func (r *sizeCalcReader) ReadUint8Array(a []uint8, size int) {
+	r.size += size
+}
+
+func (r *sizeCalcReader) Size() int {
+	return r.size
 }

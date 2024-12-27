@@ -34,6 +34,8 @@ type SocketPair struct {
 	SrcPort  uint16
 	DestIP   string
 	DestPort uint16
+
+	NeedConnTrack bool
 }
 
 func (s *SocketPair) IsValid() bool {

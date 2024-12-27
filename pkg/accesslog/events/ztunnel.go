@@ -17,7 +17,9 @@
 
 package events
 
-import "github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+import (
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
+)
 
 type ZTunnelSocketMappingEvent struct {
 	OriginalSrcIP        uint32
@@ -30,7 +32,7 @@ type ZTunnelSocketMappingEvent struct {
 	Pad1                 uint32
 }
 
-func (z *ZTunnelSocketMappingEvent) ReadFrom(r *reader.Reader) {
+func (z *ZTunnelSocketMappingEvent) ReadFrom(r btf.Reader) {
 	z.OriginalSrcIP = r.ReadUint32()
 	z.OriginalDestIP = r.ReadUint32()
 	z.OriginalSrcPort = r.ReadUint16()

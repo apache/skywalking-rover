@@ -25,16 +25,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+	"github.com/stretchr/testify/assert"
 )
 
 // nolint
 func TestBufferRead(t *testing.T) {
 	tests := []struct {
 		hex    string
-		create func() reader.EventReader
+		create func() btf.EventReader
 	}{
 		{
 			hex: `
@@ -46,7 +46,7 @@ func TestBufferRead(t *testing.T) {
 00 00 00 00 00 00 00 00 00 00 ff ff 7f 00 00 01
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00`,
-			create: func() reader.EventReader {
+			create: func() btf.EventReader {
 				return &SocketConnectEvent{}
 			},
 		},
@@ -59,7 +59,7 @@ func TestBufferRead(t *testing.T) {
 23 4a 01 00 bb 49 01 00 00 00 00 00 e4 01 00 00
 24 21 00 00 01 00 00 00 39 d6 00 00 00 00 00 00
 03 00 00 00 00 00 00 00 02 02 00 02 02 09 01 00`,
-			create: func() reader.EventReader {
+			create: func() btf.EventReader {
 				return &SocketDetailEvent{}
 			},
 		},
@@ -69,7 +69,7 @@ func TestBufferRead(t *testing.T) {
 b2 2d 26 7c 5a 30 02 00 5e 34 26 7c 5a 30 02 00
 7a a1 00 00 04 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00`,
-			create: func() reader.EventReader {
+			create: func() btf.EventReader {
 				return &SocketCloseEvent{}
 			},
 		},
@@ -209,7 +209,7 @@ a0 ea de 8e 56 e5 16 e5 d7 f0 e3 f9 09 35 c2 be
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00
 `,
-			create: func() reader.EventReader {
+			create: func() btf.EventReader {
 				return &SocketDataUploadEvent{}
 			},
 		},
@@ -226,7 +226,7 @@ a0 ea de 8e 56 e5 16 e5 d7 f0 e3 f9 09 35 c2 be
 			}
 			binaryRead := test.create()
 			selfRead := test.create()
-			bufReader := reader.NewReader(rawData)
+			bufReader := btf.NewReader(rawData)
 			selfRead.ReadFrom(bufReader)
 			if err := bufReader.HasError(); err != nil {
 				t.Fatalf("reading by self parsing error: %v", err)

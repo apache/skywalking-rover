@@ -40,6 +40,10 @@ type SocketDataUploadEvent struct {
 	Buffer       [2048]byte
 }
 
+func (s *SocketDataUploadEvent) ReleaseBuffer() *[2048]byte {
+	return &s.Buffer
+}
+
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {
 	return s.Protocol0
 }

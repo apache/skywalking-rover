@@ -20,7 +20,7 @@ package events
 import (
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -47,7 +47,7 @@ type SocketConnectEvent struct {
 	ConnTrackUpstreamPort uint32
 }
 
-func (c *SocketConnectEvent) ReadFrom(r *reader.Reader) {
+func (c *SocketConnectEvent) ReadFrom(r btf.Reader) {
 	c.ConID = r.ReadUint64()
 	c.RandomID = r.ReadUint64()
 	c.StartTime = r.ReadUint64()

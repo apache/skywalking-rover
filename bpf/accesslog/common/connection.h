@@ -27,7 +27,7 @@
 // syscall:connect
 struct connect_args_t {
     __u32 fd;
-    __u32 fix;
+    __u32 has_remote;
     struct sockaddr* addr;
     struct sock *sock;
     __u64 start_nacs;
@@ -305,6 +305,7 @@ static __inline void submit_connection_when_not_exists(void *ctx, __u64 id, stru
 
 static __inline void notify_close_connection(void* ctx, __u64 conid, struct active_connection_t* con, __u64 start_time, __u64 end_time, int ret) {
     bpf_map_delete_elem(&socket_data_last_id_map, &conid);
+    bpf_map_delete_elem(&socket_data_id_generate_map, &conid);
     struct socket_close_event_t *close_event;
     close_event = rover_reserve_buf(&socket_close_event_queue, sizeof(*close_event));
     if (close_event == NULL) {

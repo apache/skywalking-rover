@@ -37,4 +37,6 @@ type Operator interface {
 type K8sOperator interface {
 	// NodeName get the node name
 	NodeName() string
+	// IsPodIP check the ip is pod ip
+	IsPodIP(ip string) (bool, error)
 }

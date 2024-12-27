@@ -93,7 +93,7 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     }
 
     // already contains the remote address
-    if (&(connect_args->remote) != NULL) {
+    if (connect_args->has_remote && &(connect_args->remote) != NULL) {
         return 0;
     }
 
@@ -126,6 +126,7 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     remote.ipl = reply_conn.saddr_l;
     remote.port = reply_conn.sport;
     connect_args->remote = remote;
+    connect_args->has_remote = 1;
     bpf_map_update_elem(&conecting_args, &id, connect_args, 0);
 
     return 0;

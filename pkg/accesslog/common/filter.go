@@ -18,6 +18,7 @@
 package common
 
 import (
+	"os"
 	"strings"
 
 	"github.com/apache/skywalking-rover/pkg/process/api"
@@ -46,7 +47,11 @@ func NewStaticMonitorFilter(namespaces, clusters []string) *StaticMonitorFilter 
 }
 
 func (s *StaticMonitorFilter) ShouldIncludeProcesses(processes []api.ProcessInterface) (res []api.ProcessInterface) {
+	var selfPid = os.Getpid()
 	for _, entity := range processes {
+		if int(entity.Pid()) == selfPid {
+			continue
+		}
 		if entity.DetectType() != api.Kubernetes { // for now, we only have the kubernetes detected processes
 			continue
 		}
