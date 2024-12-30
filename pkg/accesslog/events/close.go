@@ -20,7 +20,7 @@ package events
 import (
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -35,7 +35,7 @@ type SocketCloseEvent struct {
 	Success   uint32
 }
 
-func (c *SocketCloseEvent) ReadFrom(r *reader.Reader) {
+func (c *SocketCloseEvent) ReadFrom(r btf.Reader) {
 	c.ConnectionID = r.ReadUint64()
 	c.RandomID = r.ReadUint64()
 	c.StartTime = r.ReadUint64()

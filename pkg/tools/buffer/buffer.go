@@ -37,7 +37,17 @@ var (
 	emptyList      = list.New()
 
 	log = logger.GetLogger("tools", "buffer")
+
+	PooledBuffer = sync.Pool{
+		New: func() any {
+			return &[2048]byte{}
+		},
+	}
 )
+
+func BorrowNewBuffer() *[2048]byte {
+	return PooledBuffer.Get().(*[2048]byte)
+}
 
 type SocketDataBuffer interface {
 	// Protocol of the buffer
@@ -71,6 +81,8 @@ type SocketDataBuffer interface {
 	StartTime() uint64
 	// EndTime the data end timestamp
 	EndTime() uint64
+
+	ReleaseBuffer() *[2048]byte
 }
 
 type SocketDataDetail interface {
@@ -259,60 +271,19 @@ func (r *Buffer) Clean() {
 // nolint
 func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents := list.New()
-	detailEvents := list.New()
-	var firstDetailElement *list.Element
-	var lastBufferDataID = start.DataID()
 	for nextElement := start.element; nextElement != end.element; nextElement = nextElement.Next() {
 		if nextElement == nil || nextElement.Value == nil {
 			break
 		}
 		currentBuffer := nextElement.Value.(SocketDataBuffer)
-		// found first matches detail event
-		if detailEvents.Len() == 0 || firstDetailElement == nil {
-			for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-				if e.Value == nil {
-					continue
-				}
-				if e.Value.(SocketDataDetail).DataID() >= currentBuffer.DataID() {
-					detailEvents.PushBack(e.Value)
-					firstDetailElement = e
-					break
-				}
-			}
-		}
 		dataEvents.PushBack(currentBuffer)
-		lastBufferDataID = currentBuffer.DataID()
 	}
 	lastBuffer := end.element.Value.(SocketDataBuffer)
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
-	// if the first detail element been found, append the details until the last buffer data id
-	var lastBufferID = lastBufferDataID
-	if lastBuffer != nil {
-		lastBufferID = lastBuffer.DataID()
-	}
-	if firstDetailElement == nil && r.detailEvents != nil {
-		for e := r.detailEvents.Front(); e != nil; e = e.Next() {
-			if e.Value != nil && e.Value.(SocketDataDetail).DataID() == lastBufferID {
-				detailEvents.PushBack(e.Value)
-				break
-			}
-		}
-	} else if firstDetailElement != nil && firstDetailElement.Value.(SocketDataDetail).DataID() != lastBufferID {
-		for tmp := firstDetailElement.Next(); tmp != nil; tmp = tmp.Next() {
-			if tmp.Value == nil {
-				continue
-			}
-			if tmp.Value.(SocketDataDetail).DataID() > lastBufferID {
-				break
-			}
-			detailEvents.PushBack(tmp.Value)
-		}
-	}
-
 	return &Buffer{
 		dataEvents:     dataEvents,
-		detailEvents:   detailEvents,
+		detailEvents:   emptyList,
 		validated:      validated,
 		head:           &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
 		current:        &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
@@ -347,6 +318,9 @@ func (r *Buffer) BuildDetails() *list.List {
 		}
 
 		for e := r.originalBuffer.detailEvents.Front(); e != nil; e = e.Next() {
+			if e.Value == nil {
+				continue
+			}
 			if e.Value.(SocketDataDetail).DataID() >= fromDataID && e.Value.(SocketDataDetail).DataID() <= endDataID {
 				events.PushBack(e.Value)
 			}
@@ -358,7 +332,7 @@ func (r *Buffer) BuildDetails() *list.List {
 					dataIDList = append(dataIDList, e.Value.(SocketDataDetail).DataID())
 				}
 			}
-			log.Debugf("cannot found details from original buffer, from data id: %d, end data id: %d, "+
+			log.Infof("cannot found details from original buffer, from data id: %d, end data id: %d, "+
 				"ref: %p, existing details data id list: %v", fromDataID, endDataID, r.originalBuffer, dataIDList)
 		}
 
@@ -407,6 +381,20 @@ func (r *Buffer) LastSocketBuffer() SocketDataBuffer {
 		return nil
 	}
 	return r.dataEvents.Back().Value.(SocketDataBuffer)
+}
+
+func (r *Buffer) TotalBuffer() []SocketDataBuffer {
+	if r == nil || r.dataEvents == nil || r.dataEvents.Len() == 0 {
+		return nil
+	}
+	result := make([]SocketDataBuffer, 0, r.dataEvents.Len())
+	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
+		if e.Value == nil {
+			continue
+		}
+		result = append(result, e.Value.(SocketDataBuffer))
+	}
+	return result
 }
 
 // DetectNotSendingLastPosition detect the buffer contains not sending data: the BPF limited socket data count
@@ -642,7 +630,7 @@ func (r *Buffer) PrepareForReading() bool {
 	if r.shouldResetPosition {
 		r.ResetForLoopReading()
 		r.shouldResetPosition = false
-		return false
+		return r.PrepareForReading()
 	}
 	if r.head == nil || r.head.element == nil {
 		// read in the first element
@@ -732,6 +720,11 @@ func (r *Buffer) removeElement0(element *list.Element) *list.Element {
 	}
 	result := element.Next()
 	r.dataEvents.Remove(element)
+	if element.Value != nil {
+		if b, ok := element.Value.(SocketDataBuffer); ok && b != nil {
+			PooledBuffer.Put(b.ReleaseBuffer())
+		}
+	}
 	return result
 }
 
@@ -819,10 +812,14 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 	expireTime := time.Now().Add(-expireDuration)
 	// data event queue
 	count := r.deleteEventsWithJudgement(r.dataEvents, func(element *list.Element) bool {
+		if element.Value == nil {
+			return true
+		}
 		buffer := element.Value.(SocketDataBuffer)
 		startTime := host.Time(buffer.StartTime())
 		if expireTime.After(startTime) {
 			r.latestExpiredDataID = buffer.DataID()
+			PooledBuffer.Put(buffer.ReleaseBuffer())
 			return true
 		}
 		return false

@@ -66,14 +66,14 @@ struct sock_data_args_t {
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
+	__uint(max_entries, 65535);
 	__type(key, __u64);
 	__type(value, struct sock_data_args_t);
 } socket_data_args SEC(".maps");
 
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10000);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 65535);
 	__type(key, __u64);
 	__type(value, __u64);
 } socket_data_id_generate_map SEC(".maps");

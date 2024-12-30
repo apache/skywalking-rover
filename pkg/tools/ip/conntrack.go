@@ -18,14 +18,15 @@
 package ip
 
 import (
+	"fmt"
 	"net"
 	"syscall"
 
 	"github.com/florianl/go-conntrack"
 
-	"github.com/apache/skywalking-rover/pkg/logger"
-
 	"golang.org/x/sys/unix"
+
+	"github.com/apache/skywalking-rover/pkg/logger"
 )
 
 var log = logger.GetLogger("tools", "ip")
@@ -47,10 +48,11 @@ func NewConnTrack() (*ConnTrack, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &ConnTrack{tracker: nfct}, nil
 }
 
-func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
+func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) error {
 	family := conntrack.IPv4
 	if addr.Family == unix.AF_INET6 {
 		family = conntrack.IPv6
@@ -64,17 +66,18 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) bool {
 		session, e := c.tracker.Get(conntrack.Conntrack, family, conntrack.Con{Origin: tuple})
 		if e != nil {
 			// try to get the reply session, if the info not exists or from accept events, have error is normal
-			log.Debugf("cannot get the conntrack session, type: %s, family: %d, origin src: %s:%d, origin dest: %s:%d, error: %v", info.name,
+			return fmt.Errorf("cannot get the conntrack session, type: %s, family: %d, origin src: %s:%d, origin dest: %s:%d, error: %v", info.name,
 				family, tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, e)
-			continue
 		}
 
 		if res := c.filterValidateReply(session, tuple); res != nil {
 			addr.DestIP = res.Src.String()
-			return true
+			addr.NeedConnTrack = false
+			log.Debugf("update real peer address from conntrack: %s:%d", addr.DestIP, addr.DestPort)
+			return nil
 		}
 	}
-	return false
+	return nil
 }
 
 func (c *ConnTrack) parseSocketToTuple(addr *SocketPair) *conntrack.IPTuple {

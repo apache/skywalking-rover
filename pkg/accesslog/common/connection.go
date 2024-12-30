@@ -42,16 +42,11 @@ import (
 
 	cmap "github.com/orcaman/concurrent-map"
 
-	"k8s.io/apimachinery/pkg/util/cache"
-
 	v32 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
 const (
-	// only using to match the remote IP address
-	localAddressPairCacheTime = time.Second * 15
-
 	// clean the active connection in BPF interval
 	cleanActiveConnectionInterval = time.Second * 20
 
@@ -62,19 +57,6 @@ const (
 	connectionCheckExistTime = time.Second * 30
 )
 
-type addressProcessType int
-
-const (
-	addressProcessTypeUnknown addressProcessType = iota
-	addressProcessTypeLocal
-	addressProcessTypeKubernetes
-)
-
-const (
-	strLocal  = "local"
-	strRemote = "remote"
-)
-
 type ConnectEventWithSocket struct {
 	*events.SocketConnectEvent
 	SocketPair *ip.SocketPair
@@ -82,13 +64,11 @@ type ConnectEventWithSocket struct {
 
 type CloseEventWithNotify struct {
 	*events.SocketCloseEvent
-	allProcessorFinished bool
 }
 
 type ConnectionProcessFinishCallback func()
 
 type ConnectionProcessor interface {
-	OnConnectionClose(event *events.SocketCloseEvent, callback ConnectionProcessFinishCallback)
 }
 
 type FlusherListener interface {
@@ -105,10 +85,6 @@ type ConnectionManager struct {
 	moduleMgr   *module.Manager
 	processOP   process.Operator
 	connections cmap.ConcurrentMap
-	// addressWithPid cache all local ip+port and pid mapping for match the process on the same host
-	// such as service mesh(process with envoy)
-	addressWithPid   *cache.Expiring
-	localPortWithPid *cache.Expiring // in some case, we can only get the 127.0.0.1 from server side, so we only cache the port for this
 	// localIPWithPid cache all local monitoring process bind IP address
 	// for checking the remote address is local or not
 	localIPWithPid map[string]int32
@@ -124,10 +100,9 @@ type ConnectionManager struct {
 	processors       []ConnectionProcessor
 	processListeners []ProcessListener
 
-	// connection already close but the connection (protocols)log not build finished
-	allUnfinishedConnections map[string]*bool
-
 	flushListeners []FlusherListener
+
+	connectTracker *ip.ConnTrack
 }
 
 func (c *ConnectionManager) RegisterProcessor(processor ConnectionProcessor) {
@@ -142,10 +117,6 @@ func (c *ConnectionManager) RegisterNewFlushListener(listener FlusherListener) {
 	c.flushListeners = append(c.flushListeners, listener)
 }
 
-type addressInfo struct {
-	pid uint32
-}
-
 type ConnectionInfo struct {
 	ConnectionID       uint64
 	RandomID           uint64
@@ -158,19 +129,21 @@ type ConnectionInfo struct {
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
+	track, err := ip.NewConnTrack()
+	if err != nil {
+		log.Warnf("cannot create the connection tracker, %v", err)
+	}
 	mgr := &ConnectionManager{
-		moduleMgr:                moduleMgr,
-		processOP:                moduleMgr.FindModule(process.ModuleName).(process.Operator),
-		connections:              cmap.New(),
-		addressWithPid:           cache.NewExpiring(),
-		localPortWithPid:         cache.NewExpiring(),
-		localIPWithPid:           make(map[string]int32),
-		monitoringProcesses:      make(map[int32][]api.ProcessInterface),
-		processMonitorMap:        bpfLoader.ProcessMonitorControl,
-		activeConnectionMap:      bpfLoader.ActiveConnectionMap,
-		allUnfinishedConnections: make(map[string]*bool),
-		monitorFilter:            filter,
-		flushListeners:           make([]FlusherListener, 0),
+		moduleMgr:           moduleMgr,
+		processOP:           moduleMgr.FindModule(process.ModuleName).(process.Operator),
+		connections:         cmap.New(),
+		localIPWithPid:      make(map[string]int32),
+		monitoringProcesses: make(map[int32][]api.ProcessInterface),
+		processMonitorMap:   bpfLoader.ProcessMonitorControl,
+		activeConnectionMap: bpfLoader.ActiveConnectionMap,
+		monitorFilter:       filter,
+		flushListeners:      make([]FlusherListener, 0),
+		connectTracker:      track,
 	}
 	return mgr
 }
@@ -276,39 +249,26 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 }
 
 func (c *ConnectionManager) buildRemoteAddress(e *events.SocketConnectEvent, socket *ip.SocketPair) *v3.ConnectionAddress {
-	tp := c.isLocalTarget(socket)
-	if tp == addressProcessTypeUnknown {
-		log.Debugf("building the remote address to unknown, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
-			e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-		return c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
+	// if the remote address is local, then no needs to build the address(access log no need to send by communicate with self)
+	if tools.IsLocalHostAddress(socket.DestIP) {
+		return nil
 	}
 
-	var addrInfo *addressInfo
-	var fromType string
-	switch socket.Role {
-	case enums.ConnectionRoleClient:
-		addrInfo = c.getAddressPid(socket.SrcIP, socket.SrcPort, false)
-		fromType = strLocal
-	case enums.ConnectionRoleServer:
-		addrInfo = c.getAddressPid(socket.DestIP, socket.DestPort, true)
-		fromType = strRemote
-	}
-
-	if addrInfo != nil {
-		log.Debugf("building the remote address from %s process, pid: %d, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
-			fromType, addrInfo.pid, e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-		return c.buildLocalAddress(addrInfo.pid, socket.DestPort, socket)
-	} else if tp == addressProcessTypeKubernetes {
-		if p := c.localIPWithPid[socket.DestIP]; p != 0 {
-			log.Debugf("building the remote address from kubernetes process, connection: %d-%d, role: %s, pid: %d, local: %s:%d, remote: %s:%d",
-				e.GetConnectionID(), e.GetRandomID(), socket.Role, p, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-			return c.buildLocalAddress(uint32(p), socket.DestPort, socket)
+	// if the remote connection is need to use conntrack, then update the real peer address
+	if socket.NeedConnTrack {
+		if err := c.connectTracker.UpdateRealPeerAddress(socket); err != nil {
+			log.Debugf("cannot update the real peer address, %v", err)
 		}
 	}
 
-	log.Debugf("cannot found the peer pid for the connection: %d-%d, remote type: %v, role: %s, local: %s:%d, remote: %s:%d",
-		e.GetConnectionID(), e.GetRandomID(), tp, socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
-	return nil
+	// found local address with pid
+	if pid, exist := c.localIPWithPid[socket.DestIP]; exist && pid != 0 {
+		return c.buildLocalAddress(uint32(pid), socket.DestPort, socket)
+	}
+
+	log.Debugf("building the remote address to unknown, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
+		e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
+	return c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
 }
 
 func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, event events.Event) {
@@ -317,12 +277,7 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 	}
 	switch e := event.(type) {
 	case *CloseEventWithNotify:
-		if e.allProcessorFinished {
-			connection.MarkDeletable = true
-		} else {
-			// if not all processor finished, then add into the map
-			c.allUnfinishedConnections[fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())] = &e.allProcessorFinished
-		}
+		connection.MarkDeletable = true
 	case events.SocketDetail:
 		tlsMode := connection.RPCConnection.TlsMode
 		protocol := connection.RPCConnection.Protocol
@@ -366,6 +321,17 @@ func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
 	c.monitoringProcessLock.RLock()
 	defer c.monitoringProcessLock.RUnlock()
 	return len(c.monitoringProcesses[int32(pid)]) > 0
+}
+
+func (c *ConnectionManager) ProcessIsDetectBy(pid uint32, detectType api.ProcessDetectType) bool {
+	c.monitoringProcessLock.RLock()
+	defer c.monitoringProcessLock.RUnlock()
+	for _, p := range c.monitoringProcesses[int32(pid)] {
+		if p.DetectType() == detectType {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, socket *ip.SocketPair,
@@ -436,85 +402,9 @@ func (c *ConnectionManager) buildAddressFromRemote(ipHost string, port uint16) *
 }
 
 func (c *ConnectionManager) OnConnectionClose(event *events.SocketCloseEvent) *CloseEventWithNotify {
-	result := &CloseEventWithNotify{
-		SocketCloseEvent:     event,
-		allProcessorFinished: false,
+	return &CloseEventWithNotify{
+		SocketCloseEvent: event,
 	}
-	processCount := len(c.processors)
-	for _, l := range c.processors {
-		l.OnConnectionClose(event, func() {
-			processCount--
-			if processCount > 0 {
-				return
-			}
-			result.allProcessorFinished = true
-		})
-	}
-	return result
-}
-
-func (c *ConnectionManager) savingTheAddress(hostAddress string, port uint16, localPid bool, pid uint32) {
-	localAddrInfo := &addressInfo{
-		pid: pid,
-	}
-	c.addressWithPid.Set(fmt.Sprintf("%s_%d_%t", hostAddress, port, localPid), localAddrInfo, localAddressPairCacheTime)
-	localStr := strRemote
-	if localPid {
-		localStr = strLocal
-	}
-	log.Debugf("saving the %s address with pid cache, address: %s:%d, pid: %d", localStr, hostAddress, port, pid)
-}
-
-func (c *ConnectionManager) getAddressPid(hostAddress string, port uint16, localPid bool) *addressInfo {
-	addrInfo, ok := c.addressWithPid.Get(fmt.Sprintf("%s_%d_%t", hostAddress, port, localPid))
-	if ok && addrInfo != nil {
-		return addrInfo.(*addressInfo)
-	}
-	return nil
-}
-
-func (c *ConnectionManager) OnConnectEvent(event *events.SocketConnectEvent, pair *ip.SocketPair) {
-	// only adding the local ip port when remote is local address
-	switch c.isLocalTarget(pair) {
-	case addressProcessTypeUnknown:
-		log.Debugf("the target address is not local, so no needs to save the cache. "+
-			"address: %s:%d, pid: %d", pair.DestIP, pair.DestPort, event.PID)
-	case addressProcessTypeLocal:
-		switch pair.Role {
-		case enums.ConnectionRoleClient:
-			// if current is client, so the local port should be unique
-			c.savingTheAddress(pair.SrcIP, pair.SrcPort, true, event.PID)
-		case enums.ConnectionRoleServer:
-			// if current is server, so the remote port should be unique
-			c.savingTheAddress(pair.DestIP, pair.DestPort, false, event.PID)
-		case enums.ConnectionRoleUnknown:
-			log.Debugf("the target address local but unknown role, so no needs to save the cache. socket: [%s], pid: %d",
-				pair, event.PID)
-		}
-	case addressProcessTypeKubernetes:
-		switch pair.Role {
-		case enums.ConnectionRoleClient:
-			// if current is client, so the local port should be unique
-			c.savingTheAddress(pair.SrcIP, pair.SrcPort, true, event.PID)
-		case enums.ConnectionRoleServer:
-			// if current is server, so the remote port should be unique
-			c.savingTheAddress(pair.DestIP, pair.DestPort, false, event.PID)
-		case enums.ConnectionRoleUnknown:
-			log.Debugf("the target address kubernetes but unknown role, so no needs to save the cache. socket: [%s], pid: %d",
-				pair, event.PID)
-		}
-	}
-}
-
-func (c *ConnectionManager) isLocalTarget(pair *ip.SocketPair) addressProcessType {
-	destIP := pair.DestIP
-	if tools.IsLocalHostAddress(destIP) {
-		return addressProcessTypeLocal
-	}
-	if _, exist := c.localIPWithPid[destIP]; exist {
-		return addressProcessTypeKubernetes
-	}
-	return addressProcessTypeUnknown
 }
 
 func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInterface) {
@@ -705,20 +595,6 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 			deletableConnections[key] = true
 		}
 	})
-
-	deleteFromUnfinished := make([]string, 0)
-	for conKey, processorFinished := range c.allUnfinishedConnections {
-		if *processorFinished {
-			deletableConnections[conKey] = true
-			deleteFromUnfinished = append(deleteFromUnfinished, conKey)
-		} else {
-			// if the processor not finished, then ignore it from deletable connections
-			delete(deletableConnections, conKey)
-		}
-	}
-	for _, key := range deleteFromUnfinished {
-		delete(c.allUnfinishedConnections, key)
-	}
 
 	for key := range deletableConnections {
 		log.Debugf("deleting the connection in manager: %s", key)

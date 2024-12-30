@@ -20,7 +20,7 @@ package events
 import (
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -73,7 +73,7 @@ type SocketDetailEvent struct {
 	SSL                           uint8
 }
 
-func (d *SocketDetailEvent) ReadFrom(r *reader.Reader) {
+func (d *SocketDetailEvent) ReadFrom(r btf.Reader) {
 	d.ConnectionID = r.ReadUint64()
 	d.RandomID = r.ReadUint64()
 	d.DataID0 = r.ReadUint64()

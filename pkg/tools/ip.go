@@ -38,7 +38,7 @@ func DefaultHostIPAddress() string {
 
 // HostIPAddressV4 found the IPV4 address from appoint net interface name
 func HostIPAddressV4(name string) string {
-	address := host.ipAddresses[name]
+	address := host.ipAddressesByName[name]
 	if address == nil {
 		return ""
 	}
@@ -47,7 +47,7 @@ func HostIPAddressV4(name string) string {
 
 // HostIPAddressV6 found the IPV6 address from appoint net interface name
 func HostIPAddressV6(name string) string {
-	address := host.ipAddresses[name]
+	address := host.ipAddressesByName[name]
 	if address == nil {
 		return ""
 	}
@@ -56,10 +56,8 @@ func HostIPAddressV6(name string) string {
 
 // IsLocalHostAddress is the address from local
 func IsLocalHostAddress(address string) bool {
-	for _, h := range host.ipAddresses {
-		if h.ipV4 == address || h.ipV6 == address {
-			return true
-		}
+	if host.ipAddressesByIP[address] {
+		return true
 	}
 	return address == "0.0.0.0"
 }
@@ -73,8 +71,9 @@ type hostInfo struct {
 	// hostname
 	name string
 	// ip address
-	ipAddresses   map[string]*hostIPAddress
-	defaultIPAddr string
+	ipAddressesByName map[string]*hostIPAddress
+	ipAddressesByIP   map[string]bool
+	defaultIPAddr     string
 }
 
 type hostIPAddress struct {
@@ -83,7 +82,7 @@ type hostIPAddress struct {
 }
 
 func queryHostInfo() *hostInfo {
-	addresses, def, err := localIPAddress0()
+	addressesByName, def, err := localIPAddress0()
 	if err != nil {
 		panic(err)
 	}
@@ -91,7 +90,12 @@ func queryHostInfo() *hostInfo {
 	if err != nil {
 		panic(err)
 	}
-	return &hostInfo{name: name, ipAddresses: addresses, defaultIPAddr: def}
+	addressesByIP := make(map[string]bool)
+	for _, addr := range addressesByName {
+		addressesByIP[addr.ipV4] = true
+		addressesByIP[addr.ipV6] = true
+	}
+	return &hostInfo{name: name, ipAddressesByName: addressesByName, ipAddressesByIP: addressesByIP, defaultIPAddr: def}
 }
 
 func hostname0() (string, error) {

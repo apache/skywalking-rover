@@ -21,10 +21,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
@@ -35,6 +37,10 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/util/cache"
+	"k8s.io/apimachinery/pkg/util/rand"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -53,6 +59,8 @@ var log = logger.GetLogger("process", "finder", "kubernetes")
 var (
 	kubepodsRegex      = regexp.MustCompile(`cri-containerd-(?P<Group>\w+)\.scope`)
 	openShiftPodsRegex = regexp.MustCompile(`crio-(?P<Group>\w+)\.scope`)
+	ipExistTimeout     = time.Minute * 10
+	ipSearchParallel   = 10
 )
 
 type ProcessFinder struct {
@@ -73,6 +81,10 @@ type ProcessFinder struct {
 
 	// runtime config
 	namespaces []string
+
+	// for IsPodIP check
+	podIPChecker *cache.Expiring
+	podIPMutexes map[int]*sync.Mutex
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
@@ -89,11 +101,16 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 	f.stopChan = make(chan struct{}, 1)
 	f.registry = NewRegistry(f.CLI, f.namespaces, f.conf.NodeName)
 	f.manager = manager
-	cache, err := lru.New(5000)
+	f.podIPChecker = cache.NewExpiring()
+	f.podIPMutexes = make(map[int]*sync.Mutex)
+	for i := 0; i < ipSearchParallel; i++ {
+		f.podIPMutexes[i] = &sync.Mutex{}
+	}
+	processCache, err := lru.New(5000)
 	if err != nil {
 		return err
 	}
-	f.processCache = cache
+	f.processCache = processCache
 
 	return nil
 }
@@ -277,7 +294,7 @@ func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
 	}
 	defer cgroupFile.Close()
 
-	cache := make(map[string]bool)
+	cgroups := make(map[string]bool)
 	scanner := bufio.NewScanner(cgroupFile)
 	for scanner.Scan() {
 		infos := strings.Split(scanner.Text(), ":")
@@ -295,14 +312,14 @@ func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
 			if openShiftPod := openShiftPodsRegex.FindStringSubmatch(path); len(openShiftPod) >= 1 {
 				path = openShiftPod[1]
 			}
-			cache[path] = true
+			cgroups[path] = true
 		}
 	}
-	if len(cache) == 0 {
+	if len(cgroups) == 0 {
 		return nil, fmt.Errorf("no cgroups")
 	}
 	result := make([]string, 0)
-	for k := range cache {
+	for k := range cgroups {
 		result = append(result, k)
 	}
 	return result, nil
@@ -399,4 +416,33 @@ func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
 	}
 	f.manager.AddDetectedProcess(processes)
 	return true
+}
+
+func (f *ProcessFinder) IsPodIP(ip string) (bool, error) {
+	val, exist := f.podIPChecker.Get(ip)
+	if exist {
+		return val.(bool), nil
+	}
+
+	// parallels the search
+	h := fnv.New32a()
+	h.Write([]byte(ip))
+	sum32 := int(h.Sum32())
+	mutex := f.podIPMutexes[sum32%ipSearchParallel]
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	pods, err := f.CLI.CoreV1().Pods(v1.NamespaceAll).List(f.ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("status.podIP", ip).String(),
+		Limit:         1,
+	})
+	if err != nil {
+		return false, err
+	}
+	found := len(pods.Items) > 0
+
+	// the timeout added a random value to avoid the cache avalanche
+	addedTime := time.Second * time.Duration(rand.IntnRange(10, 60))
+	f.podIPChecker.Set(ip, found, ipExistTimeout+addedTime)
+	return found, nil
 }

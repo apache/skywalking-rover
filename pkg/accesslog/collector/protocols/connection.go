@@ -34,7 +34,6 @@ type PartitionConnection struct {
 	protocolAnalyzer       map[enums.ConnectionProtocol]Protocol
 	protocolMetrics        map[enums.ConnectionProtocol]ProtocolMetrics
 	closed                 bool
-	closeCallback          common.ConnectionProcessFinishCallback
 	skipAllDataAnalyze     bool
 	lastCheckCloseTime     time.Time
 }

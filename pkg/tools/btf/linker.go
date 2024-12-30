@@ -30,7 +30,6 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/x86/x86asm"
 
-	"github.com/apache/skywalking-rover/pkg/tools/btf/reader"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
 	"github.com/apache/skywalking-rover/pkg/tools/process"
 
@@ -167,7 +166,7 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, data
 
 func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
 	parallels int, dataSupplier func() interface{}) {
-	rd, err := newQueueReader(emap, perCPUBuffer)
+	rd, err := perf.NewReader(emap, perCPUBuffer)
 	if err != nil {
 		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
 		return
@@ -178,42 +177,53 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBuff
 	}
 	m.closers = append(m.closers, rd)
 
+	recordBuilder := newPerfRecordBuilder(dataSupplier())
 	for i := 0; i < parallels; i++ {
-		m.asyncReadEvent(rd, emap, dataSupplier, bufReader)
+		m.asyncReadEvent(rd, emap, recordBuilder, dataSupplier, bufReader)
 	}
 }
 
-func (m *Linker) asyncReadEvent(rd queueReader, emap *ebpf.Map, dataSupplier func() interface{}, bufReader RingBufferReader) {
+func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *perfRecordBuilder,
+	dataSupplier func() interface{}, bufReader RingBufferReader) {
 	go func() {
 		for {
-			sample, err := rd.Read()
+			record := recordPool.GetRecord()
+			err := rd.ReadInto(record)
 			if err != nil {
+				recordPool.PutRecord(record)
 				if errors.Is(err, perf.ErrClosed) {
 					return
 				}
 				log.Warnf("read from %s ringbuffer error: %v", emap.String(), err)
 				continue
 			}
-			if len(sample) == 0 {
+
+			if record.LostSamples != 0 {
+				log.Warnf("perf event queue(%s) full, dropped %d samples", emap.String(), record.LostSamples)
+				recordPool.PutRecord(record)
 				continue
 			}
 
 			data := dataSupplier()
-			if r, ok := data.(reader.EventReader); ok {
-				sampleReader := reader.NewReader(sample)
+			if r, ok := data.(EventReader); ok {
+				sampleReader := NewReader(record.RawSample)
 				r.ReadFrom(sampleReader)
 				if readErr := sampleReader.HasError(); readErr != nil {
-					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(sample), err)
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					recordPool.PutRecord(record)
 					continue
 				}
 			} else {
-				if err := binary.Read(bytes.NewBuffer(sample), binary.LittleEndian, data); err != nil {
-					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(sample), err)
+				if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					recordPool.PutRecord(record)
 					continue
 				}
 			}
 
 			bufReader(data)
+
+			recordPool.PutRecord(record)
 		}
 	}()
 }
@@ -401,4 +411,35 @@ func (m *Linker) Close() error {
 		}
 	})
 	return err
+}
+
+type perfRecordBuilder struct {
+	dataSize int
+	pool     sync.Pool
+}
+
+func newPerfRecordBuilder(data interface{}) *perfRecordBuilder {
+	// added 8 bytes means fix some event not aligned
+	var size = binary.Size(data) + 8
+	if r, ok := data.(EventReader); ok {
+		reader := newSizeCalcReader()
+		r.ReadFrom(reader)
+		size = reader.Size() + 8
+	}
+
+	builder := &perfRecordBuilder{
+		dataSize: size,
+	}
+	builder.pool.New = func() any {
+		return &perf.Record{RawSample: make([]byte, 0, builder.dataSize)}
+	}
+	return builder
+}
+
+func (p *perfRecordBuilder) GetRecord() *perf.Record {
+	return p.pool.Get().(*perf.Record)
+}
+
+func (p *perfRecordBuilder) PutRecord(r *perf.Record) {
+	p.pool.Put(r)
 }

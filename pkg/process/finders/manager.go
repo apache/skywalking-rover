@@ -113,6 +113,15 @@ func (m *ProcessManager) Shutdown() error {
 	return result
 }
 
+func (m *ProcessManager) Finder(finderType api.ProcessDetectType) (base.ProcessFinder, bool) {
+	for _, finder := range m.finders {
+		if finder.DetectType() == finderType {
+			return finder, true
+		}
+	}
+	return nil, false
+}
+
 func (p *ProcessManagerWithFinder) GetModuleManager() *module.Manager {
 	return p.moduleManager
 }

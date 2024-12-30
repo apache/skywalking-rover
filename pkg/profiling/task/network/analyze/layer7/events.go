@@ -20,6 +20,8 @@ package layer7
 import (
 	"context"
 
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
+
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	analyzeBase "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols"
@@ -37,7 +39,7 @@ func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profili
 func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket buffer data
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDataUploadQueue, l.protocolPerCPUBuffer, 1, func() interface{} {
-		return &analyzeBase.SocketDataUploadEvent{}
+		return &analyzeBase.SocketDataUploadEvent{Buffer: *buffer.BorrowNewBuffer()}
 	}, func(data interface{}) int {
 		return int(data.(*analyzeBase.SocketDataUploadEvent).ConnectionID)
 	})
