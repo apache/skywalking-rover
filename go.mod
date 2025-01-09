@@ -19,8 +19,8 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/zekroTJA/timedmap v1.4.0
 	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7
-	golang.org/x/net v0.33.0
-	golang.org/x/sys v0.28.0
+	golang.org/x/net v0.34.0
+	golang.org/x/sys v0.29.0
 	google.golang.org/grpc v1.66.2
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5
@@ -63,7 +63,7 @@ require (
 	golang.org/x/exp v0.0.0-20241210194714-1829a127f884 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
