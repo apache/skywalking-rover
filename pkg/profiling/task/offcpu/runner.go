@@ -140,7 +140,7 @@ func (r *Runner) findMatchesSymbol() []string {
 	if r.kernelProfiling == nil {
 		return []string{defaultKernelSymbol}
 	}
-	res, err := r.kernelProfiling.FindMultipleSymbolByRegex(`finish_task_switch(\.\w+\.\d+)?`)
+	res, err := r.kernelProfiling.FindMultipleSymbolByRegex(`^finish_task_switch$|^finish_task_switch\.isra\.\d$`)
 	if err != nil {
 		log.Warnf("found symbol error: %v", err)
 		return []string{defaultKernelSymbol}
