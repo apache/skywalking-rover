@@ -36,7 +36,8 @@ import (
 var http1Log = logger.GetLogger("accesslog", "collector", "protocols", "http1")
 var http1AnalyzeMaxRetryCount = 3
 
-type HTTP1ProtocolAnalyze func(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) error
+type HTTP1ProtocolAnalyze func(metrics *HTTP1Metrics, connection *PartitionConnection,
+	request *reader.Request, response *reader.Response) error
 
 type HTTP1Protocol struct {
 	ctx     *common.AccessLogContext
@@ -82,7 +83,7 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 	buf := connection.Buffer(enums.ConnectionProtocolHTTP)
 	http1Log.Debugf("ready to analyze HTTP/1 protocol data, connection ID: %d, random ID: %d, data len: %d",
 		metrics.ConnectionID, metrics.RandomID, buf.DataLength())
-	p.handleUnFinishedEvents(metrics)
+	p.handleUnFinishedEvents(metrics, connection)
 	buf.ResetForLoopReading()
 	for {
 		if !buf.PrepareForReading() {
@@ -103,7 +104,7 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		case reader.MessageTypeRequest:
 			result, err = p.handleRequest(metrics, buf)
 		case reader.MessageTypeResponse:
-			result, err = p.handleResponse(metrics, buf)
+			result, err = p.handleResponse(metrics, connection, buf)
 		case reader.MessageTypeUnknown:
 			result = enums.ParseResultSkipPackage
 		}
@@ -148,7 +149,8 @@ func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer)
 	return result, nil
 }
 
-func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, b *buffer.Buffer) (enums.ParseResult, error) {
+func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, connection *PartitionConnection,
+	b *buffer.Buffer) (enums.ParseResult, error) {
 	request := metrics.findMatchesRequest(b.Position().DataID(), b.Position().PrevDataID())
 	if request == nil {
 		log.Debugf("cannot found request for response, skip response, connection ID: %d, random ID: %d, "+
@@ -172,7 +174,7 @@ func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, b *buffer.Buffer) 
 	}
 
 	// getting the request and response, then send to the forwarder
-	if analyzeError := p.analyze(metrics, request, response); analyzeError != nil {
+	if analyzeError := p.analyze(metrics, connection, request, response); analyzeError != nil {
 		p.appendAnalyzeUnFinished(metrics, request, response)
 	}
 	return enums.ParseResultSuccess, nil
@@ -186,10 +188,10 @@ func (p *HTTP1Protocol) appendAnalyzeUnFinished(metrics *HTTP1Metrics, request *
 	})
 }
 
-func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics) {
+func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics, connection *PartitionConnection) {
 	for element := m.analyzeUnFinished.Front(); element != nil; {
 		unFinished := element.Value.(*HTTP1AnalyzeUnFinished)
-		err := p.analyze(m, unFinished.request, unFinished.response)
+		err := p.analyze(m, connection, unFinished.request, unFinished.response)
 		if err != nil {
 			unFinished.retryCount++
 			if unFinished.retryCount < http1AnalyzeMaxRetryCount {
@@ -205,7 +207,8 @@ func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics) {
 	}
 }
 
-func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, request *reader.Request, response *reader.Response) error {
+func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *PartitionConnection,
+	request *reader.Request, response *reader.Response) error {
 	details := make([]events.SocketDetail, 0)
 	var allInclude = true
 	var idRange *buffer.DataIDRange
