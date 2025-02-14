@@ -77,6 +77,7 @@ type HTTP2Streaming struct {
 	Status           int
 	RespHeaderBuffer *buffer.Buffer
 	RespBodyBuffer   *buffer.Buffer
+	connection       *PartitionConnection
 }
 
 func (r *HTTP2Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
@@ -114,7 +115,7 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *Analyze
 		var result enums.ParseResult
 		switch header.Type {
 		case http2.FrameHeaders:
-			result, protocolBreak, _ = r.handleHeader(&header, startPosition, http2Metrics, buf)
+			result, protocolBreak, _ = r.handleHeader(connection, &header, startPosition, http2Metrics, buf)
 		case http2.FrameData:
 			result, protocolBreak, _ = r.handleData(&header, startPosition, http2Metrics, buf)
 		default:
@@ -158,7 +159,7 @@ func (r *HTTP2Protocol) ForProtocol() enums.ConnectionProtocol {
 	return enums.ConnectionProtocolHTTP2
 }
 
-func (r *HTTP2Protocol) handleHeader(header *http2.FrameHeader, startPos *buffer.Position,
+func (r *HTTP2Protocol) handleHeader(connection *PartitionConnection, header *http2.FrameHeader, startPos *buffer.Position,
 	metrics *HTTP2Metrics, buf *buffer.Buffer) (enums.ParseResult, bool, error) {
 	bytes := make([]byte, header.Length)
 	if err := buf.ReadUntilBufferFull(bytes); err != nil {
@@ -177,6 +178,7 @@ func (r *HTTP2Protocol) handleHeader(header *http2.FrameHeader, startPos *buffer
 			ReqHeader:       headers,
 			RespHeader:      make(map[string]string),
 			ReqHeaderBuffer: buf.Slice(true, startPos, buf.Position()),
+			connection:      connection,
 		}
 		metrics.streams[header.StreamID] = streaming
 		return enums.ParseResultSuccess, false, nil
