@@ -77,7 +77,7 @@ type HTTP2Streaming struct {
 	Status           int
 	RespHeaderBuffer *buffer.Buffer
 	RespBodyBuffer   *buffer.Buffer
-	connection       *PartitionConnection
+	Connection       *PartitionConnection
 }
 
 func (r *HTTP2Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
@@ -178,7 +178,7 @@ func (r *HTTP2Protocol) handleHeader(connection *PartitionConnection, header *ht
 			ReqHeader:       headers,
 			RespHeader:      make(map[string]string),
 			ReqHeaderBuffer: buf.Slice(true, startPos, buf.Position()),
-			connection:      connection,
+			Connection:      connection,
 		}
 		metrics.streams[header.StreamID] = streaming
 		return enums.ParseResultSuccess, false, nil
@@ -254,6 +254,10 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) error {
 	}
 	idRange.DeleteDetails(stream.ReqHeaderBuffer)
 
+	host := stream.ReqHeader[":authority"]
+	if host == "" {
+		host = stream.ReqHeader[":host"]
+	}
 	forwarder.SendTransferProtocolEvent(r.ctx, details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
@@ -265,7 +269,7 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) error {
 					Path:               stream.ReqHeader[":path"],
 					SizeOfHeadersBytes: r.BufferSizeOfZero(stream.ReqHeaderBuffer),
 					SizeOfBodyBytes:    r.BufferSizeOfZero(stream.ReqBodyBuffer),
-
+					Host:               host,
 					Trace: AnalyzeTraceInfo(func(key string) string {
 						return stream.ReqHeader[key]
 					}, http2Log),

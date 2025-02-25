@@ -235,6 +235,10 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 		p.CloseStream(originalRequest.Body)
 		p.CloseStream(originalResponse.Body)
 	}()
+	host := request.Headers().Get("Host")
+	if host == "" && originalRequest.URL != nil {
+		host = originalRequest.URL.Host
+	}
 	forwarder.SendTransferProtocolEvent(p.ctx, details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
@@ -249,6 +253,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 					Trace: AnalyzeTraceInfo(func(key string) string {
 						return originalRequest.Header.Get(key)
 					}, http1Log),
+					Host: host,
 				},
 				Response: &v3.AccessLogHTTPProtocolResponse{
 					StatusCode:         int32(originalResponse.StatusCode),

@@ -1059,5 +1059,5 @@ sigs.k8s.io/structured-merge-diff/v4 v4.2.1 h1:bKCqE9GvQ5tiVHn5rfn1r+yao3aLQEaLz
 sigs.k8s.io/structured-merge-diff/v4 v4.2.1/go.mod h1:j/nl6xW8vLS49O8YvXW1ocPhZawJtm+Yrr7PPRQ0Vg4=
 sigs.k8s.io/yaml v1.2.0 h1:kr/MCeFWJWTwyaHoR9c8EjH9OumOmoF9YGiZd7lFm/Q=
 sigs.k8s.io/yaml v1.2.0/go.mod h1:yfXDCHCao9+ENCvLSE62v9VSji2MKu5jeNfTrofGhJc=
-skywalking.apache.org/repo/goapi v0.0.0-20240920052516-d4a23d9da0e0 h1:7IW+T+mciD/GJXvgglZho414N30KSWgUTzBmEP867eI=
-skywalking.apache.org/repo/goapi v0.0.0-20240920052516-d4a23d9da0e0/go.mod h1:+n8BMuS8eRdzdnGh15ElRGBXPi0eYZSs2TKySBDmRTE=
+skywalking.apache.org/repo/goapi v0.0.0-20250225130248-3916480eb467 h1:pXT6UxmC3qAD8faGFYuWmz6ekQPRfW1PcU8lAu6WSB0=
+skywalking.apache.org/repo/goapi v0.0.0-20250225130248-3916480eb467/go.mod h1:+n8BMuS8eRdzdnGh15ElRGBXPi0eYZSs2TKySBDmRTE=
