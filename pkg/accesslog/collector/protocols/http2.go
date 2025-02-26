@@ -254,9 +254,9 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) error {
 	}
 	idRange.DeleteDetails(stream.ReqHeaderBuffer)
 
-	host := stream.ReqHeader[":authority"]
-	if host == "" {
-		host = stream.ReqHeader[":host"]
+	streamHost := stream.ReqHeader[":authority"]
+	if streamHost == "" {
+		streamHost = stream.ReqHeader[":host"]
 	}
 	forwarder.SendTransferProtocolEvent(r.ctx, details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
@@ -269,7 +269,7 @@ func (r *HTTP2Protocol) handleWholeStream(stream *HTTP2Streaming) error {
 					Path:               stream.ReqHeader[":path"],
 					SizeOfHeadersBytes: r.BufferSizeOfZero(stream.ReqHeaderBuffer),
 					SizeOfBodyBytes:    r.BufferSizeOfZero(stream.ReqBodyBuffer),
-					Host:               host,
+					Host:               streamHost,
 					Trace: AnalyzeTraceInfo(func(key string) string {
 						return stream.ReqHeader[key]
 					}, http2Log),
