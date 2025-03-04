@@ -244,9 +244,9 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 		c.connections.Set(connectionKey, connection)
 		if log.Enable(logrus.DebugLevel) {
 			log.Debugf("building flushing connection, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d, "+
-				"local address: %s, remote address: %s",
+				"local address: %s, remote address: %s, protocol: %d",
 				e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort,
-				localAddress.String(), remoteAddress.String())
+				localAddress.String(), remoteAddress.String(), connection.RPCConnection.Protocol)
 		}
 		c.connectionPostHandle(connection, event)
 		return connection
@@ -302,6 +302,8 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 		if connection.ProtocolBreak && connection.RPCConnection.Protocol != v3.AccessLogProtocolType_TCP {
 			protocol = v3.AccessLogProtocolType_TCP
 		}
+		log.Infof("detect the connection post handle with detail event, connection ID: %d, random ID: %d, protocol: %d, isbreak: %t",
+			e.GetConnectionID(), e.GetRandomID(), protocol, connection.ProtocolBreak)
 		c.rebuildRPCConnectionWithTLSModeAndProtocol(connection, tlsMode, protocol)
 	}
 
@@ -365,6 +367,8 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 	if exist {
 		protocolBreak = val.(bool)
 		c.connectionProtocolBreakMap.Delete(conKey)
+		log.Infof("detected the connection: %d-%d is protocol break in the map, so remove from the connection manager",
+			event.GetConnectionID(), event.GetRandomID())
 	}
 	return &ConnectionInfo{
 		ConnectionID:       event.ConID,
@@ -643,9 +647,12 @@ func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID 
 	if exist {
 		connection := data.(*ConnectionInfo)
 		connection.ProtocolBreak = true
+		log.Infof("detected the existing connection: %d-%d is protocol break",
+			conID, ranID)
 	} else {
 		// setting to the protocol break map for encase the runner not starting building logs
 		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
+		log.Infof("setting the connection: %d-%d to protocol break map", conID, ranID)
 	}
 }
 
