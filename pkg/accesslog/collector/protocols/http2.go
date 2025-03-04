@@ -136,7 +136,7 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, helper *Analyze
 
 		// if the protocol break, then stop the loop and notify the caller to skip analyze all data(just sending the detail)
 		if protocolBreak {
-			http2Log.Warnf("the HTTP/2 protocol break, maybe not tracing the connection from beginning, skip all data analyze in this connection, "+
+			http2Log.Debugf("the HTTP/2 protocol break, maybe not tracing the connection from beginning, skip all data analyze in this connection, "+
 				"connection ID: %d", http2Metrics.ConnectionID)
 			helper.ProtocolBreak = true
 			r.analyzer.OnProtocolBreak(connection, http2Metrics)
@@ -231,7 +231,7 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(connection *PartitionConnect
 		return
 	}
 	if time.Since(host.Time(socketBuffer.StartTime())) > maxHTTP2StreamingTime {
-		http2Log.Infof("detect the HTTP/2 stream is too long, split the stream, connection ID: %d, stream ID: %d, headers: %v",
+		http2Log.Debugf("detect the HTTP/2 stream is too long, split the stream, connection ID: %d, stream ID: %d, headers: %v",
 			metrics.ConnectionID, id, streaming.ReqHeader)
 
 		_ = r.analyzer.HandleWholeStream(connection, streaming)

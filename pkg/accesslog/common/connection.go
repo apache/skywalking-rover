@@ -244,9 +244,9 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 		c.connections.Set(connectionKey, connection)
 		if log.Enable(logrus.DebugLevel) {
 			log.Debugf("building flushing connection, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d, "+
-				"local address: %s, remote address: %s",
+				"local address: %s, remote address: %s, protocol: %s",
 				e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort,
-				localAddress.String(), remoteAddress.String())
+				localAddress.String(), remoteAddress.String(), connection.RPCConnection.Protocol.String())
 		}
 		c.connectionPostHandle(connection, event)
 		return connection
@@ -620,6 +620,18 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 }
 
 func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID uint64) {
+	// setting connection protocol is break
+	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
+	data, exist := c.connections.Get(connectionKey)
+	if exist {
+		connection := data.(*ConnectionInfo)
+		connection.ProtocolBreak = true
+	} else {
+		// setting to the protocol break map for encase the runner not starting building logs
+		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
+	}
+
+	// setting the connection skip data upload
 	var activateConn ActiveConnection
 	if err := c.activeConnectionMap.Lookup(conID, &activateConn); err != nil {
 		if errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -636,16 +648,6 @@ func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID 
 	activateConn.SkipDataUpload = 1
 	if err := c.activeConnectionMap.Update(conID, activateConn, ebpf.UpdateAny); err != nil {
 		log.Warnf("failed to update the active connection: %d-%d", conID, ranID)
-	}
-
-	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
-	data, exist := c.connections.Get(connectionKey)
-	if exist {
-		connection := data.(*ConnectionInfo)
-		connection.ProtocolBreak = true
-	} else {
-		// setting to the protocol break map for encase the runner not starting building logs
-		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
 	}
 }
 
