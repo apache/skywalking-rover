@@ -124,6 +124,10 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
         bpf_probe_read(frame, sizeof(frame), buf + frameOffset);
         frameOffset += (bpf_ntohl(*(__u32 *) frame) >> 8) + kFrameBasicSize;
 
+        // frametype only accept 0x00 - 0x09
+        if (frame[3] > 0x09) {
+            return CONNECTION_MESSAGE_TYPE_UNKNOWN;
+        }
         // is header frame
         if (frame[3] != kFrameTypeHeader) {
             continue;
@@ -135,9 +139,15 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
             return CONNECTION_MESSAGE_TYPE_UNKNOWN;
         }
 
+        // stream ID cannot be 0
+        __u32 streamID = ((frame[5] & 0x7F) << 24) | (frame[6] << 16) | (frame[7] << 8) | frame[8];
+        if (streamID == 0) {
+            return CONNECTION_MESSAGE_TYPE_UNKNOWN;
+        }
+
         // locate the header block fragment offset
         headerBlockFragmentOffset = kFrameBasicSize;
-        if (frame[4] & 0x20) {  // PADDED flag is set
+        if (frame[4] & 0x08) {  // PADDED flag is set
             headerBlockFragmentOffset += 1;
         }
         if (frame[4] & 0x20) {  // PRIORITY flag is set

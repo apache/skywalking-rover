@@ -345,8 +345,11 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 	if helper.ProtocolBreak {
 		// notify the connection manager to skip analyze all data(just sending the detail)
 		connection.skipAllDataAnalyze = true
-		p.context.ConnectionMgr.SkipAllDataAnalyze(connection.connectionID, connection.randomID)
+		p.context.ConnectionMgr.SkipAllDataAnalyzeAndDowngradeProtocol(connection.connectionID, connection.randomID)
 		for _, buf := range connection.dataBuffers {
+			for e := buf.BuildDetails().Front(); e != nil; e = e.Next() {
+				forwarder.SendTransferNoProtocolEvent(p.context, e.Value.(events.SocketDetail))
+			}
 			buf.Clean()
 		}
 	}

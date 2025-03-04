@@ -22,6 +22,7 @@ Release Notes.
 * Reduce unessential `conntrack` query when detect new connection.
 * Reduce CPU and memory usage in the access log module.
 * Reduce handle connection event time in the access log module.
+* Downgrade the protocol of connection when protocol break in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
