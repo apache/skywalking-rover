@@ -42,6 +42,8 @@ import (
 
 	cmap "github.com/orcaman/concurrent-map"
 
+	"k8s.io/apimachinery/pkg/util/cache"
+
 	v32 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
@@ -103,6 +105,8 @@ type ConnectionManager struct {
 	flushListeners []FlusherListener
 
 	connectTracker *ip.ConnTrack
+
+	connectionProtocolBreakMap *cache.Expiring
 }
 
 func (c *ConnectionManager) RegisterProcessor(processor ConnectionProcessor) {
@@ -126,6 +130,7 @@ type ConnectionInfo struct {
 	Socket             *ip.SocketPair
 	LastCheckExistTime time.Time
 	DeleteAfter        *time.Time
+	ProtocolBreak      bool
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
@@ -134,16 +139,17 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		log.Warnf("cannot create the connection tracker, %v", err)
 	}
 	mgr := &ConnectionManager{
-		moduleMgr:           moduleMgr,
-		processOP:           moduleMgr.FindModule(process.ModuleName).(process.Operator),
-		connections:         cmap.New(),
-		localIPWithPid:      make(map[string]int32),
-		monitoringProcesses: make(map[int32][]api.ProcessInterface),
-		processMonitorMap:   bpfLoader.ProcessMonitorControl,
-		activeConnectionMap: bpfLoader.ActiveConnectionMap,
-		monitorFilter:       filter,
-		flushListeners:      make([]FlusherListener, 0),
-		connectTracker:      track,
+		moduleMgr:                  moduleMgr,
+		processOP:                  moduleMgr.FindModule(process.ModuleName).(process.Operator),
+		connections:                cmap.New(),
+		localIPWithPid:             make(map[string]int32),
+		monitoringProcesses:        make(map[int32][]api.ProcessInterface),
+		processMonitorMap:          bpfLoader.ProcessMonitorControl,
+		activeConnectionMap:        bpfLoader.ActiveConnectionMap,
+		monitorFilter:              filter,
+		flushListeners:             make([]FlusherListener, 0),
+		connectTracker:             track,
+		connectionProtocolBreakMap: cache.NewExpiring(),
 	}
 	return mgr
 }
@@ -234,7 +240,7 @@ func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
 		if localAddress == nil || remoteAddress == nil {
 			return nil
 		}
-		connection := c.buildConnection(e, socket, localAddress, remoteAddress)
+		connection := c.buildConnection(e, socket, localAddress, remoteAddress, connectionKey)
 		c.connections.Set(connectionKey, connection)
 		if log.Enable(logrus.DebugLevel) {
 			log.Debugf("building flushing connection, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d, "+
@@ -284,13 +290,17 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 		if e.GetSSL() == 1 && connection.RPCConnection.TlsMode == v3.AccessLogConnectionTLSMode_Plain {
 			tlsMode = v3.AccessLogConnectionTLSMode_TLS
 		}
-		if e.GetProtocol() != enums.ConnectionProtocolUnknown && connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
+		if !connection.ProtocolBreak && e.GetProtocol() != enums.ConnectionProtocolUnknown &&
+			connection.RPCConnection.Protocol == v3.AccessLogProtocolType_TCP {
 			switch e.GetProtocol() {
 			case enums.ConnectionProtocolHTTP:
 				protocol = v3.AccessLogProtocolType_HTTP_1
 			case enums.ConnectionProtocolHTTP2:
 				protocol = v3.AccessLogProtocolType_HTTP_2
 			}
+		}
+		if connection.ProtocolBreak && connection.RPCConnection.Protocol != v3.AccessLogProtocolType_TCP {
+			protocol = v3.AccessLogProtocolType_TCP
 		}
 		c.rebuildRPCConnectionWithTLSModeAndProtocol(connection, tlsMode, protocol)
 	}
@@ -335,7 +345,7 @@ func (c *ConnectionManager) ProcessIsDetectBy(pid uint32, detectType api.Process
 }
 
 func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, socket *ip.SocketPair,
-	local, remote *v3.ConnectionAddress) *ConnectionInfo {
+	local, remote *v3.ConnectionAddress, conKey string) *ConnectionInfo {
 	var role v32.DetectPoint
 	switch socket.Role {
 	case enums.ConnectionRoleClient:
@@ -350,6 +360,12 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		TlsMode:  v3.AccessLogConnectionTLSMode_Plain,
 		Protocol: v3.AccessLogProtocolType_TCP,
 	}
+	val, exist := c.connectionProtocolBreakMap.Get(conKey)
+	protocolBreak := false
+	if exist {
+		protocolBreak = val.(bool)
+		c.connectionProtocolBreakMap.Delete(conKey)
+	}
 	return &ConnectionInfo{
 		ConnectionID:       event.ConID,
 		RandomID:           event.RandomID,
@@ -357,6 +373,7 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		PID:                event.PID,
 		Socket:             socket,
 		LastCheckExistTime: time.Now(),
+		ProtocolBreak:      protocolBreak,
 	}
 }
 
@@ -602,7 +619,7 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	}
 }
 
-func (c *ConnectionManager) SkipAllDataAnalyze(conID, ranID uint64) {
+func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID uint64) {
 	var activateConn ActiveConnection
 	if err := c.activeConnectionMap.Lookup(conID, &activateConn); err != nil {
 		if errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -619,6 +636,16 @@ func (c *ConnectionManager) SkipAllDataAnalyze(conID, ranID uint64) {
 	activateConn.SkipDataUpload = 1
 	if err := c.activeConnectionMap.Update(conID, activateConn, ebpf.UpdateAny); err != nil {
 		log.Warnf("failed to update the active connection: %d-%d", conID, ranID)
+	}
+
+	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
+	data, exist := c.connections.Get(connectionKey)
+	if exist {
+		connection := data.(*ConnectionInfo)
+		connection.ProtocolBreak = true
+	} else {
+		// setting to the protocol break map for encase the runner not starting building logs
+		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
 	}
 }
 

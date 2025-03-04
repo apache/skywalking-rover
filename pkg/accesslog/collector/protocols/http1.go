@@ -36,21 +36,24 @@ import (
 var http1Log = logger.GetLogger("accesslog", "collector", "protocols", "http1")
 var http1AnalyzeMaxRetryCount = 3
 
-type HTTP1ProtocolAnalyze func(metrics *HTTP1Metrics, connection *PartitionConnection,
-	request *reader.Request, response *reader.Response) error
-
-type HTTP1Protocol struct {
-	ctx     *common.AccessLogContext
-	analyze HTTP1ProtocolAnalyze
-	reader  *reader.Reader
+type HTTP1ProtocolAnalyzer interface {
+	HandleHTTPData(metrics *HTTP1Metrics, connection *PartitionConnection,
+		request *reader.Request, response *reader.Response) error
+	OnProtocolBreak(metrics *HTTP1Metrics, connection *PartitionConnection)
 }
 
-func NewHTTP1Analyzer(ctx *common.AccessLogContext, analyze HTTP1ProtocolAnalyze) *HTTP1Protocol {
+type HTTP1Protocol struct {
+	ctx      *common.AccessLogContext
+	analyzer HTTP1ProtocolAnalyzer
+	reader   *reader.Reader
+}
+
+func NewHTTP1Analyzer(ctx *common.AccessLogContext, analyze HTTP1ProtocolAnalyzer) *HTTP1Protocol {
 	protocol := &HTTP1Protocol{ctx: ctx, reader: reader.NewReader()}
 	if analyze == nil {
-		protocol.analyze = protocol.HandleHTTPData
+		protocol.analyzer = protocol
 	} else {
-		protocol.analyze = analyze
+		protocol.analyzer = analyze
 	}
 	return protocol
 }
@@ -174,7 +177,7 @@ func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, connection *Partit
 	}
 
 	// getting the request and response, then send to the forwarder
-	if analyzeError := p.analyze(metrics, connection, request, response); analyzeError != nil {
+	if analyzeError := p.analyzer.HandleHTTPData(metrics, connection, request, response); analyzeError != nil {
 		p.appendAnalyzeUnFinished(metrics, request, response)
 	}
 	return enums.ParseResultSuccess, nil
@@ -191,7 +194,7 @@ func (p *HTTP1Protocol) appendAnalyzeUnFinished(metrics *HTTP1Metrics, request *
 func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics, connection *PartitionConnection) {
 	for element := m.analyzeUnFinished.Front(); element != nil; {
 		unFinished := element.Value.(*HTTP1AnalyzeUnFinished)
-		err := p.analyze(m, connection, unFinished.request, unFinished.response)
+		err := p.analyzer.HandleHTTPData(m, connection, unFinished.request, unFinished.response)
 		if err != nil {
 			unFinished.retryCount++
 			if unFinished.retryCount < http1AnalyzeMaxRetryCount {
@@ -264,6 +267,9 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 		},
 	})
 	return nil
+}
+
+func (p *HTTP1Protocol) OnProtocolBreak(metrics *HTTP1Metrics, connection *PartitionConnection) {
 }
 
 func (p *HTTP1Protocol) CloseStream(ioReader io.Closer) {
