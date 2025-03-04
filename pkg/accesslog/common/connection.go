@@ -624,6 +624,21 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 }
 
 func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID uint64) {
+	// setting connection protocol is break
+	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
+	data, exist := c.connections.Get(connectionKey)
+	if exist {
+		connection := data.(*ConnectionInfo)
+		connection.ProtocolBreak = true
+		log.Infof("detected the existing connection: %d-%d is protocol break",
+			conID, ranID)
+	} else {
+		// setting to the protocol break map for encase the runner not starting building logs
+		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
+		log.Infof("setting the connection: %d-%d to protocol break map", conID, ranID)
+	}
+
+	// setting the connection skip data upload
 	var activateConn ActiveConnection
 	if err := c.activeConnectionMap.Lookup(conID, &activateConn); err != nil {
 		if errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -640,19 +655,6 @@ func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID 
 	activateConn.SkipDataUpload = 1
 	if err := c.activeConnectionMap.Update(conID, activateConn, ebpf.UpdateAny); err != nil {
 		log.Warnf("failed to update the active connection: %d-%d", conID, ranID)
-	}
-
-	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
-	data, exist := c.connections.Get(connectionKey)
-	if exist {
-		connection := data.(*ConnectionInfo)
-		connection.ProtocolBreak = true
-		log.Infof("detected the existing connection: %d-%d is protocol break",
-			conID, ranID)
-	} else {
-		// setting to the protocol break map for encase the runner not starting building logs
-		c.connectionProtocolBreakMap.Set(connectionKey, true, time.Minute)
-		log.Infof("setting the connection: %d-%d to protocol break map", conID, ranID)
 	}
 }
 
