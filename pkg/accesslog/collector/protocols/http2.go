@@ -263,7 +263,7 @@ func (r *HTTP2Protocol) HandleWholeStream(_ *PartitionConnection, stream *HTTP2S
 	if streamHost == "" {
 		streamHost = stream.ReqHeader[":host"]
 	}
-	forwarder.SendTransferProtocolEvent(r.ctx, details, &v3.AccessLogProtocolLogs{
+	forwarder.SendTransferProtocolEvent(r.ctx, common.NewProtocolLogEvent(details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
 				StartTime: forwarder.BuildOffsetTimestamp(r.FirstDetail(stream.ReqBodyBuffer, details[0]).GetStartTime()),
@@ -286,7 +286,7 @@ func (r *HTTP2Protocol) HandleWholeStream(_ *PartitionConnection, stream *HTTP2S
 				},
 			},
 		},
-	})
+	}))
 	return nil
 }
 

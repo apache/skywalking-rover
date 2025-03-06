@@ -194,7 +194,7 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 						SocketFD:     activateConn.SocketFD,
 						Success:      0,
 					})
-					accessLogContext.Queue.AppendKernelLog(LogTypeClose, wapperedEvent)
+					accessLogContext.Queue.AppendKernelLog(NewKernelLogEvent(LogTypeClose, wapperedEvent))
 				}
 
 			case <-ctx.Done():

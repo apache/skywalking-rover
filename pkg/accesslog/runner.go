@@ -105,7 +105,7 @@ func (r *Runner) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) Consume(kernels chan *common.KernelLog, protocols chan *common.ProtocolLog) {
+func (r *Runner) Consume(kernels chan common.KernelLog, protocols chan common.ProtocolLog) {
 	if r.backendOp.GetConnectionStatus() != backend.Connected {
 		log.Warnf("failure to connect to the backend, skip generating access log")
 		return
@@ -117,21 +117,21 @@ func (r *Runner) Consume(kernels chan *common.KernelLog, protocols chan *common.
 	r.sender.AddBatch(batch)
 }
 
-func (r *Runner) buildConnectionLogs(batch *sender.BatchLogs, kernels chan *common.KernelLog, protocols chan *common.ProtocolLog) {
+func (r *Runner) buildConnectionLogs(batch *sender.BatchLogs, kernels chan common.KernelLog, protocols chan common.ProtocolLog) {
 	r.buildKernelLogs(kernels, batch)
 	r.buildProtocolLogs(protocols, batch)
 
 	r.context.ConnectionMgr.OnBuildConnectionLogFinished()
 }
 
-func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, batch *sender.BatchLogs) {
-	delayAppends := make([]*common.KernelLog, 0)
+func (r *Runner) buildKernelLogs(kernels chan common.KernelLog, batch *sender.BatchLogs) {
+	delayAppends := make([]common.KernelLog, 0)
 	for {
 		select {
 		case kernelLog := <-kernels:
 			connection, curLog, delay := r.buildKernelLog(kernelLog)
 			log.Debugf("building kernel log result, connetaion ID: %d, random ID: %d, exist connection: %t, delay: %t",
-				kernelLog.Event.GetConnectionID(), kernelLog.Event.GetRandomID(), connection != nil, delay)
+				kernelLog.Event().GetConnectionID(), kernelLog.Event().GetRandomID(), connection != nil, delay)
 			if connection != nil && curLog != nil {
 				batch.AppendKernelLog(connection, curLog)
 			} else if delay {
@@ -150,17 +150,18 @@ func (r *Runner) buildKernelLogs(kernels chan *common.KernelLog, batch *sender.B
 	}
 }
 
-func (r *Runner) buildProtocolLogs(protocols chan *common.ProtocolLog, batch *sender.BatchLogs) {
-	delayAppends := make([]*common.ProtocolLog, 0)
+func (r *Runner) buildProtocolLogs(protocols chan common.ProtocolLog, batch *sender.BatchLogs) {
+	delayAppends := make([]common.ProtocolLog, 0)
 	for {
 		select {
 		case protocolLog := <-protocols:
 			connection, kernelLogs, protocolLogs, delay := r.buildProtocolLog(protocolLog)
 			if log.Enable(logrus.DebugLevel) {
-				kernelLogCount := len(protocolLog.KernelLogs)
+				kernelLogCount := len(protocolLog.RelateKernelLogs())
 				var conID, randomID uint64
 				if kernelLogCount > 0 {
-					conID, randomID = protocolLog.KernelLogs[0].GetConnectionID(), protocolLog.KernelLogs[0].GetRandomID()
+					conID, randomID = protocolLog.RelateKernelLogs()[0].GetConnectionID(),
+						protocolLog.RelateKernelLogs()[0].GetRandomID()
 				}
 				log.Debugf("building protocol log result, connetaion ID: %d, random ID: %d, connection exist: %t, delay: %t",
 					conID, randomID, connection != nil, delay)
@@ -200,12 +201,12 @@ func (r *Runner) shouldReportProcessLog(pid uint32) bool {
 	return true
 }
 
-func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.ConnectionInfo,
+func (r *Runner) buildProtocolLog(protocolLog common.ProtocolLog) (*common.ConnectionInfo,
 	[]*v3.AccessLogKernelLog, *v3.AccessLogProtocolLogs, bool) {
-	if len(protocolLog.KernelLogs) == 0 {
+	if len(protocolLog.RelateKernelLogs()) == 0 {
 		return nil, nil, nil, false
 	}
-	firstKernelLog := protocolLog.KernelLogs[0]
+	firstKernelLog := protocolLog.RelateKernelLogs()[0]
 	pid, _ := events.ParseConnectionID(firstKernelLog.GetConnectionID())
 	// if the process not monitoring, then ignore it
 	if !r.shouldReportProcessLog(pid) {
@@ -221,7 +222,7 @@ func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.Conn
 		return nil, nil, nil, true
 	}
 	kernelLogs := make([]*v3.AccessLogKernelLog, 0)
-	for _, kl := range protocolLog.KernelLogs {
+	for _, kl := range protocolLog.RelateKernelLogs() {
 		event := forwarder.BuildKernelLogFromEvent(common.LogTypeKernelTransfer, kl)
 		if event == nil {
 			continue
@@ -229,25 +230,25 @@ func (r *Runner) buildProtocolLog(protocolLog *common.ProtocolLog) (*common.Conn
 		kernelLogs = append(kernelLogs, event)
 	}
 
-	return connection, kernelLogs, protocolLog.Protocol, false
+	return connection, kernelLogs, protocolLog.ProtocolLog(), false
 }
 
-func (r *Runner) buildKernelLog(kernelLog *common.KernelLog) (*common.ConnectionInfo, *v3.AccessLogKernelLog, bool) {
-	pid, _ := events.ParseConnectionID(kernelLog.Event.GetConnectionID())
+func (r *Runner) buildKernelLog(kernelLog common.KernelLog) (*common.ConnectionInfo, *v3.AccessLogKernelLog, bool) {
+	pid, _ := events.ParseConnectionID(kernelLog.Event().GetConnectionID())
 	// if the process not monitoring, then ignore it
 	if !r.shouldReportProcessLog(pid) {
 		return nil, nil, false
 	}
-	connection := r.context.ConnectionMgr.Find(kernelLog.Event)
+	connection := r.context.ConnectionMgr.Find(kernelLog.Event())
 	if connection == nil {
 		// if the connection cannot be found, it means that the connection have not been established
 		// just re-add into the queue for checking in the next period
-		if time.Since(kernelLog.Event.Timestamp()) > kernelAccessLogCacheTime {
+		if time.Since(kernelLog.Event().Timestamp()) > kernelAccessLogCacheTime {
 			return nil, nil, false
 		}
 		return nil, nil, true
 	}
-	event := forwarder.BuildKernelLogFromEvent(kernelLog.Type, kernelLog.Event)
+	event := forwarder.BuildKernelLogFromEvent(kernelLog.Type(), kernelLog.Event())
 	return connection, event, false
 }
 
