@@ -242,7 +242,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 	if host == "" && originalRequest.URL != nil {
 		host = originalRequest.URL.Host
 	}
-	forwarder.SendTransferProtocolEvent(p.ctx, details, &v3.AccessLogProtocolLogs{
+	forwarder.SendTransferProtocolEvent(p.ctx, common.NewProtocolLogEvent(details, &v3.AccessLogProtocolLogs{
 		Protocol: &v3.AccessLogProtocolLogs_Http{
 			Http: &v3.AccessLogHTTPProtocol{
 				StartTime: forwarder.BuildOffsetTimestamp(details[0].GetStartTime()),
@@ -265,7 +265,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 				},
 			},
 		},
-	})
+	}))
 	return nil
 }
 

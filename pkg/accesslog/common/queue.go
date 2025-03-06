@@ -33,19 +33,19 @@ import (
 
 var log = logger.GetLogger("access_log", "common")
 
-type KernelLog struct {
-	Type  LogType
-	Event events.Event
+type KernelLog interface {
+	Type() LogType
+	Event() events.Event
 }
 
-type ProtocolLog struct {
-	KernelLogs []events.SocketDetail
-	Protocol   *v3.AccessLogProtocolLogs
+type ProtocolLog interface {
+	RelateKernelLogs() []events.SocketDetail
+	ProtocolLog() *v3.AccessLogProtocolLogs
 }
 
 type Queue struct {
-	kernelLogs   chan *KernelLog
-	protocolLogs chan *ProtocolLog
+	kernelLogs   chan KernelLog
+	protocolLogs chan ProtocolLog
 
 	maxFlushCount int
 	period        time.Duration
@@ -57,13 +57,13 @@ type Queue struct {
 }
 
 type QueueConsumer interface {
-	Consume(kernels chan *KernelLog, protocols chan *ProtocolLog)
+	Consume(kernels chan KernelLog, protocols chan ProtocolLog)
 }
 
 func NewQueue(maxFlushCount int, period time.Duration, consumer QueueConsumer) *Queue {
 	return &Queue{
-		kernelLogs:    make(chan *KernelLog, maxFlushCount*3),
-		protocolLogs:  make(chan *ProtocolLog, maxFlushCount*3),
+		kernelLogs:    make(chan KernelLog, maxFlushCount*3),
+		protocolLogs:  make(chan ProtocolLog, maxFlushCount*3),
 		maxFlushCount: maxFlushCount,
 		period:        period,
 		consumer:      consumer,
@@ -71,12 +71,9 @@ func NewQueue(maxFlushCount int, period time.Duration, consumer QueueConsumer) *
 	}
 }
 
-func (q *Queue) AppendKernelLog(tp LogType, event events.Event) {
+func (q *Queue) AppendKernelLog(log KernelLog) {
 	select {
-	case q.kernelLogs <- &KernelLog{
-		Type:  tp,
-		Event: event,
-	}:
+	case q.kernelLogs <- log:
 	default:
 		atomic.AddInt64(&q.dropKernelLogCount, 1)
 		return
@@ -84,12 +81,9 @@ func (q *Queue) AppendKernelLog(tp LogType, event events.Event) {
 	q.consumeIfNeed()
 }
 
-func (q *Queue) AppendProtocolLog(kernelLogs []events.SocketDetail, protocol *v3.AccessLogProtocolLogs) {
+func (q *Queue) AppendProtocolLog(log ProtocolLog) {
 	select {
-	case q.protocolLogs <- &ProtocolLog{
-		KernelLogs: kernelLogs,
-		Protocol:   protocol,
-	}:
+	case q.protocolLogs <- log:
 	default:
 		atomic.AddInt64(&q.dropProtocolLogCount, 1)
 		return

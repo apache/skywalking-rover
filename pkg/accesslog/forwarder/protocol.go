@@ -19,11 +19,8 @@ package forwarder
 
 import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
-
-	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-func SendTransferProtocolEvent(context *common.AccessLogContext, kernelLogs []events.SocketDetail, protocolData *v3.AccessLogProtocolLogs) {
-	context.Queue.AppendProtocolLog(kernelLogs, protocolData)
+func SendTransferProtocolEvent(context *common.AccessLogContext, event common.ProtocolLog) {
+	context.Queue.AppendProtocolLog(event)
 }

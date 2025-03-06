@@ -15,35 +15,50 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package forwarder
+package common
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
-func init() {
-	RegisterKernelLogBuilder(common.LogTypeClose, closeLogBuilder)
+type kernelLogEvent struct {
+	logType LogType
+	event   events.Event
 }
 
-func SendCloseEvent(context *common.AccessLogContext, event *common.CloseEventWithNotify) {
-	context.Queue.AppendKernelLog(common.NewKernelLogEvent(common.LogTypeClose, event))
-}
-
-func closeLogBuilder(event events.Event) *v3.AccessLogKernelLog {
-	closeEvent := event.(*common.CloseEventWithNotify)
-	if closeEvent.StartTime == 0 {
-		return nil
+func NewKernelLogEvent(logType LogType, event events.Event) KernelLog {
+	return &kernelLogEvent{
+		logType: logType,
+		event:   event,
 	}
-	closeOp := &v3.AccessLogKernelCloseOperation{}
-	closeOp.StartTime = BuildOffsetTimestamp(closeEvent.StartTime)
-	closeOp.EndTime = BuildOffsetTimestamp(closeEvent.EndTime)
-	closeOp.Success = closeEvent.Success == 1
-	return &v3.AccessLogKernelLog{
-		Operation: &v3.AccessLogKernelLog_Close{
-			Close: closeOp,
-		},
+}
+
+func (k *kernelLogEvent) Type() LogType {
+	return k.logType
+}
+
+func (k *kernelLogEvent) Event() events.Event {
+	return k.event
+}
+
+type ProtocolEventData struct {
+	KernelLogs      []events.SocketDetail
+	ProtocolLogData *v3.AccessLogProtocolLogs
+}
+
+func (r *ProtocolEventData) RelateKernelLogs() []events.SocketDetail {
+	return r.KernelLogs
+}
+
+func (r *ProtocolEventData) ProtocolLog() *v3.AccessLogProtocolLogs {
+	return r.ProtocolLogData
+}
+
+func NewProtocolLogEvent(kernelLogs []events.SocketDetail, protocolData *v3.AccessLogProtocolLogs) ProtocolLog {
+	return &ProtocolEventData{
+		KernelLogs:      kernelLogs,
+		ProtocolLogData: protocolData,
 	}
 }

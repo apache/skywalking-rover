@@ -30,7 +30,7 @@ func init() {
 }
 
 func SendTransferNoProtocolEvent(context *common.AccessLogContext, event events.SocketDetail) {
-	context.Queue.AppendKernelLog(common.LogTypeKernelTransfer, event)
+	context.Queue.AppendKernelLog(common.NewKernelLogEvent(common.LogTypeKernelTransfer, event))
 }
 
 func kernelTransferLogBuilder(event events.Event) *v3.AccessLogKernelLog {
