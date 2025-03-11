@@ -437,9 +437,18 @@ func CombineSlices(validated bool, originalBuffer *Buffer, buffers ...*Buffer) *
 		}
 	}
 
-	var endPosition = buffers[len(buffers)-1].endPosition
-	if endPosition == nil {
-		endPosition = buffers[len(buffers)-1].Position()
+	var endPosition *Position
+	for i := len(buffers) - 1; i >= 0; i-- {
+		if buffers[i] == nil {
+			continue
+		}
+		if buffers[i].endPosition != nil {
+			endPosition = buffers[i].endPosition
+			break
+		} else if buffers[i].Position() != nil {
+			endPosition = buffers[i].Position()
+			break
+		}
 	}
 	return &Buffer{
 		dataEvents:     dataEvents,
