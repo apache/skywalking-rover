@@ -120,12 +120,22 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 
 	symbols := r.findMatchesSymbol()
 	linker := btf.NewLinker()
-	switchers := make(map[string]*ebpf.Program)
+	linkedCount := 0
 	for _, symbol := range symbols {
+		switchers := make(map[string]*ebpf.Program)
 		switchers[symbol] = objs.DoFinishTaskSwitch
+		err = linker.AddLinkOrError(link.Kprobe, switchers)
+		if err != nil {
+			log.Warnf("link to finish task swtich(%s) failure: %v", symbol, err)
+			continue
+		}
+		linkedCount++
 	}
 
-	linker.AddLink(link.Kprobe, switchers)
+	if linkedCount == 0 {
+		return fmt.Errorf("link to finish task swtich failure: no symbol linked")
+	}
+
 	if err := linker.HasError(); err != nil {
 		return fmt.Errorf("link to finish task swtich failure: %v", err)
 	}
@@ -145,6 +155,7 @@ func (r *Runner) findMatchesSymbol() []string {
 		log.Warnf("found symbol error: %v", err)
 		return []string{defaultKernelSymbol}
 	}
+	log.Debugf("total found %d off cpu symbols: %v", len(res), res)
 	return res
 }
 
