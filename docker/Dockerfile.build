@@ -35,4 +35,4 @@ WORKDIR /skywalking
 COPY --from=build /src/bin/skywalking-rover /
 COPY --from=build /src/configs /skywalking/configs
 
-CMD ["/skywalking-rover", "start", "--config", "/skywalking/configs/rover_configs.yaml"]
+ENTRYPOINT ["sh", "-c", "ulimit -l unlimited && /skywalking/skywalking-rover start --config /skywalking/configs/rover_configs.yaml"]
