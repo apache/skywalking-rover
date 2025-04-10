@@ -135,6 +135,7 @@ func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNot
 	if err != nil {
 		return err
 	}
+	log.Debugf("success running on cpu profiling, perf event fds: %v", perfEvents)
 
 	// notify start success
 	notify()
@@ -218,6 +219,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	stacks := r.bpf.Stacks
 	result := make([]*v3.EBPFProfilingData, 0)
 	stackSymbols := make([]uint64, 100)
+	count := 0
 	for iterate.Next(&stack, &counter) {
 		metadatas := make([]*v3.EBPFProfilingStackMetadata, 0)
 		// kernel stack
@@ -244,6 +246,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 		}
 		r.stackCounter[stack] = counter
 		if dumpCount <= 0 {
+			log.Debugf("the dump count is 0 for stack: %v", stack)
 			continue
 		}
 
@@ -255,7 +258,9 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 				},
 			},
 		})
+		count++
 	}
+	log.Debugf("total found stacks: %d", count)
 
 	// close the flush data notify if exists
 	if r.flushDataNotify != nil {
