@@ -55,8 +55,10 @@ func (r *Runner) GenerateProfilingData(profilingInfo *profiling.Info, stackID ui
 	}
 	symbols := profilingInfo.FindSymbols(symbolArray, MissingSymbol)
 	if len(symbols) == 0 {
+		log.Debugf("there no symbols found for %v stack: %d", stackType, stackID)
 		return nil
 	}
+	log.Debugf("total found symbols: %d for %v stack: %d", len(symbols), stackType, stackID)
 	return &v3.EBPFProfilingStackMetadata{
 		StackType:    stackType,
 		StackId:      int32(stackID),

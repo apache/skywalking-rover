@@ -343,6 +343,7 @@ func (m *Manager) FlushProfilingData() error {
 	// cleanup the stopped after flush profiling data to make sure all the profiling data been sent
 	defer m.checkStoppedTaskAndRemoved()
 	if len(m.tasks) == 0 {
+		log.Debugf("no profiling task need to flush")
 		return nil
 	}
 

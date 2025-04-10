@@ -196,6 +196,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	stacks := r.bpf.Stacks
 	result := make([]*v3.EBPFProfilingData, 0)
 	stackSymbols := make([]uint64, 100)
+	count := 0
 	for iterate.Next(&stack, &counter) {
 		metadatas := make([]*v3.EBPFProfilingStackMetadata, 0)
 		// kernel stack
@@ -223,6 +224,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 		}
 		r.previousStacks[stack] = counter
 		if switchCount <= 0 {
+			log.Debugf("the dump count is 0 for stack: %v", stack)
 			continue
 		}
 
@@ -236,6 +238,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 			},
 		})
 	}
+	log.Debugf("total found stacks: %d", count)
 
 	if r.flushDataNotify != nil {
 		r.flushDataNotify()
