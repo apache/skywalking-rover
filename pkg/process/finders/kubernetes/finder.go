@@ -76,11 +76,8 @@ type ProcessFinder struct {
 
 	// k8s clients
 	k8sConfig *rest.Config
-	registry  *Registry
+	registry  Registry
 	CLI       *kubernetes.Clientset
-
-	// runtime config
-	namespaces []string
 
 	// for IsPodIP check
 	podIPChecker *cache.Expiring
@@ -88,6 +85,21 @@ type ProcessFinder struct {
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
+	return f.InitWithRegistry(ctx, conf, manager, func(clientset *kubernetes.Clientset) Registry {
+		config := conf.(*Config)
+		var namespaces []string
+		// namespace update
+		if config.Namespaces != "" {
+			namespaces = strings.Split(config.Namespaces, ",")
+		} else {
+			namespaces = []string{v1.NamespaceAll}
+		}
+		return NewStaticNamespaceRegistry(clientset, namespaces, config.NodeName)
+	})
+}
+
+func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager,
+	registrySupplier func(*kubernetes.Clientset) Registry) error {
 	f.clusterName = manager.GetModuleManager().FindModule(core.ModuleName).(core.Operator).ClusterName()
 	k8sConf, cli, err := f.validateConfig(ctx, conf.(*Config))
 	if err != nil {
@@ -99,7 +111,7 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 
 	f.ctx, f.cancelCtx = context.WithCancel(ctx)
 	f.stopChan = make(chan struct{}, 1)
-	f.registry = NewRegistry(f.CLI, f.namespaces, f.conf.NodeName)
+	f.registry = registrySupplier(cli)
 	f.manager = manager
 	f.podIPChecker = cache.NewExpiring()
 	f.podIPMutexes = make(map[int]*sync.Mutex)
@@ -130,13 +142,6 @@ func (f *ProcessFinder) validateConfig(ctx context.Context, conf *Config) (*rest
 	_, err = cli.CoreV1().Nodes().Get(ctx, conf.NodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not found the node: %s, %v", conf.NodeName, err)
-	}
-
-	// namespace update
-	if conf.Namespaces != "" {
-		f.namespaces = strings.Split(conf.Namespaces, ",")
-	} else {
-		f.namespaces = []string{v1.NamespaceAll}
 	}
 
 	// process builders

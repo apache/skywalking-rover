@@ -31,15 +31,21 @@ import (
 
 const rsyncPeriod = 5 * time.Minute
 
-type Registry struct {
+type Registry interface {
+	Start(stopChan chan struct{})
+	BuildPodContainers() map[string]*PodContainer
+	FindServiceName(namespace, podName string) string
+}
+
+type StaticNamespaceRegistry struct {
 	podInformers     []cache.SharedInformer
 	serviceInformers []cache.SharedInformer
 
 	podServiceNameCache map[string]string
 }
 
-func NewRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) *Registry {
-	r := &Registry{
+func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) Registry {
+	r := &StaticNamespaceRegistry{
 		podInformers:        make([]cache.SharedInformer, 0),
 		serviceInformers:    make([]cache.SharedInformer, 0),
 		podServiceNameCache: make(map[string]string),
@@ -59,14 +65,14 @@ func NewRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string
 	return r
 }
 
-func (r *Registry) Start(stopChan chan struct{}) {
+func (r *StaticNamespaceRegistry) Start(stopChan chan struct{}) {
 	for i := range r.podInformers {
 		go r.podInformers[i].Run(stopChan)
 		go r.serviceInformers[i].Run(stopChan)
 	}
 }
 
-func (r *Registry) BuildPodContainers() map[string]*PodContainer {
+func (r *StaticNamespaceRegistry) BuildPodContainers() map[string]*PodContainer {
 	// cgroupid -> container
 	containers := make(map[string]*PodContainer)
 	for _, in := range r.podInformers {
@@ -84,11 +90,11 @@ func (r *Registry) BuildPodContainers() map[string]*PodContainer {
 	return containers
 }
 
-func (r *Registry) FindServiceName(namespace, podName string) string {
+func (r *StaticNamespaceRegistry) FindServiceName(namespace, podName string) string {
 	return r.podServiceNameCache[namespace+"_"+podName]
 }
 
-func (r *Registry) recomposePodServiceName() {
+func (r *StaticNamespaceRegistry) recomposePodServiceName() {
 	result := make(map[string]string)
 	for i := range r.podInformers {
 		for _, podT := range r.podInformers[i].GetStore().List() {
@@ -134,17 +140,17 @@ func chooseServiceName(a, b string) string {
 	return b
 }
 
-func (r *Registry) OnAdd(d interface{}) {
+func (r *StaticNamespaceRegistry) OnAdd(d interface{}) {
 	r.recomposePodServiceName()
 }
 
-func (r *Registry) OnUpdate(d, u interface{}) {
+func (r *StaticNamespaceRegistry) OnUpdate(d, u interface{}) {
 	same := reflect.DeepEqual(d, u)
 	if !same {
 		r.recomposePodServiceName()
 	}
 }
 
-func (r *Registry) OnDelete(d interface{}) {
+func (r *StaticNamespaceRegistry) OnDelete(d interface{}) {
 	r.recomposePodServiceName()
 }
