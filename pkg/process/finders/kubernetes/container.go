@@ -39,11 +39,11 @@ type PodContainer struct {
 	ContainerStatus v1.ContainerStatus
 
 	// the kubernetes resource registry
-	registry *Registry
+	registry *StaticNamespaceRegistry
 }
 
 // AnalyzeContainers means query the containers by pod
-func AnalyzeContainers(pod *v1.Pod, registry *Registry) []*PodContainer {
+func AnalyzeContainers(pod *v1.Pod, registry *StaticNamespaceRegistry) []*PodContainer {
 	containers := make([]*PodContainer, 0)
 	// nolint
 	for _, cs := range pod.Status.ContainerStatuses {

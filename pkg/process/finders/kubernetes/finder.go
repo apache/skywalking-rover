@@ -76,7 +76,7 @@ type ProcessFinder struct {
 
 	// k8s clients
 	k8sConfig *rest.Config
-	registry  *Registry
+	registry  Registry
 	CLI       *kubernetes.Clientset
 
 	// runtime config
@@ -88,6 +88,11 @@ type ProcessFinder struct {
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
+	return f.InitWithRegistry(ctx, conf, manager, NewStaticNamespaceRegistry(f.CLI, f.namespaces, f.conf.NodeName))
+}
+
+func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager,
+	registry Registry) error {
 	f.clusterName = manager.GetModuleManager().FindModule(core.ModuleName).(core.Operator).ClusterName()
 	k8sConf, cli, err := f.validateConfig(ctx, conf.(*Config))
 	if err != nil {
@@ -99,7 +104,7 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 
 	f.ctx, f.cancelCtx = context.WithCancel(ctx)
 	f.stopChan = make(chan struct{}, 1)
-	f.registry = NewRegistry(f.CLI, f.namespaces, f.conf.NodeName)
+	f.registry = registry
 	f.manager = manager
 	f.podIPChecker = cache.NewExpiring()
 	f.podIPMutexes = make(map[int]*sync.Mutex)
