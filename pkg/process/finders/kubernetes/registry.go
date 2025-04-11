@@ -44,7 +44,7 @@ type StaticNamespaceRegistry struct {
 	podServiceNameCache map[string]string
 }
 
-func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) *StaticNamespaceRegistry {
+func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) Registry {
 	r := &StaticNamespaceRegistry{
 		podInformers:        make([]cache.SharedInformer, 0),
 		serviceInformers:    make([]cache.SharedInformer, 0),
