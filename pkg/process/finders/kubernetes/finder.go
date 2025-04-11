@@ -79,9 +79,6 @@ type ProcessFinder struct {
 	registry  Registry
 	CLI       *kubernetes.Clientset
 
-	// runtime config
-	namespaces []string
-
 	// for IsPodIP check
 	podIPChecker *cache.Expiring
 	podIPMutexes map[int]*sync.Mutex
@@ -89,7 +86,15 @@ type ProcessFinder struct {
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
 	return f.InitWithRegistry(ctx, conf, manager, func(clientset *kubernetes.Clientset) Registry {
-		return NewStaticNamespaceRegistry(clientset, f.namespaces, conf.(*Config).NodeName)
+		config := conf.(*Config)
+		var namespaces []string
+		// namespace update
+		if config.Namespaces != "" {
+			namespaces = strings.Split(config.Namespaces, ",")
+		} else {
+			namespaces = []string{v1.NamespaceAll}
+		}
+		return NewStaticNamespaceRegistry(clientset, namespaces, config.NodeName)
 	})
 }
 
@@ -137,13 +142,6 @@ func (f *ProcessFinder) validateConfig(ctx context.Context, conf *Config) (*rest
 	_, err = cli.CoreV1().Nodes().Get(ctx, conf.NodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not found the node: %s, %v", conf.NodeName, err)
-	}
-
-	// namespace update
-	if conf.Namespaces != "" {
-		f.namespaces = strings.Split(conf.Namespaces, ",")
-	} else {
-		f.namespaces = []string{v1.NamespaceAll}
 	}
 
 	// process builders
