@@ -209,7 +209,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 		return detectedProcesses, true
 	}
 
-	cgroups, err := f.getProcessCGroup(p.Pid)
+	cgroups, err := f.GetProcessCGroup(p.Pid)
 	if err != nil {
 		return detectedProcesses, false
 	}
@@ -226,7 +226,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 	}
 
 	// find process builder
-	ps, err := f.buildProcesses(p, c)
+	ps, err := f.BuildProcesses(p, c)
 	if err != nil {
 		log.Warnf("find process builder error for pid: %d, err: %v", p.Pid, err)
 		return detectedProcesses, false
@@ -239,7 +239,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 	return detectedProcesses, true
 }
 
-func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
+func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
 	// find builder
 	builders := make([]*ProcessBuilder, 0)
 	for _, b := range f.conf.Analyzers {
@@ -291,7 +291,7 @@ func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodConta
 	return renderTemplate(entity, ps, pc, f)
 }
 
-func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
+func (f *ProcessFinder) GetProcessCGroup(pid int32) ([]string, error) {
 	processCgroupFilePath := host.GetHostProcInHost(fmt.Sprintf("%d/cgroup", pid))
 	cgroupFile, err := os.Open(processCgroupFilePath)
 	if err != nil {
