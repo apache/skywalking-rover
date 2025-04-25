@@ -216,8 +216,9 @@ func (p *PartitionContext) Consume(data interface{}) {
 	case *events.SocketDataUploadEvent:
 		pid, _ := events.ParseConnectionID(event.ConnectionID)
 		log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+
-			"data id: %d, sequence: %d, protocol: %d",
-			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.Protocol0)
+			"data id: %d, sequence: %d, finished: %t, protocol: %d, size: %d",
+			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.IsFinished(),
+			event.Protocol0, event.BufferLen())
 		connection := p.GetConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
 		connection.AppendData(event)
 	}
