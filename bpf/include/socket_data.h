@@ -21,7 +21,7 @@
 #include "protocol_analyzer.h"
 #include "queue.h"
 
-#define SOCKET_UPLOAD_CHUNK_LIMIT 4
+#define SOCKET_UPLOAD_CHUNK_LIMIT 6
 
 struct socket_data_upload_event {
     __u8 protocol;
@@ -202,6 +202,8 @@ static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov,
     __u8 loop_count = 0;
 
     // each count is same with SOCKET_UPLOAD_CHUNK_LIMIT
+    UPLOAD_PER_SOCKET_DATA_IOV();
+    UPLOAD_PER_SOCKET_DATA_IOV();
     UPLOAD_PER_SOCKET_DATA_IOV();
     UPLOAD_PER_SOCKET_DATA_IOV();
     UPLOAD_PER_SOCKET_DATA_IOV();

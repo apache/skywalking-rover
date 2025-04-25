@@ -223,7 +223,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 	if !allInclude {
 		return fmt.Errorf("cannot found full detail events for HTTP/1.x protocol, "+
 			"data id: %d-%d, current details count: %d",
-			request.MinDataID(), response.BodyBuffer().LastSocketBuffer().DataID(), len(details))
+			idRange.From, idRange.To, len(details))
 	}
 
 	http1Log.Debugf("found fully HTTP1 request and response, contains %d detail events, "+
