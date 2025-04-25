@@ -76,11 +76,8 @@ type ProcessFinder struct {
 
 	// k8s clients
 	k8sConfig *rest.Config
-	registry  *Registry
+	registry  Registry
 	CLI       *kubernetes.Clientset
-
-	// runtime config
-	namespaces []string
 
 	// for IsPodIP check
 	podIPChecker *cache.Expiring
@@ -88,6 +85,21 @@ type ProcessFinder struct {
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
+	return f.InitWithRegistry(ctx, conf, manager, func(clientset *kubernetes.Clientset) Registry {
+		config := conf.(*Config)
+		var namespaces []string
+		// namespace update
+		if config.Namespaces != "" {
+			namespaces = strings.Split(config.Namespaces, ",")
+		} else {
+			namespaces = []string{v1.NamespaceAll}
+		}
+		return NewStaticNamespaceRegistry(clientset, namespaces, config.NodeName)
+	})
+}
+
+func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager,
+	registrySupplier func(*kubernetes.Clientset) Registry) error {
 	f.clusterName = manager.GetModuleManager().FindModule(core.ModuleName).(core.Operator).ClusterName()
 	k8sConf, cli, err := f.validateConfig(ctx, conf.(*Config))
 	if err != nil {
@@ -99,7 +111,7 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 
 	f.ctx, f.cancelCtx = context.WithCancel(ctx)
 	f.stopChan = make(chan struct{}, 1)
-	f.registry = NewRegistry(f.CLI, f.namespaces, f.conf.NodeName)
+	f.registry = registrySupplier(cli)
 	f.manager = manager
 	f.podIPChecker = cache.NewExpiring()
 	f.podIPMutexes = make(map[int]*sync.Mutex)
@@ -130,13 +142,6 @@ func (f *ProcessFinder) validateConfig(ctx context.Context, conf *Config) (*rest
 	_, err = cli.CoreV1().Nodes().Get(ctx, conf.NodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not found the node: %s, %v", conf.NodeName, err)
-	}
-
-	// namespace update
-	if conf.Namespaces != "" {
-		f.namespaces = strings.Split(conf.Namespaces, ",")
-	} else {
-		f.namespaces = []string{v1.NamespaceAll}
 	}
 
 	// process builders
@@ -204,7 +209,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 		return detectedProcesses, true
 	}
 
-	cgroups, err := f.getProcessCGroup(p.Pid)
+	cgroups, err := f.GetProcessCGroup(p.Pid)
 	if err != nil {
 		return detectedProcesses, false
 	}
@@ -221,7 +226,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 	}
 
 	// find process builder
-	ps, err := f.buildProcesses(p, c)
+	ps, err := f.BuildProcesses(p, c)
 	if err != nil {
 		log.Warnf("find process builder error for pid: %d, err: %v", p.Pid, err)
 		return detectedProcesses, false
@@ -234,7 +239,7 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 	return detectedProcesses, true
 }
 
-func (f *ProcessFinder) buildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
+func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
 	// find builder
 	builders := make([]*ProcessBuilder, 0)
 	for _, b := range f.conf.Analyzers {
@@ -286,7 +291,7 @@ func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodConta
 	return renderTemplate(entity, ps, pc, f)
 }
 
-func (f *ProcessFinder) getProcessCGroup(pid int32) ([]string, error) {
+func (f *ProcessFinder) GetProcessCGroup(pid int32) ([]string, error) {
 	processCgroupFilePath := host.GetHostProcInHost(fmt.Sprintf("%d/cgroup", pid))
 	cgroupFile, err := os.Open(processCgroupFilePath)
 	if err != nil {
