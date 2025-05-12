@@ -17,13 +17,16 @@
 
 #include "ztunnel.h"
 
-static __inline bool get_socket_addr_ip_in_ztunnel(bool success, void * arg, __u32 *ip, __u16 *port) {
+static __inline bool get_socket_addr_ip_in_ztunnel(bool success, void * arg, __u32 *ip, __u16 *port, int must_exist) {
     if (!success) {
         return false;
     }
     __u8 sockaddr[8];
     if (bpf_probe_read(&sockaddr, sizeof(sockaddr), (void *)arg) != 0) {
        return false;
+    }
+    if (must_exist == 1 && sockaddr[0] != 0) {
+        return false;
     }
     // ip is stored in sockaddr[2], sockaddr[3], sockaddr[4], sockaddr[5]
     *ip = ((__u32)sockaddr[2] << 24) | ((__u32)sockaddr[3] << 16) | ((__u32)sockaddr[4] << 8) | (__u32)sockaddr[5];
@@ -41,9 +44,26 @@ int connection_manager_track_outbound(struct pt_regs* ctx) {
         return 0;
     }
     bool success = true;
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM3(ctx), &event->orginal_src_ip, &event->src_port);
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM4(ctx), &event->original_dst_ip, &event->dst_port);
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM5(ctx), &event->lb_dst_ip, &event->lb_dst_port);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM3(ctx), &event->orginal_src_ip, &event->src_port, 0);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM4(ctx), &event->original_dst_ip, &event->dst_port, 0);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM5(ctx), &event->lb_dst_ip, &event->lb_dst_port, 0);
+    if (!success) {
+        return 0;
+    }
+    bpf_perf_event_output(ctx, &ztunnel_lb_socket_mapping_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    return 0;
+}
+
+SEC("uprobe/connection_result_new")
+int connection_result_new(struct pt_regs* ctx) {
+    struct ztunnel_socket_mapping_t *event = create_ztunnel_socket_mapping_event();
+    if (event == NULL) {
+        return 0;
+    }
+    bool success = true;
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM2(ctx), &event->orginal_src_ip, &event->src_port, 0);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM3(ctx), &event->original_dst_ip, &event->dst_port, 0);
+    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM4(ctx), &event->lb_dst_ip, &event->lb_dst_port, 1);
     if (!success) {
         return 0;
     }

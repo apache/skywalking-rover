@@ -42,6 +42,8 @@ var (
 	// ZTunnelTrackBoundSymbolPrefix is the prefix of the symbol name to track outbound connections in ztunnel process
 	// ztunnel::proxy::connection_manager::ConnectionManager::track_outbound
 	ZTunnelTrackBoundSymbolPrefix = "_ZN7ztunnel5proxy18connection_manager17ConnectionManager14track_outbound"
+	// ztunnel::proxy::metrics::ConnectionResult::new
+	ZTunnelTrackConnectionResultSymbolPrefix = "_ZN7ztunnel5proxy7metrics16ConnectionResult3new"
 )
 
 var zTunnelCollectInstance = NewZTunnelCollector(time.Minute)
@@ -81,7 +83,8 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 		remoteIP := z.convertBPFIPToString(event.OriginalDestIP)
 		remotePort := event.OriginalDestPort
 		lbIP := z.convertBPFIPToString(event.LoadBalancedDestIP)
-		log.Debugf("received ztunnel lb socket mapping event: %s:%d -> %s:%d, lb: %s", localIP, localPort, remoteIP, remotePort, lbIP)
+		log.Debugf("received ztunnel lb socket mapping event: %s:%d -> %s:%d, lb: %s:%d", localIP, localPort, remoteIP, remotePort, lbIP,
+			event.LoadBalancedDestPort)
 
 		key := z.buildIPMappingCacheKey(localIP, int(localPort), remoteIP, int(remotePort))
 		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
@@ -122,20 +125,36 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 			connection.ConnectionID, connection.RandomID)
 		return
 	}
-	address := lbIPObj.(*ZTunnelLoadBalanceAddress)
-	log.Debugf("found the ztunnel load balanced IP for the connection: %s, connectionID: %d, randomID: %d",
-		address.String(), connection.ConnectionID, connection.RandomID)
+	lbAddress := lbIPObj.(*ZTunnelLoadBalanceAddress)
+	// found the real target if exist
+	key = z.buildIPMappingCacheKey(connection.Socket.SrcIP, int(connection.Socket.SrcPort),
+		lbAddress.IP, int(lbAddress.Port))
+	realIPObj, found := z.ipMappingCache.Get(key)
+	var realAddress *ZTunnelLoadBalanceAddress = nil
+	if !found {
+		log.Debugf("there no real ztunnel mapped IP address found for connection ID: %d, random ID: %d, lbIP: %s:%d",
+			connection.ConnectionID, connection.RandomID, lbAddress.IP, lbAddress.Port)
+	} else {
+		realAddress = realIPObj.(*ZTunnelLoadBalanceAddress)
+	}
+	log.Debugf("found the ztunnel load balanced IP for the connection: %s, real IP: %s, connectionID: %d, randomID: %d",
+		lbAddress.String(), realAddress, connection.ConnectionID, connection.RandomID)
 	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_NONE
 	// if the target port is 15008, this mean ztunnel have use mTLS
-	if address.Port == 15008 {
+	if lbAddress.Port == 15008 {
 		securityPolicy = v3.ZTunnelAttachmentSecurityPolicy_MTLS
+	}
+	var targetIP = ""
+	if realAddress != nil {
+		targetIP = realAddress.IP
 	}
 	connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
 		Environment: &v3.ConnectionAttachment_ZTunnel{
 			ZTunnel: &v3.ZTunnelAttachmentEnvironment{
-				RealDestinationIp: address.IP,
-				By:                v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
-				SecurityPolicy:    securityPolicy,
+				RealDestinationIp:   lbAddress.IP,
+				By:                  v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
+				SecurityPolicy:      securityPolicy,
+				TargetDestinationIp: targetIP,
 			},
 		},
 	}
@@ -203,9 +222,16 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 	if len(trackBoundSymbol) == 0 {
 		return fmt.Errorf("failed to find track outbound symbol in ztunnel process")
 	}
+	trackConnectionResultSymbol := elfFile.FilterSymbol(func(name string) bool {
+		return strings.HasPrefix(name, ZTunnelTrackConnectionResultSymbolPrefix)
+	}, true)
+	if len(trackConnectionResultSymbol) == 0 {
+		return fmt.Errorf("failed to find track connection result symbol in ztunnel process")
+	}
 
 	uprobeFile := z.alc.BPF.OpenUProbeExeFile(pidExeFile)
 	uprobeFile.AddLink(trackBoundSymbol[0].Name, z.alc.BPF.ConnectionManagerTrackOutbound, nil)
+	uprobeFile.AddLink(trackConnectionResultSymbol[0].Name, z.alc.BPF.ConnectionResultNew, nil)
 	return nil
 }
 
