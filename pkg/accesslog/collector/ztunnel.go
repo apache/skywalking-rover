@@ -42,6 +42,7 @@ var (
 	// ZTunnelTrackBoundSymbolPrefix is the prefix of the symbol name to track outbound connections in ztunnel process
 	// ztunnel::proxy::connection_manager::ConnectionManager::track_outbound
 	ZTunnelTrackBoundSymbolPrefix = "_ZN7ztunnel5proxy18connection_manager17ConnectionManager14track_outbound"
+	// ZTunnelTrackConnectionResultSymbolPrefix is the prefix of the symbol name to connection result in ztunnel process
 	// ztunnel::proxy::metrics::ConnectionResult::new
 	ZTunnelTrackConnectionResultSymbolPrefix = "_ZN7ztunnel5proxy7metrics16ConnectionResult3new"
 )
