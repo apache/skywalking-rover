@@ -48,14 +48,22 @@ import (
 
 var connectionLogger = logger.GetLogger("access_log", "collector", "connection")
 
-var connectionCollectInstance = NewConnectionCollector()
+type CollectFilter interface {
+	// OnConnectEvent is used to filter the event,
+	// if return true, the event will be sent to the next step
+	// Otherwise, the event will be ignored
+	OnConnectEvent(*events.SocketConnectEvent, *ip.SocketPair) bool
+}
 
 type ConnectCollector struct {
 	eventQueue *btf.EventQueue
+	filters    []CollectFilter
 }
 
-func NewConnectionCollector() *ConnectCollector {
-	return &ConnectCollector{}
+func NewConnectionCollector(filters []CollectFilter) *ConnectCollector {
+	return &ConnectCollector{
+		filters: filters,
+	}
 }
 
 func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext) error {
@@ -77,7 +85,7 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 	}
 	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallels,
 		ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
-			return NewConnectionPartitionContext(ctx, m.FindModule(process.ModuleName).(process.K8sOperator))
+			return NewConnectionPartitionContext(ctx, m.FindModule(process.ModuleName).(process.K8sOperator), c.filters)
 		})
 	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize),
 		ctx.Config.ConnectionAnalyze.ParseParallels, func() interface{} {
@@ -129,13 +137,15 @@ func (c *ConnectCollector) Stop() {
 type ConnectionPartitionContext struct {
 	context     *common.AccessLogContext
 	k8sOperator process.K8sOperator
+	filters     []CollectFilter
 }
 
 func NewConnectionPartitionContext(ctx *common.AccessLogContext,
-	k8sOperator process.K8sOperator) *ConnectionPartitionContext {
+	k8sOperator process.K8sOperator, filters []CollectFilter) *ConnectionPartitionContext {
 	return &ConnectionPartitionContext{
 		context:     ctx,
 		k8sOperator: k8sOperator,
+		filters:     filters,
 	}
 }
 
@@ -157,6 +167,17 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 		}
 		connectionLogger.Debugf("build socket pair success, connection ID: %d, randomID: %d, role: %s, local: %s:%d, remote: %s:%d",
 			event.ConID, event.RandomID, socketPair.Role, socketPair.SrcIP, socketPair.SrcPort, socketPair.DestIP, socketPair.DestPort)
+		var shouldIgnore bool
+		for _, filter := range c.filters {
+			if !filter.OnConnectEvent(event, socketPair) {
+				shouldIgnore = true
+				break
+			}
+		}
+		if shouldIgnore {
+			connectionLogger.Debugf("the event is filtered, connection ID: %d, randomID: %d", event.ConID, event.RandomID)
+			return
+		}
 		forwarder.SendConnectEvent(c.context, event, socketPair)
 	case *events.SocketCloseEvent:
 		connectionLogger.Debugf("receive close event, connection ID: %d, randomID: %d, pid: %d, fd: %d",

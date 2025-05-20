@@ -23,6 +23,8 @@ Release Notes.
 * Reduce CPU and memory usage in the access log module.
 * Reduce handle connection event time in the access log module.
 * Downgrade the protocol of connection when protocol break in the access log module.
+* Bump up go version to `1.24` and eBPF library to `0.18.0`.
+* Support detect ztunnel environment in the inbound request.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
