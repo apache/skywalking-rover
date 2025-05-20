@@ -334,13 +334,14 @@ func (c *AnalyzerContext) processCachedCloseEvents() {
 				continue
 			}
 			cc := c.NewConnectionContext(event.ConID, event.RandomID, event.Pid, event.SocketFD, processes, true)
-			if event.SocketFamily == unix.AF_INET {
+			switch event.SocketFamily {
+			case unix.AF_INET:
 				cc.RemoteIP = ip.ParseIPV4(event.RemoteAddrV4)
 				cc.LocalIP = ip.ParseIPV4(event.LocalAddrV4)
-			} else if event.SocketFamily == unix.AF_INET6 {
+			case unix.AF_INET6:
 				cc.RemoteIP = ip.ParseIPV6(event.RemoteAddrV6)
 				cc.LocalIP = ip.ParseIPV6(event.LocalAddrV6)
-			} else {
+			default:
 				continue
 			}
 

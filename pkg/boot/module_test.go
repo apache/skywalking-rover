@@ -162,7 +162,7 @@ func TestRun(t *testing.T) {
 			shutdownSequence: []string{
 				"test2", "test1",
 			},
-			triggerShutdown: func(ctx context.Context, cancel context.CancelFunc, starter *ModuleStarter) {
+			triggerShutdown: func(_ context.Context, _ context.CancelFunc, starter *ModuleStarter) {
 				starter.moduleManager.ShutdownModules(nil)
 			},
 		},
@@ -184,7 +184,7 @@ func TestRun(t *testing.T) {
 			shutdownSequence: []string{
 				"test2", "test1",
 			},
-			triggerShutdown: func(ctx context.Context, cancel context.CancelFunc, starter *ModuleStarter) {
+			triggerShutdown: func(_ context.Context, cancel context.CancelFunc, _ *ModuleStarter) {
 				cancel()
 			},
 		},
@@ -206,7 +206,7 @@ func TestRun(t *testing.T) {
 			shutdownSequence: []string{
 				"test1", "test2",
 			},
-			triggerShutdown: func(ctx context.Context, cancel context.CancelFunc, starter *ModuleStarter) {
+			triggerShutdown: func(_ context.Context, _ context.CancelFunc, starter *ModuleStarter) {
 				starter.moduleManager.ShutdownModules(nil)
 			},
 		},
@@ -320,7 +320,7 @@ func (t *testModule) Config() module.ConfigInterface {
 	return &module.Config{Active: true}
 }
 
-func (t *testModule) Start(ctx context.Context, mgr *module.Manager) error {
+func (t *testModule) Start(context.Context, *module.Manager) error {
 	t.sequence.AddStartup(t.name)
 	return nil
 }
@@ -329,7 +329,7 @@ func (t *testModule) NotifyStartSuccess() {
 	t.sequence.AddNotifyStart(t.name)
 }
 
-func (t *testModule) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (t *testModule) Shutdown(context.Context, *module.Manager) error {
 	t.sequence.AddShutdown(t.name)
 	return nil
 }

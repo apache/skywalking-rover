@@ -269,6 +269,11 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
         return;
     }
 
+    if (tgid_is_ztunnel(tgid)) {
+        // if the connection is ztunnel, then not save into the active connection
+        return;
+    }
+
     // if connect success, then add the activate connection into the kernel
     // active connection save
     struct active_connection_t con = {};

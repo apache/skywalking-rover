@@ -50,7 +50,7 @@ func LoadBPFAndAssign(loadBPF func() (*ebpf.CollectionSpec, error), objs interfa
 	return bpf.LoadAndAssign(objs, GetEBPFCollectionOptionsIfNeed(bpf))
 }
 
-func GetEBPFCollectionOptionsIfNeed(bpfSpec *ebpf.CollectionSpec) *ebpf.CollectionOptions {
+func GetEBPFCollectionOptionsIfNeed(_ *ebpf.CollectionSpec) *ebpf.CollectionOptions {
 	findBTFOnce.Do(func() {
 		readSpec, kernel, err := getKernelBTFAddress()
 		if err != nil {

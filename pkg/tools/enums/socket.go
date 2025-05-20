@@ -209,7 +209,7 @@ func (f SocketFunctionName) GetSocketOperationType() SocketOperationType {
 type SocketOperationType int
 
 var (
-	SocketOperationTypeConnect SocketOperationType = 0
+	SocketOperationTypeConnect SocketOperationType
 	SocketOperationTypeAccept  SocketOperationType = 1
 	SocketOperationTypeClose   SocketOperationType = 2
 	SocketOperationTypeWrite   SocketOperationType = 3

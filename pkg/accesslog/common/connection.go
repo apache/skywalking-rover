@@ -133,7 +133,7 @@ type ConnectionInfo struct {
 	ProtocolBreak      bool
 }
 
-func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
+func NewConnectionManager(_ *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
 	track, err := ip.NewConnTrack()
 	if err != nil {
 		log.Warnf("cannot create the connection tracker, %v", err)
@@ -510,7 +510,7 @@ func (c *ConnectionManager) checkConnectionIsExist(con *ConnectionInfo) bool {
 	return true
 }
 
-func (c *ConnectionManager) RemoveProcess(pid int32, entities []api.ProcessInterface) {
+func (c *ConnectionManager) RemoveProcess(pid int32, _ []api.ProcessInterface) {
 	c.monitoringProcessLock.Lock()
 	defer c.monitoringProcessLock.Unlock()
 	// delete monitoring process and IP addresses

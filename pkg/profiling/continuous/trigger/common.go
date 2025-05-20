@@ -43,7 +43,7 @@ type BaseTrigger struct {
 	reportSetter           func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause)
 }
 
-func NewSingleProcessBaseTrigger(conf *base.ContinuousConfig,
+func NewSingleProcessBaseTrigger(_ *base.ContinuousConfig,
 	taskSetter func(task *taskBase.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause),
 	reportSetter func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause)) *BaseTrigger {
 	trigger := &BaseTrigger{
@@ -60,7 +60,7 @@ func NewSingleProcessBaseTrigger(conf *base.ContinuousConfig,
 	return trigger
 }
 
-func NewMultipleProcessBasedTrigger(conf *base.ContinuousConfig,
+func NewMultipleProcessBasedTrigger(_ *base.ContinuousConfig,
 	profilingTaskDimension func(p api.ProcessInterface) string,
 	mainProcessSelector func(ps []api.ProcessInterface) api.ProcessInterface,
 	taskSetter func(task *taskBase.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause),

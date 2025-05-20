@@ -34,11 +34,11 @@ func NewOnCPUTrigger() base.Trigger {
 	return &OnCPUTrigger{}
 }
 
-func (c *OnCPUTrigger) Init(moduleMgr *module.Manager, conf *base.ContinuousConfig) error {
+func (c *OnCPUTrigger) Init(_ *module.Manager, conf *base.ContinuousConfig) error {
 	c.BaseTrigger = NewSingleProcessBaseTrigger(conf,
-		func(task *taskBase.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+		func(task *taskBase.ProfilingTask, _ []api.ProcessInterface, _ []base.ThresholdCause) {
 			task.TargetType = taskBase.TargetTypeOnCPU
-		}, func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+		}, func(report *v3.ContinuousProfilingReport, _ []api.ProcessInterface, _ []base.ThresholdCause) {
 			report.TargetTask = &v3.ContinuousProfilingReport_OnCPU{
 				OnCPU: &v3.ContinuousOnCPUProfilingTask{},
 			}

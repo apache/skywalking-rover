@@ -35,7 +35,7 @@ func NewProcessThreadCountChecker() *ProcessThreadCountChecker {
 	return &ProcessThreadCountChecker{}
 }
 
-func (t *ProcessThreadCountChecker) Init(config *base.ContinuousConfig) error {
+func (t *ProcessThreadCountChecker) Init(*base.ContinuousConfig) error {
 	t.ProcessBasedChecker = common.NewProcessBasedChecker(base.CheckTypeProcessThreadCount, func(val string) (int32, error) {
 		count, err := strconv.ParseInt(val, 10, 32)
 		return int32(count), err

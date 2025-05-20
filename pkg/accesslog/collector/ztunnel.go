@@ -29,7 +29,9 @@ import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/tools/elf"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
+	"github.com/apache/skywalking-rover/pkg/tools/ip"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 
@@ -64,7 +66,7 @@ func NewZTunnelCollector(expireTime time.Duration) *ZTunnelCollector {
 	}
 }
 
-func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogContext) error {
+func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
 	z.ctx, z.cancel = context.WithCancel(ctx.RuntimeContext)
 	z.alc = ctx
 	ctx.ConnectionMgr.RegisterNewFlushListener(z)
@@ -72,6 +74,15 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 	err := z.findZTunnelProcessAndCollect()
 	if err != nil {
 		return err
+	}
+
+	if z.collectingProcess == nil {
+		return nil
+	}
+
+	// setting the ztunnel pid in the BPF
+	if err = ctx.BPF.ZtunnelProcessPid.Set(z.collectingProcess.Pid); err != nil {
+		return fmt.Errorf("failed to set ztunnel process pid: %v", err)
 	}
 
 	ctx.BPF.ReadEventAsync(ctx.BPF.ZtunnelLbSocketMappingEventQueue, func(data interface{}) {
@@ -87,6 +98,7 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
 			IP:   lbIP,
 			Port: event.LoadBalancedDestPort,
+			From: v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
 		}, z.ipMappingExpireDuration)
 	}, func() interface{} {
 		return &events.ZTunnelSocketMappingEvent{}
@@ -109,6 +121,23 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 	return nil
 }
 
+func (z *ZTunnelCollector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.SocketPair) bool {
+	if z.collectingProcess != nil && e != nil && s != nil && uint32(z.collectingProcess.Pid) == e.PID &&
+		s.Role == enums.ConnectionRoleClient {
+		// must be the client side(outbound) connect
+		// revert the source and dest for the workload application accept
+		key := z.buildIPMappingCacheKey(s.DestIP, int(s.DestPort), s.SrcIP, int(s.SrcPort))
+		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+			From: v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_INBOUND_FUNC,
+		}, z.ipMappingExpireDuration)
+		log.Debugf("found the ztunnel outbound connection, "+
+			"connection ID: %d, randomID: %d, pid: %d, fd: %d, role: %s, local: %s:%d, remote: %s:%d",
+			e.ConID, e.RandomID, e.PID, e.SocketFD, enums.ConnectionRole(e.Role), s.SrcIP, s.SrcPort, s.DestIP, s.DestPort)
+		return false
+	}
+	return true
+}
+
 func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ events.Event) {
 	if connection == nil || connection.Socket == nil || connection.RPCConnection == nil || connection.RPCConnection.Attachment != nil ||
 		z.ipMappingCache.Len() == 0 {
@@ -127,22 +156,22 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 		address.String(), connection.ConnectionID, connection.RandomID)
 	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_NONE
 	// if the target port is 15008, this mean ztunnel have use mTLS
-	if address.Port == 15008 {
+	if address.From == v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC && address.Port == 15008 {
 		securityPolicy = v3.ZTunnelAttachmentSecurityPolicy_MTLS
 	}
 	connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
 		Environment: &v3.ConnectionAttachment_ZTunnel{
 			ZTunnel: &v3.ZTunnelAttachmentEnvironment{
 				RealDestinationIp: address.IP,
-				By:                v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
+				By:                address.From,
 				SecurityPolicy:    securityPolicy,
 			},
 		},
 	}
 }
 
-func (z *ZTunnelCollector) convertBPFIPToString(ip uint32) string {
-	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, ip>>16&0xff, ip>>8&0xff, ip&0xff)
+func (z *ZTunnelCollector) convertBPFIPToString(ipAddr uint32) string {
+	return fmt.Sprintf("%d.%d.%d.%d", ipAddr>>24, ipAddr>>16&0xff, ipAddr>>8&0xff, ipAddr&0xff)
 }
 
 func (z *ZTunnelCollector) buildIPMappingCacheKey(localIP string, localPort int, remoteIP string, remotePort int) string {
@@ -212,8 +241,9 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 type ZTunnelLoadBalanceAddress struct {
 	IP   string
 	Port uint16
+	From v3.ZTunnelAttachmentEnvironmentDetectBy
 }
 
 func (z *ZTunnelLoadBalanceAddress) String() string {
-	return fmt.Sprintf("%s:%d", z.IP, z.Port)
+	return fmt.Sprintf("%s:%d(%s)", z.IP, z.Port, z.From)
 }

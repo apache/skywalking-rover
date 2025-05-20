@@ -66,7 +66,7 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 func (m *Module) NotifyStartSuccess() {
 }
 
-func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Shutdown(context.Context, *module.Manager) error {
 	if m.runner != nil {
 		return m.runner.Stop()
 	}

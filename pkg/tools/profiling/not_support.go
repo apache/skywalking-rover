@@ -30,15 +30,15 @@ func NewNotSupport() *NotSupport {
 	return &NotSupport{}
 }
 
-func (l *NotSupport) IsSupport(filePath string) bool {
+func (l *NotSupport) IsSupport(string) bool {
 	// handle all not support file
 	return true
 }
 
-func (l *NotSupport) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
+func (l *NotSupport) AnalyzeSymbols(string) ([]*Symbol, error) {
 	return nil, ErrNotSupport
 }
 
-func (l *NotSupport) ToModule(pid int32, modName, modPath string, moduleRange []*ModuleRange) (*Module, error) {
+func (l *NotSupport) ToModule(_ int32, _, _ string, _ []*ModuleRange) (*Module, error) {
 	return nil, ErrNotSupport
 }

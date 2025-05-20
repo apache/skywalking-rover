@@ -72,7 +72,7 @@ func (l *GoLibrary) AnalyzeSymbols(filePath string) ([]*Symbol, error) {
 	return data, nil
 }
 
-func (l *GoLibrary) ToModule(pid int32, modName, modPath string, moduleRange []*ModuleRange) (*Module, error) {
+func (l *GoLibrary) ToModule(_ int32, modName, modPath string, moduleRange []*ModuleRange) (*Module, error) {
 	res := &Module{}
 	res.Name = modName
 	res.Path = modPath
@@ -92,13 +92,14 @@ func (l *GoLibrary) ToModule(pid int32, modName, modPath string, moduleRange []*
 		mType = ModuleTypeSo
 	}
 
-	if mType == ModuleTypeUnknown {
+	switch mType {
+	case ModuleTypeUnknown:
 		if strings.HasSuffix(modPath, ".map") && path.Exists(modPath) {
 			mType = ModuleTypePerfMap
 		} else if modName == "[vdso]" {
 			mType = ModuleTypeVDSO
 		}
-	} else if mType == ModuleTypeSo {
+	case ModuleTypeSo:
 		section := file.Section(".text")
 		if section == nil {
 			return nil, fmt.Errorf("could not found .text section in so file: %s", modName)

@@ -57,7 +57,7 @@ func (l *Listener) Name() string {
 	return Name
 }
 
-func (l *Listener) Init(config *profiling.TaskConfig, moduleManager *module.Manager) error {
+func (l *Listener) Init(*profiling.TaskConfig, *module.Manager) error {
 	return nil
 }
 
@@ -65,7 +65,7 @@ func (l *Listener) GenerateMetrics() base.ConnectionMetrics {
 	return NewLayer4Metrics()
 }
 
-func (l *Listener) RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader) {
+func (l *Listener) RegisterBPFEvents(_ context.Context, bpfLoader *bpf.Loader) {
 	bpfLoader.ReadEventAsync(bpfLoader.SocketExceptionOperationEventQueue, l.handleSocketExceptionOperationEvent, func() interface{} {
 		return &SocketExceptionOperationEvent{}
 	})
@@ -87,7 +87,7 @@ func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *ev
 	layer4.CloseExecuteTime = event.ExeTime
 }
 
-func (l *Listener) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
+func (l *Listener) UpdateExtensionConfig(*profiling.ExtensionConfig) {
 }
 
 func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfLoader *bpf.Loader) error {
@@ -131,13 +131,15 @@ func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfL
 
 		// add the histogram data
 		var histogram *SocketDataHistogramWithHistory
-		if key.DataDirection == enums.SocketDataDirectionEgress {
-			if key.DataType == enums.SocketDataStaticsTypeExeTime {
+		switch key.DataDirection {
+		case enums.SocketDataDirectionEgress:
+			switch key.DataType {
+			case enums.SocketDataStaticsTypeExeTime:
 				histogram = layer4.WriteExeTimeHistogram
-			} else if key.DataType == enums.SocketDataStaticsTypeRTT {
+			case enums.SocketDataStaticsTypeRTT:
 				histogram = layer4.WriteRTTHistogram
 			}
-		} else if key.DataDirection == enums.SocketDataDirectionIngress {
+		case enums.SocketDataDirectionIngress:
 			histogram = layer4.ReadExeTimeHistogram
 		}
 		if histogram == nil {
@@ -243,13 +245,14 @@ func (l *Listener) combineExceptionToConnections(ccs map[string]*base.Connection
 		var remotePort, localPort = uint16(key.RemotePort), uint16(key.LocalPort)
 		var remoteIP, localIP string
 
-		if key.Family == unix.AF_INET {
+		switch key.Family {
+		case unix.AF_INET:
 			remoteIP = parseAddressV4(key.RemoteAddrV4)
 			localIP = parseAddressV4(key.LocalAddrV4)
-		} else if key.Family == unix.AF_INET6 {
+		case unix.AF_INET6:
 			remoteIP = parseAddressV6(key.RemoteAddrV6)
 			localIP = parseAddressV6(key.LocalAddrV6)
-		} else {
+		default:
 			continue
 		}
 

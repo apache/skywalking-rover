@@ -65,7 +65,7 @@ func (l *Listener) Name() string {
 	return ListenerName
 }
 
-func (l *Listener) Init(config *profiling.TaskConfig, moduleManager *module.Manager) error {
+func (l *Listener) Init(config *profiling.TaskConfig, _ *module.Manager) error {
 	analyzeConfig := config.Network.ProtocolAnalyze
 	perCPUBufferSize, err := units.RAMInBytes(analyzeConfig.PerCPUBufferSize)
 	if err != nil {
@@ -94,7 +94,7 @@ func (l *Listener) RegisterBPFEvents(ctx context.Context, bpfLoader *bpf.Loader)
 	l.startSocketData(ctx, bpfLoader)
 }
 
-func (l *Listener) ReceiveNewConnection(ctx *base.ConnectionContext, event *events.SocketConnectEvent) {
+func (l *Listener) ReceiveNewConnection(*base.ConnectionContext, *events.SocketConnectEvent) {
 }
 
 func (l *Listener) ReceiveCloseConnection(ctx *base.ConnectionContext, event *events.SocketCloseEvent) {
@@ -107,11 +107,11 @@ func (l *Listener) UpdateExtensionConfig(config *profiling.ExtensionConfig) {
 	l.handleProfilingExtensionConfig(config)
 }
 
-func (l *Listener) PreFlushConnectionMetrics(ccs []*base.ConnectionWithBPF, bpfLoader *bpf.Loader) error {
+func (l *Listener) PreFlushConnectionMetrics([]*base.ConnectionWithBPF, *bpf.Loader) error {
 	return nil
 }
 
-func (l *Listener) PostFlushConnectionMetrics(ccs []*base.ConnectionContext) {
+func (l *Listener) PostFlushConnectionMetrics([]*base.ConnectionContext) {
 }
 
 func (l *Listener) FlushMetrics(traffics []*base.ProcessTraffic, builder *base.MetricsBuilder) {

@@ -24,10 +24,16 @@ struct {
 	__type(value, __u32);
 } process_monitor_control SEC(".maps");
 
+volatile __u32 ztunnel_process_pid;
+
 static __inline bool tgid_should_trace(__u32 tgid) {
     __u32 *val = bpf_map_lookup_elem(&process_monitor_control, &tgid);
     if (!val) {
         return false;
     }
     return (*val) == 1 ? true : false;
+}
+
+static __inline bool tgid_is_ztunnel(__u32 tgid) {
+    return ztunnel_process_pid > 0 && tgid == ztunnel_process_pid ? true : false;
 }

@@ -45,13 +45,13 @@ func (m *Module) Config() module.ConfigInterface {
 	return m.config
 }
 
-func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Start(context.Context, *module.Manager) error {
 	return setupLogger(m.config)
 }
 
 func (m *Module) NotifyStartSuccess() {
 }
 
-func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Shutdown(context.Context, *module.Manager) error {
 	return nil
 }

@@ -82,7 +82,8 @@ func (g *GolangRegisterLocator) GetLocation(typeClass TypeClass, typeSize, align
 	isRetArg bool) (*ArgLocation, error) {
 	var registers []RegisterName
 	var offset *uint64
-	if typeClass == TypeClassInteger {
+	switch typeClass {
+	case TypeClassInteger:
 		if isRetArg {
 			registers = g.intRetArgRegisters
 			offset = &g.curIntRetArgOffset
@@ -90,7 +91,7 @@ func (g *GolangRegisterLocator) GetLocation(typeClass TypeClass, typeSize, align
 			registers = g.intArgRegisters
 			offset = &g.curIntArgOffset
 		}
-	} else if typeClass == TypeClassFloat {
+	case TypeClassFloat:
 		if isRetArg {
 			registers = g.floatRetArgRegisters
 			offset = &g.curFloatRetArgOffset
@@ -98,7 +99,7 @@ func (g *GolangRegisterLocator) GetLocation(typeClass TypeClass, typeSize, align
 			registers = g.floatArgRegisters
 			offset = &g.curFloatArgOffset
 		}
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupport type classs for getting location, type class: %d", typeClass)
 	}
 
@@ -139,7 +140,7 @@ type UnknownLocator struct {
 	language int
 }
 
-func (u *UnknownLocator) GetLocation(typeClass TypeClass, typeSize, alignmentSize uint64, primitivesCount int, isRetArg bool) (*ArgLocation, error) {
+func (u *UnknownLocator) GetLocation(_ TypeClass, _, _ uint64, _ int, _ bool) (*ArgLocation, error) {
 	return nil, fmt.Errorf("unknown locator for language: %d", u.language)
 }
 

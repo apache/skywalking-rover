@@ -265,13 +265,14 @@ func (r *Register) assignGoTLSArgsLocation(err error, function *elf.FunctionInfo
 	if args == nil {
 		return fmt.Errorf("the args is not found, function: %s, args name: %s", function.Name(), argName)
 	}
-	if args.Location.Type == elf.ArgLocationTypeStack {
+	switch args.Location.Type {
+	case elf.ArgLocationTypeStack:
 		dest.Type = GoTLSArgsLocationTypeStack
 		dest.Offset = uint32(args.Location.Offset) + kSPOffset
-	} else if args.Location.Type == elf.ArgLocationTypeRegister {
+	case elf.ArgLocationTypeRegister:
 		dest.Type = GoTLSArgsLocationTypeRegister
 		dest.Offset = uint32(args.Location.Offset)
-	} else {
+	default:
 		return fmt.Errorf("the location type is not support, function: %s, args name: %s, type: %d",
 			function.Name(), argName, args.Location.Type)
 	}

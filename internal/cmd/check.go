@@ -48,7 +48,7 @@ func newCheckCmd() *cobra.Command {
 	outputFormat := ""
 	cmd := &cobra.Command{
 		Use: "check",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(*cobra.Command, []string) error {
 			return check(configPath, outputPath, outputFormat)
 		},
 	}

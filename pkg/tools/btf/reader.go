@@ -145,7 +145,7 @@ func (r *sizeCalcReader) ReadUint8() uint8 {
 	return 0
 }
 
-func (r *sizeCalcReader) ReadUint8Array(a []uint8, size int) {
+func (r *sizeCalcReader) ReadUint8Array(_ []uint8, size int) {
 	r.size += size
 }
 

@@ -65,7 +65,7 @@ type Runner struct {
 	stopChan        chan bool
 }
 
-func NewRunner(config *base.TaskConfig, moduleMgr *module.Manager) (base.ProfileTaskRunner, error) {
+func NewRunner(config *base.TaskConfig, _ *module.Manager) (base.ProfileTaskRunner, error) {
 	if config.OnCPU.Period == "" {
 		return nil, fmt.Errorf("please provide the ON_CPU dump period")
 	}
@@ -82,7 +82,7 @@ func NewRunner(config *base.TaskConfig, moduleMgr *module.Manager) (base.Profile
 	}, nil
 }
 
-func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface) error {
+func (r *Runner) Init(_ *base.ProfilingTask, processes []api.ProcessInterface) error {
 	if len(processes) != 1 {
 		return fmt.Errorf("the processes count must be 1, current is: %d", len(processes))
 	}
@@ -103,7 +103,7 @@ func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface
 	return nil
 }
 
-func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNotify) error {
+func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) error {
 	// load bpf
 	objs := bpfObjects{}
 	spec, err := loadBpf()

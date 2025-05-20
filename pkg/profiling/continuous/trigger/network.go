@@ -37,7 +37,7 @@ func NewNetworkTrigger() base.Trigger {
 	return &NetworkTrigger{}
 }
 
-func (n *NetworkTrigger) Init(moduleMgr *module.Manager, conf *base.ContinuousConfig) error {
+func (n *NetworkTrigger) Init(_ *module.Manager, conf *base.ContinuousConfig) error {
 	n.BaseTrigger = NewMultipleProcessBasedTrigger(conf, func(p api.ProcessInterface) string {
 		// same instance
 		entity := p.Entity()
@@ -58,12 +58,12 @@ func (n *NetworkTrigger) Init(moduleMgr *module.Manager, conf *base.ContinuousCo
 			return mainApplication
 		}
 		return ps[0]
-	}, func(task *profiling.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+	}, func(task *profiling.ProfilingTask, _ []api.ProcessInterface, thresholds []base.ThresholdCause) {
 		task.TargetType = profiling.TargetTypeNetworkTopology
 		task.ExtensionConfig = &profiling.ExtensionConfig{
 			NetworkSamplings: transformCausesToNetworkSamplingRules(thresholds),
 		}
-	}, func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+	}, func(report *v3.ContinuousProfilingReport, _ []api.ProcessInterface, thresholds []base.ThresholdCause) {
 		rules := transformCausesToNetworkSamplingRules(thresholds)
 		uriRegexes := make([]string, 0)
 		if len(rules) > 0 {
@@ -91,7 +91,7 @@ func processHasLabel(p api.ProcessInterface, label string) bool {
 
 func transformCausesToNetworkSamplingRules(thresholds []base.ThresholdCause) []*profiling.NetworkSamplingRule {
 	result := make([]*profiling.NetworkSamplingRule, 0)
-	var minDuration int32 = 0
+	var minDuration int32
 	for _, threshold := range thresholds {
 		uriCause, ok := threshold.(*common.URICause)
 		if !ok {

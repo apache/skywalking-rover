@@ -104,13 +104,13 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 
 	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
 	if readBody {
-		if b, r, err := result.readFullResponseBody(bufReader, buf); err != nil {
+		b, r, err := result.readFullResponseBody(bufReader, buf)
+		if err != nil {
 			return nil, enums.ParseResultSkipPackage, err
 		} else if r != enums.ParseResultSuccess {
 			return nil, r, nil
-		} else {
-			result.bodyBuffer = b
 		}
+		result.bodyBuffer = b
 	}
 
 	return result, enums.ParseResultSuccess, nil

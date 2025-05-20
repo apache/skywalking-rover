@@ -13,3 +13,5 @@ pkg/**/bpf_*.o
 pkg/**/bpf_*.go
 
 pkg/tools/btf/files/**/*.btf
+
+.config

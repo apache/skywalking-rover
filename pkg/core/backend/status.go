@@ -34,9 +34,10 @@ func (c *Client) registerCheckStatus(ctx context.Context) {
 		select {
 		case <-timeTicker.C:
 			state := c.conn.GetState()
-			if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			switch state {
+			case connectivity.Shutdown, connectivity.TransientFailure:
 				c.updateStatus(Disconnect)
-			} else if state == connectivity.Ready || state == connectivity.Idle {
+			case connectivity.Ready, connectivity.Idle:
 				c.updateStatus(Connected)
 			}
 		case <-ctx.Done():

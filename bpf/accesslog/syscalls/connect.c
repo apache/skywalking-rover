@@ -45,7 +45,7 @@ static __inline void process_accept(void *ctx, __u64 id, struct accept_args_t *a
 SEC("tracepoint/syscalls/sys_enter_connect")
 int tracepoint_enter_connect(struct syscall_trace_enter *ctx) {
     uint64_t id = bpf_get_current_pid_tgid();
-    if (tgid_should_trace(id >> 32) == false) {
+    if (tgid_should_trace(id >> 32) == false && tgid_is_ztunnel(id >> 32) == false) {
         return 0;
     }
 

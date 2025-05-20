@@ -210,7 +210,7 @@ func (p *HTTP1Protocol) handleUnFinishedEvents(m *HTTP1Metrics, connection *Part
 	}
 }
 
-func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *PartitionConnection,
+func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, _ *PartitionConnection,
 	request *reader.Request, response *reader.Response) error {
 	details := make([]events.SocketDetail, 0)
 	var allInclude = true
@@ -269,7 +269,7 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, connection *Partit
 	return nil
 }
 
-func (p *HTTP1Protocol) OnProtocolBreak(metrics *HTTP1Metrics, connection *PartitionConnection) {
+func (p *HTTP1Protocol) OnProtocolBreak(*HTTP1Metrics, *PartitionConnection) {
 }
 
 func (p *HTTP1Protocol) CloseStream(ioReader io.Closer) {
