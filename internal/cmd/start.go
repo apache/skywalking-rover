@@ -30,7 +30,7 @@ func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "start the rover",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(*cobra.Command, []string) error {
 			ctx := context.Background()
 
 			// run modules

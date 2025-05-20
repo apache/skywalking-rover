@@ -109,7 +109,7 @@ func (r *StaticNamespaceRegistry) recomposePodServiceName() {
 					continue
 				}
 
-				if labels.Set(service.Spec.Selector).AsSelector().Matches(labels.Set(pod.ObjectMeta.Labels)) {
+				if labels.Set(service.Spec.Selector).AsSelector().Matches(labels.Set(pod.Labels)) {
 					// if multiple service selector matches the same pod
 					// then must choose one by same logical
 					existing := result[pod.Namespace+"_"+pod.Name]
@@ -140,7 +140,7 @@ func chooseServiceName(a, b string) string {
 	return b
 }
 
-func (r *StaticNamespaceRegistry) OnAdd(d interface{}) {
+func (r *StaticNamespaceRegistry) OnAdd(_ interface{}) {
 	r.recomposePodServiceName()
 }
 
@@ -151,6 +151,6 @@ func (r *StaticNamespaceRegistry) OnUpdate(d, u interface{}) {
 	}
 }
 
-func (r *StaticNamespaceRegistry) OnDelete(d interface{}) {
+func (r *StaticNamespaceRegistry) OnDelete(_ interface{}) {
 	r.recomposePodServiceName()
 }

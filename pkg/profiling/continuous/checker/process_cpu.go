@@ -35,7 +35,7 @@ func NewProcessCPUChecker() *ProcessCPUChecker {
 	return &ProcessCPUChecker{}
 }
 
-func (r *ProcessCPUChecker) Init(config *base.ContinuousConfig) error {
+func (r *ProcessCPUChecker) Init(*base.ContinuousConfig) error {
 	r.ProcessBasedChecker = common.NewProcessBasedChecker(base.CheckTypeProcessCPU, func(val string) (float64, error) {
 		threshold, err := strconv.ParseInt(val, 10, 32)
 		if err != nil {

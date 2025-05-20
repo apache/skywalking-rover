@@ -35,7 +35,7 @@ func NewNetworkResponseErrorChecker() *NetworkHTTPErrorRateChecker {
 	return &NetworkHTTPErrorRateChecker{}
 }
 
-func (n *NetworkHTTPErrorRateChecker) Init(config *base.ContinuousConfig) error {
+func (n *NetworkHTTPErrorRateChecker) Init(*base.ContinuousConfig) error {
 	n.HTTPBasedChecker = common.NewHTTPBasedChecker(
 		base.CheckTypeHTTPErrorRate, func(val string) (float64, error) {
 			v, err := strconv.ParseFloat(val, 64)

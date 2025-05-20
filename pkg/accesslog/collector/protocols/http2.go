@@ -290,7 +290,7 @@ func (r *HTTP2Protocol) HandleWholeStream(_ *PartitionConnection, stream *HTTP2S
 	return nil
 }
 
-func (r *HTTP2Protocol) OnProtocolBreak(connection *PartitionConnection, metrics *HTTP2Metrics) {
+func (r *HTTP2Protocol) OnProtocolBreak(*PartitionConnection, *HTTP2Metrics) {
 }
 
 func (r *HTTP2Protocol) ParseHTTPMethod(streaming *HTTP2Streaming) v3.AccessLogHTTPProtocolRequestMethod {

@@ -84,7 +84,7 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 		return fmt.Errorf("the queue size be small than 1")
 	}
 	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallels,
-		ctx.Config.ConnectionAnalyze.QueueSize, func(num int) btf.PartitionContext {
+		ctx.Config.ConnectionAnalyze.QueueSize, func(_ int) btf.PartitionContext {
 			return NewConnectionPartitionContext(ctx, m.FindModule(process.ModuleName).(process.K8sOperator), c.filters)
 		})
 	c.eventQueue.RegisterReceiver(ctx.BPF.SocketConnectionEventQueue, int(perCPUBufferSize),
@@ -149,7 +149,7 @@ func NewConnectionPartitionContext(ctx *common.AccessLogContext,
 	}
 }
 
-func (c *ConnectionPartitionContext) Start(ctx context.Context) {
+func (c *ConnectionPartitionContext) Start(context.Context) {
 }
 
 func (c *ConnectionPartitionContext) Consume(data interface{}) {
@@ -254,7 +254,8 @@ func (c *ConnectionPartitionContext) IsOnlyLocalPortEmpty(socketPair *ip.SocketP
 func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
 	var result *ip.SocketPair
 	haveConnTrack := false
-	if event.SocketFamily == unix.AF_INET {
+	switch event.SocketFamily {
+	case unix.AF_INET:
 		result = &ip.SocketPair{
 			Family:  uint32(event.SocketFamily),
 			Role:    enums.ConnectionRole(event.Role),
@@ -274,7 +275,7 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			result.DestIP = ip.ParseIPV4(event.RemoteAddrV4)
 			result.DestPort = uint16(event.RemoteAddrPort)
 		}
-	} else if event.SocketFamily == unix.AF_INET6 {
+	case unix.AF_INET6:
 		result = &ip.SocketPair{
 			Family:  uint32(event.SocketFamily),
 			Role:    enums.ConnectionRole(event.Role),

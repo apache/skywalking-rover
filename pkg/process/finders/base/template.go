@@ -59,7 +59,7 @@ func NewTemplateRover(manager *module.Manager) *TemplateRover {
 }
 
 // NewTemplateProcess is generated the process context for render
-func NewTemplateProcess(manager *module.Manager, p *process.Process) *TemplateProcess {
+func NewTemplateProcess(_ *module.Manager, p *process.Process) *TemplateProcess {
 	return &TemplateProcess{p}
 }
 

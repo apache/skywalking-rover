@@ -55,7 +55,7 @@ func (m *Module) Config() module.ConfigInterface {
 	return m.config
 }
 
-func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Start(_ context.Context, mgr *module.Manager) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -84,7 +84,7 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 func (m *Module) NotifyStartSuccess() {
 }
 
-func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Shutdown(ctx context.Context, _ *module.Manager) error {
 	m.shutdown = true
 	if m.server != nil {
 		return m.server.Shutdown(ctx)

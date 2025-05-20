@@ -138,13 +138,13 @@ func (m *Manager) initTaskContext(taskContext *Context) error {
 	// init runner
 	var r base.ProfileTaskRunner
 	task := taskContext.task
-	if runner, err := NewProfilingRunner(task.TargetType, m.taskConfig, m.moduleMgr); err != nil {
+	runner, err := NewProfilingRunner(task.TargetType, m.taskConfig, m.moduleMgr)
+	if err != nil {
 		return err
 	} else if err := runner.Init(task, taskContext.processes); err != nil {
 		return fmt.Errorf("could not init %s runner for task: %s: %v", task.TriggerType, task.TaskID, err)
-	} else {
-		r = runner
 	}
+	r = runner
 
 	taskContext.runner = r
 	taskContext.ctx, taskContext.cancel = context.WithCancel(m.ctx)

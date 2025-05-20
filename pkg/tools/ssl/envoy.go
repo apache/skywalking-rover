@@ -40,9 +40,10 @@ func (r *Register) Envoy(envoySymbolAddrMap *ebpf.Map, sslWrite, sslWriteRet, ss
 		}
 		var readSymbol, writeSymbol bool
 		for _, sym := range envoyModule.Symbols {
-			if sym.Name == "SSL_read" {
+			switch sym.Name {
+			case "SSL_read":
 				readSymbol = true
-			} else if sym.Name == "SSL_write" {
+			case "SSL_write":
 				writeSymbol = true
 			}
 		}

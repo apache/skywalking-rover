@@ -30,7 +30,7 @@ func TestNewManager(t *testing.T) {
 	closeCount := 0
 
 	// new manager
-	mgr := NewManager([]Module{mod}, func(err error) {
+	mgr := NewManager([]Module{mod}, func(error) {
 		closeCount++
 	})
 
@@ -67,13 +67,13 @@ func (t *testModule) Config() ConfigInterface {
 	return t.conf
 }
 
-func (t *testModule) Start(ctx context.Context, mgr *Manager) error {
+func (t *testModule) Start(context.Context, *Manager) error {
 	return nil
 }
 
 func (t *testModule) NotifyStartSuccess() {
 }
 
-func (t *testModule) Shutdown(ctx context.Context, mgr *Manager) error {
+func (t *testModule) Shutdown(context.Context, *Manager) error {
 	return nil
 }

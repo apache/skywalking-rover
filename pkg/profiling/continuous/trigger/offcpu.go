@@ -34,11 +34,11 @@ func NewOffCPUTrigger() base.Trigger {
 	return &OffCPUTrigger{}
 }
 
-func (o *OffCPUTrigger) Init(moduleMgr *module.Manager, conf *base.ContinuousConfig) error {
+func (o *OffCPUTrigger) Init(_ *module.Manager, conf *base.ContinuousConfig) error {
 	o.BaseTrigger = NewSingleProcessBaseTrigger(conf,
-		func(task *profiling.ProfilingTask, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+		func(task *profiling.ProfilingTask, _ []api.ProcessInterface, _ []base.ThresholdCause) {
 			task.TargetType = profiling.TargetTypeOffCPU
-		}, func(report *v3.ContinuousProfilingReport, processes []api.ProcessInterface, thresholds []base.ThresholdCause) {
+		}, func(report *v3.ContinuousProfilingReport, _ []api.ProcessInterface, _ []base.ThresholdCause) {
 			report.TargetTask = &v3.ContinuousProfilingReport_OffCPU{
 				OffCPU: &v3.ContinuousOffCPUProfilingTask{},
 			}

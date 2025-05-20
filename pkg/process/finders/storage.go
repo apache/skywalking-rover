@@ -139,9 +139,10 @@ func (s *ProcessStorage) reportAllProcesses() error {
 	keepAliveProcesses := make([]*ProcessContext, 0)
 	for _, finderProcesses := range s.processes {
 		for _, p := range finderProcesses {
-			if p.syncStatus == NotReport {
+			switch p.syncStatus {
+			case NotReport:
 				waitReportProcesses = append(waitReportProcesses, p)
-			} else if p.syncStatus == ReportSuccess {
+			case ReportSuccess:
 				keepAliveProcesses = append(keepAliveProcesses, p)
 			}
 		}

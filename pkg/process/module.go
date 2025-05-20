@@ -71,7 +71,7 @@ func (m *Module) NotifyStartSuccess() {
 	m.manager.Start()
 }
 
-func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Shutdown(context.Context, *module.Manager) error {
 	return m.manager.Shutdown()
 }
 

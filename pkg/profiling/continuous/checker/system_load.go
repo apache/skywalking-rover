@@ -36,7 +36,7 @@ func NewSystemLoadChecker() *SystemLoadChecker {
 	return &SystemLoadChecker{}
 }
 
-func (s *SystemLoadChecker) Init(config *base.ContinuousConfig) error {
+func (s *SystemLoadChecker) Init(*base.ContinuousConfig) error {
 	s.SystemBasedChecker = common.NewSystemBasedChecker[float64](
 		base.CheckTypeSystemLoad, func(val string) (float64, error) {
 			return strconv.ParseFloat(val, 64)

@@ -45,6 +45,6 @@ func ParseTargetType(err error, val string) (TargetType, error) {
 	return "", fmt.Errorf("could not found target type: %s", val)
 }
 
-func (t TargetType) InitTask(task *ProfilingTask, command *v3.Command) error {
+func (t TargetType) InitTask(*ProfilingTask, *v3.Command) error {
 	return nil
 }

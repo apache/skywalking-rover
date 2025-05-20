@@ -58,7 +58,7 @@ func (m *Module) ClusterName() string {
 	return m.clusterName
 }
 
-func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Start(ctx context.Context, _ *module.Manager) error {
 	// generate instance id
 	m.instanceID = uuid.New().String()
 	m.clusterName = m.config.ClusterName
@@ -75,7 +75,7 @@ func (m *Module) Start(ctx context.Context, mgr *module.Manager) error {
 func (m *Module) NotifyStartSuccess() {
 }
 
-func (m *Module) Shutdown(ctx context.Context, mgr *module.Manager) error {
+func (m *Module) Shutdown(context.Context, *module.Manager) error {
 	var result *multierror.Error
 	if m.backendClient != nil {
 		result = multierror.Append(result, m.backendClient.Stop())

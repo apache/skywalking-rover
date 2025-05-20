@@ -125,7 +125,7 @@ func (m *ModuleStarter) Run(ctx context.Context, startUpSuccessCallback func(*mo
 
 func (m *ModuleStarter) ResolveDependency() error {
 	// make the log module as first active module
-	sort.Slice(m.activeModules, func(i, j int) bool {
+	sort.Slice(m.activeModules, func(i, _ int) bool {
 		return m.activeModules[i].Name() == logger.ModuleName
 	})
 

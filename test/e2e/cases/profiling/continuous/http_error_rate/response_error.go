@@ -24,7 +24,7 @@ import (
 	"os"
 )
 
-func provider(w http.ResponseWriter, req *http.Request) {
+func provider(w http.ResponseWriter, _ *http.Request) {
 	if rand.Float64() > 0.5 {
 		w.WriteHeader(500)
 		return

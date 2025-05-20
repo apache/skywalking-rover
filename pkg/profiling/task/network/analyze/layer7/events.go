@@ -31,7 +31,7 @@ import (
 )
 
 func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profiling.TaskConfig) {
-	l.socketDataQueue = btf.NewEventQueue("socket data resolver", parallels, queueSize, func(num int) btf.PartitionContext {
+	l.socketDataQueue = btf.NewEventQueue("socket data resolver", parallels, queueSize, func(_ int) btf.PartitionContext {
 		return NewSocketDataPartitionContext(l, config)
 	})
 }

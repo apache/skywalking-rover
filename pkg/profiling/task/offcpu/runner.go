@@ -71,13 +71,13 @@ type Runner struct {
 	flushDataNotify context.CancelFunc
 }
 
-func NewRunner(config *base.TaskConfig, moduleMgr *module.Manager) (base.ProfileTaskRunner, error) {
+func NewRunner(_ *base.TaskConfig, _ *module.Manager) (base.ProfileTaskRunner, error) {
 	return &Runner{
 		base: base.NewBaseRunner(),
 	}, nil
 }
 
-func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface) error {
+func (r *Runner) Init(_ *base.ProfilingTask, processes []api.ProcessInterface) error {
 	if len(processes) != 1 {
 		return fmt.Errorf("the processes count must be 1, current is: %d", len(processes))
 	}
@@ -94,7 +94,7 @@ func (r *Runner) Init(task *base.ProfilingTask, processes []api.ProcessInterface
 	return nil
 }
 
-func (r *Runner) Run(ctx context.Context, notify base.ProfilingRunningSuccessNotify) error {
+func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) error {
 	objs := bpfObjects{}
 	spec, err := loadBpf()
 	if err != nil {

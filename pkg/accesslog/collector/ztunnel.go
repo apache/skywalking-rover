@@ -66,7 +66,7 @@ func NewZTunnelCollector(expireTime time.Duration) *ZTunnelCollector {
 	}
 }
 
-func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogContext) error {
+func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
 	z.ctx, z.cancel = context.WithCancel(ctx.RuntimeContext)
 	z.alc = ctx
 	ctx.ConnectionMgr.RegisterNewFlushListener(z)
@@ -122,10 +122,11 @@ func (z *ZTunnelCollector) Start(mgr *module.Manager, ctx *common.AccessLogConte
 }
 
 func (z *ZTunnelCollector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.SocketPair) bool {
-	if z.collectingProcess != nil && s != nil && s != nil && uint32(z.collectingProcess.Pid) == e.PID &&
+	if z.collectingProcess != nil && e != nil && s != nil && uint32(z.collectingProcess.Pid) == e.PID &&
 		s.Role == enums.ConnectionRoleClient {
 		// must be the client side(outbound) connect
-		key := z.buildIPMappingCacheKey(s.DestIP, int(s.DestPort), s.SrcIP, int(s.SrcPort)) // revert the source and dest for the workload application accept
+		// revert the source and dest for the workload application accept
+		key := z.buildIPMappingCacheKey(s.DestIP, int(s.DestPort), s.SrcIP, int(s.SrcPort))
 		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
 			From: v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_INBOUND_FUNC,
 		}, z.ipMappingExpireDuration)
@@ -169,8 +170,8 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 	}
 }
 
-func (z *ZTunnelCollector) convertBPFIPToString(ip uint32) string {
-	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, ip>>16&0xff, ip>>8&0xff, ip&0xff)
+func (z *ZTunnelCollector) convertBPFIPToString(ipAddr uint32) string {
+	return fmt.Sprintf("%d.%d.%d.%d", ipAddr>>24, ipAddr>>16&0xff, ipAddr>>8&0xff, ipAddr&0xff)
 }
 
 func (z *ZTunnelCollector) buildIPMappingCacheKey(localIP string, localPort int, remoteIP string, remotePort int) string {

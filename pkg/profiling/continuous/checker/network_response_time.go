@@ -35,7 +35,7 @@ func NewNetworkAvgResponseTimeChecker() *NetworkHTTPAvgResponseTimeChecker {
 	return &NetworkHTTPAvgResponseTimeChecker{}
 }
 
-func (n *NetworkHTTPAvgResponseTimeChecker) Init(config *base.ContinuousConfig) error {
+func (n *NetworkHTTPAvgResponseTimeChecker) Init(*base.ContinuousConfig) error {
 	n.HTTPBasedChecker = common.NewHTTPBasedChecker(
 		base.CheckTypeHTTPAvgResponseTime, func(val string) (float64, error) {
 			return strconv.ParseFloat(val, 64)

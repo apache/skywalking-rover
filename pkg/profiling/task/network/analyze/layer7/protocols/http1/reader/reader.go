@@ -240,19 +240,19 @@ func (m *MessageOpt) checkChunkedBody(buf *buffer.Buffer, bodyReader *bufio.Read
 		if needBytes == 0 {
 			break
 		}
-		if b, r, err1 := m.checkBodyWithSize(buf, bodyReader, int(needBytes), false); err1 != nil {
+		b, r, err1 := m.checkBodyWithSize(buf, bodyReader, int(needBytes), false)
+		if err1 != nil {
 			return nil, enums.ParseResultSkipPackage, err1
 		} else if r != enums.ParseResultSuccess {
 			return nil, r, nil
-		} else {
-			if pos := b.DetectNotSendingLastPosition(); pos != nil {
-				log.Debugf("found the socket data not sending finished in BPF, so update the body to the latest data, %v", pos)
-				successSlice := b.Slice(true, b.Position(), pos)
-				buffers = append(buffers, successSlice)
-				break
-			}
-			buffers = append(buffers, b)
 		}
+		if pos := b.DetectNotSendingLastPosition(); pos != nil {
+			log.Debugf("found the socket data not sending finished in BPF, so update the body to the latest data, %v", pos)
+			successSlice := b.Slice(true, b.Position(), pos)
+			buffers = append(buffers, successSlice)
+			break
+		}
+		buffers = append(buffers, b)
 		d, _, err := bodyReader.ReadLine()
 		if err != nil {
 			return nil, enums.ParseResultSkipPackage, err
