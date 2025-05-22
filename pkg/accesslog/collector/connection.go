@@ -254,6 +254,7 @@ func (c *ConnectionPartitionContext) IsOnlyLocalPortEmpty(socketPair *ip.SocketP
 func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnectEvent) *ip.SocketPair {
 	var result *ip.SocketPair
 	haveConnTrack := false
+	remoteAddrPort := uint16(event.RemoteAddrPort)
 	switch event.SocketFamily {
 	case unix.AF_INET:
 		result = &ip.SocketPair{
@@ -262,18 +263,26 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			SrcIP:   ip.ParseIPV4(event.LocalAddrV4),
 			SrcPort: uint16(event.LocalAddrPort),
 		}
+		remoteAddr := ip.ParseIPV4(event.RemoteAddrV4)
+		ignoredConntrack := true
 		if event.ConnTrackUpstreamIPl != 0 && event.ConnTrackUpstreamPort != 0 {
 			haveConnTrack = true
-			result.DestIP = ip.ParseIPV4(uint32(event.ConnTrackUpstreamIPl))
-			result.DestPort = uint16(event.ConnTrackUpstreamPort)
+			conntrackIP := ip.ParseIPV4(uint32(event.ConnTrackUpstreamIPl))
+			if !ip.ShouldIgnoreConntrack(remoteAddr, conntrackIP, uint16(event.ConnTrackUpstreamPort)) {
+				result.DestIP = conntrackIP
+				result.DestPort = uint16(event.ConnTrackUpstreamPort)
+				ignoredConntrack = false
+			}
 
 			if connectionLogger.Enable(logrus.DebugLevel) {
-				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, original: %s:%d, conntrack: %s:%d",
-					event.ConID, event.RandomID, ip.ParseIPV4(event.RemoteAddrV4), uint16(event.RemoteAddrPort), result.DestIP, result.DestPort)
+				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, "+
+					"original: %s:%d, conntrack: %s:%d, ignored: %t",
+					event.ConID, event.RandomID, remoteAddr, remoteAddrPort, result.DestIP, result.DestPort, ignoredConntrack)
 			}
-		} else {
-			result.DestIP = ip.ParseIPV4(event.RemoteAddrV4)
-			result.DestPort = uint16(event.RemoteAddrPort)
+		}
+		if ignoredConntrack {
+			result.DestIP = remoteAddr
+			result.DestPort = remoteAddrPort
 		}
 	case unix.AF_INET6:
 		result = &ip.SocketPair{
@@ -282,24 +291,35 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			SrcIP:   ip.ParseIPV6(event.LocalAddrV6),
 			SrcPort: uint16(event.LocalAddrPort),
 		}
+		remoteAddr := ip.ParseIPV6(event.RemoteAddrV6)
+		ignoredConntrack := true
 		if event.ConnTrackUpstreamIPl != 0 && event.ConnTrackUpstreamPort != 0 {
 			haveConnTrack = true
+			var conntrackIP string
 			if event.ConnTrackUpstreamIPh != 0 {
 				var ipv6 [16]uint8
 				binary.BigEndian.PutUint64(ipv6[0:8], event.ConnTrackUpstreamIPh)
 				binary.BigEndian.PutUint64(ipv6[8:16], event.ConnTrackUpstreamIPl)
-				result.DestIP = ip.ParseIPV6(ipv6)
+				conntrackIP = ip.ParseIPV6(ipv6)
 			} else {
-				result.DestIP = ip.ParseIPV4(uint32(event.ConnTrackUpstreamIPl))
+				conntrackIP = ip.ParseIPV4(uint32(event.ConnTrackUpstreamIPl))
 			}
-			result.DestPort = uint16(event.ConnTrackUpstreamPort)
+
+			if !ip.ShouldIgnoreConntrack(remoteAddr, conntrackIP, uint16(event.ConnTrackUpstreamPort)) {
+				result.DestIP = conntrackIP
+				result.DestPort = uint16(event.ConnTrackUpstreamPort)
+				ignoredConntrack = false
+			}
+
 			if connectionLogger.Enable(logrus.DebugLevel) {
-				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, original: %s:%d, conntrack: %s:%d",
-					event.ConID, event.RandomID, ip.ParseIPV6(event.RemoteAddrV6), uint16(event.RemoteAddrPort), result.DestIP, result.DestPort)
+				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, "+
+					"original: %s:%d, conntrack: %s:%d, ignored: %t",
+					event.ConID, event.RandomID, remoteAddr, remoteAddrPort, result.DestIP, result.DestPort, ignoredConntrack)
 			}
-		} else {
-			result.DestIP = ip.ParseIPV6(event.RemoteAddrV6)
-			result.DestPort = uint16(event.RemoteAddrPort)
+		}
+		if ignoredConntrack {
+			result.DestIP = remoteAddr
+			result.DestPort = remoteAddrPort
 		}
 	}
 
