@@ -275,7 +275,8 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			}
 
 			if connectionLogger.Enable(logrus.DebugLevel) {
-				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, original: %s:%d, conntrack: %s:%d, ignored: %t",
+				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, "+
+					"original: %s:%d, conntrack: %s:%d, ignored: %t",
 					event.ConID, event.RandomID, remoteAddr, remoteAddrPort, result.DestIP, result.DestPort, ignoredConntrack)
 			}
 		}
@@ -311,7 +312,8 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			}
 
 			if connectionLogger.Enable(logrus.DebugLevel) {
-				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, original: %s:%d, conntrack: %s:%d, ignored: %t",
+				connectionLogger.Debugf("found the connection from the conntrack, connection ID: %d, randomID: %d, "+
+					"original: %s:%d, conntrack: %s:%d, ignored: %t",
 					event.ConID, event.RandomID, remoteAddr, remoteAddrPort, result.DestIP, result.DestPort, ignoredConntrack)
 			}
 		}
