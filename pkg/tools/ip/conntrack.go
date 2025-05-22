@@ -27,6 +27,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
+	"github.com/apache/skywalking-rover/pkg/tools"
 )
 
 var log = logger.GetLogger("tools", "ip")
@@ -71,13 +72,25 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) error {
 		}
 
 		if res := c.filterValidateReply(session, tuple); res != nil {
-			addr.DestIP = res.Src.String()
-			addr.NeedConnTrack = false
-			log.Debugf("update real peer address from conntrack: %s:%d", addr.DestIP, addr.DestPort)
+			if !ShouldIgnoreConntrack(addr.DestIP, res.Src.String(), *res.Proto.SrcPort) {
+				addr.DestIP = res.Src.String()
+				addr.NeedConnTrack = false
+				log.Debugf("update real peer address from conntrack: %s:%d", addr.DestIP, addr.DestPort)
+			} else {
+				log.Debugf("ignore conntrack, original dest IP: %s:%d, conntrack IP: %s:%d",
+					addr.DestIP, addr.DestPort, res.Src.String(), *res.Proto.SrcPort)
+			}
 			return nil
 		}
 	}
 	return nil
+}
+
+func ShouldIgnoreConntrack(originalDestIP, conntrackIP string, conntrackPort uint16) bool {
+	// if the original dest IP is not local host
+	// and the conntrack IP is local host, and port is 15001, such as 127.0.0.1:15001, means the conntrack is to istio-proxy
+	// then we should ignore the conntrack
+	return conntrackPort == 15001 && tools.IsLocalHostAddress(conntrackIP) && !tools.IsLocalHostAddress(originalDestIP)
 }
 
 func (c *ConnTrack) parseSocketToTuple(addr *SocketPair) *conntrack.IPTuple {
