@@ -43,7 +43,7 @@
 // for protocol analyze need to read
 #define MAX_PROTOCOL_SOCKET_READ_LENGTH 31
 // for transmit to the user space
-#define MAX_TRANSMIT_SOCKET_READ_LENGTH 2048
+#define MAX_TRANSMIT_SOCKET_READ_LENGTH 20480
 
 // unknown the connection type, not trigger the syscall connect,accept
 #define AF_UNKNOWN 0xff
