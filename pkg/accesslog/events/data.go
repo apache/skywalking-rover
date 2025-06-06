@@ -38,10 +38,10 @@ type SocketDataUploadEvent struct {
 	DataID0      uint64
 	PrevDataID0  uint64
 	TotalSize0   uint64
-	Buffer       [2048]byte
+	Buffer       [20480]byte
 }
 
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[2048]byte {
+func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
 	return &s.Buffer
 }
 
@@ -59,7 +59,7 @@ func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.DataID0 = r.ReadUint64()
 	s.PrevDataID0 = r.ReadUint64()
 	s.TotalSize0 = r.ReadUint64()
-	r.ReadUint8Array(s.Buffer[:], 2048)
+	r.ReadUint8Array(s.Buffer[:], 20480)
 }
 
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {

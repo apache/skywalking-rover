@@ -25,6 +25,7 @@ Release Notes.
 * Downgrade the protocol of connection when protocol break in the access log module.
 * Bump up go version to `1.24` and eBPF library to `0.18.0`.
 * Support detect ztunnel environment in the inbound request.
+* Increase the transmit buffer size in the network profiling and access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

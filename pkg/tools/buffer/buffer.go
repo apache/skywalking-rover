@@ -40,13 +40,13 @@ var (
 
 	PooledBuffer = sync.Pool{
 		New: func() any {
-			return &[2048]byte{}
+			return &[20480]byte{}
 		},
 	}
 )
 
-func BorrowNewBuffer() *[2048]byte {
-	return PooledBuffer.Get().(*[2048]byte)
+func BorrowNewBuffer() *[20480]byte {
+	return PooledBuffer.Get().(*[20480]byte)
 }
 
 type SocketDataBuffer interface {
@@ -82,7 +82,7 @@ type SocketDataBuffer interface {
 	// EndTime the data end timestamp
 	EndTime() uint64
 
-	ReleaseBuffer() *[2048]byte
+	ReleaseBuffer() *[20480]byte
 }
 
 type SocketDataDetail interface {

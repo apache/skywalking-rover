@@ -37,10 +37,10 @@ type SocketDataUploadEvent struct {
 	DataID0      uint64
 	PrevDataID0  uint64
 	TotalSize0   uint64
-	Buffer       [2048]byte
+	Buffer       [20480]byte
 }
 
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[2048]byte {
+func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
 	return &s.Buffer
 }
 

@@ -28,7 +28,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(max_entries, 1);
 	__uint(key_size, sizeof(__u32));
-	__uint(value_size, 10240); // all events are less than 10KB
+	__uint(value_size, 30960); // all events are less than 30KB
 } rover_data_heap SEC(".maps");
 
 static __always_inline void *rover_reserve_buf(void *map, __u64 size) {
