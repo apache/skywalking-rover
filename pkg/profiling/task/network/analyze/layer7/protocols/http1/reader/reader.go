@@ -20,6 +20,7 @@ package reader
 import (
 	"bufio"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -275,15 +276,16 @@ func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader,
 		if readSize > len(m.Reader().bodyBuffer) {
 			readSize = len(m.Reader().bodyBuffer)
 		}
-		lastReadSize, err = reader.Read(m.Reader().bodyBuffer[0:readSize])
+		lastReadSize, err = io.ReadFull(reader, m.Reader().bodyBuffer[0:readSize])
 		if err != nil {
-			if err == buffer.ErrNotComplete {
+			if errors.Is(err, buffer.ErrNotComplete) {
 				return nil, enums.ParseResultSkipPackage, nil
 			}
-			if err == io.EOF && reduceSize-lastReadSize <= 0 {
+			if (err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF)) && reduceSize-lastReadSize <= 0 {
 				return nil, enums.ParseResultSuccess, nil
 			}
-			return nil, enums.ParseResultSkipPackage, err
+
+			return nil, enums.ParseResultSkipPackage, fmt.Errorf("reading the body error: %v", err)
 		}
 		reduceSize -= lastReadSize
 	}

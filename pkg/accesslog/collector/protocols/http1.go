@@ -112,7 +112,7 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 			result = enums.ParseResultSkipPackage
 		}
 		if err != nil {
-			http1Log.Warnf("failed to handle HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d, type: %d, error: %v",
+			http1Log.Debugf("failed to handle HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d, type: %d, error: %v",
 				metrics.ConnectionID, metrics.RandomID, buf.Position().DataID(), messageType, err)
 		}
 
