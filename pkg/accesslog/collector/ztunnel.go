@@ -80,11 +80,6 @@ func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 		return nil
 	}
 
-	// setting the ztunnel pid in the BPF
-	if err = ctx.BPF.ZtunnelProcessPid.Set(z.collectingProcess.Pid); err != nil {
-		return fmt.Errorf("failed to set ztunnel process pid: %v", err)
-	}
-
 	ctx.BPF.ReadEventAsync(ctx.BPF.ZtunnelLbSocketMappingEventQueue, func(data interface{}) {
 		event := data.(*events.ZTunnelSocketMappingEvent)
 		localIP := z.convertBPFIPToString(event.OriginalSrcIP)
@@ -189,6 +184,7 @@ func (z *ZTunnelCollector) findZTunnelProcessAndCollect() error {
 		running, err := z.collectingProcess.IsRunning()
 		if err == nil && running {
 			// already collecting the process
+			log.Debugf("found the ztunnel process and collecting ztunnel data from pid: %d", z.collectingProcess.Pid)
 			return nil
 		}
 		log.Warnf("detected ztunnel process is not running, should re-scan process to find and collect it")
@@ -235,6 +231,11 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 
 	uprobeFile := z.alc.BPF.OpenUProbeExeFile(pidExeFile)
 	uprobeFile.AddLink(trackBoundSymbol[0].Name, z.alc.BPF.ConnectionManagerTrackOutbound, nil)
+
+	// setting the ztunnel pid in the BPF
+	if err = z.alc.BPF.ZtunnelProcessPid.Set(p.Pid); err != nil {
+		return fmt.Errorf("failed to set ztunnel process pid in the BPF: %v", err)
+	}
 	return nil
 }
 
