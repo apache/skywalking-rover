@@ -23,12 +23,12 @@ require (
 	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7
 	golang.org/x/net v0.40.0
 	golang.org/x/sys v0.33.0
-	google.golang.org/grpc v1.72.0
+	google.golang.org/grpc v1.73.0
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5
 	k8s.io/client-go v0.23.5
 	k8s.io/utils v0.0.0-20211116205334-6203023598ed
-	skywalking.apache.org/repo/goapi v0.0.0-20250520033135-e237d585745f
+	skywalking.apache.org/repo/goapi v0.0.0-20251021000546-17778a1a5d70
 )
 
 require (
@@ -62,7 +62,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.9 // indirect
 	github.com/tklauser/numcpus v0.3.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.2 // indirect
-	golang.org/x/oauth2 v0.26.0 // indirect
+	golang.org/x/oauth2 v0.28.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
