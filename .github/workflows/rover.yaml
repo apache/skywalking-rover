@@ -15,17 +15,15 @@
 # limitations under the License.
 
 name: CI
-
 on:
   pull_request:
-
 jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Set up Go 1.24
+      - name: Set up Go
         uses: actions/setup-go@v2
         with:
           go-version: "1.24"
@@ -47,7 +45,6 @@ jobs:
         run: make linux
       - name: Check CI Consistency
         run: make check
-
   docker:
     name: Docker images
     runs-on: ubuntu-latest
@@ -65,10 +62,10 @@ jobs:
         with:
           name: docker-images-skywalking-rover
           path: docker-images-skywalking-rover.tar
-
   e2e-test:
     name: E2E test
-    needs: [ docker ]
+    needs:
+      - docker
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
@@ -99,7 +96,6 @@ jobs:
             docker:
               file: Dockerfile.sqrt
               name: test/oncpu-rust:test
-
           - name: Golang Off CPU Profiling
             base: test/e2e/cases/profiling/task/offcpu/golang
             config: e2e.yaml
@@ -124,7 +120,6 @@ jobs:
             docker:
               file: Dockerfile.file
               name: test/offcpu-rust:test
-
           - name: Istio Process Finder 1.8.2
             base: test/e2e/cases/process/istio
             config: e2e.yaml
@@ -149,7 +144,6 @@ jobs:
             base: test/e2e/cases/process/istio
             config: e2e.yaml
             env: ISTIO_VERSION=1.13.1
-
           - name: Access Log
             base: test/e2e/cases/access_log
             config: e2e.yaml
@@ -178,11 +172,11 @@ jobs:
         name: Upload Logs
         with:
           name: logs
-          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
-
+          path: ${{ env.SW_INFRA_E2E_LOG_DIR }}
   network-profiling-https-e2e-test-prepare:
     name: Prepare Network Profiling HTTPS E2E test
-    needs: [ docker ]
+    needs:
+      - docker
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
@@ -208,10 +202,10 @@ jobs:
         with:
           name: docker-images-test-nginx
           path: docker-images-nginx.tar
-
   network-profiling-https-e2e-test:
     name: Network Profiling HTTPS E2E test
-    needs: [ network-profiling-https-e2e-test-prepare ]
+    needs:
+      - network-profiling-https-e2e-test-prepare
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
@@ -281,11 +275,11 @@ jobs:
         name: Upload Logs
         with:
           name: logs
-          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
-
+          path: ${{ env.SW_INFRA_E2E_LOG_DIR }}
   continuous-profiling-e2e-tests:
     name: Continuous Profiling E2E tests
-    needs: [ docker ]
+    needs:
+      - docker
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
@@ -343,8 +337,7 @@ jobs:
         name: Upload Logs
         with:
           name: logs ${{ matrix.test.name }}
-          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
-
+          path: ${{ env.SW_INFRA_E2E_LOG_DIR }}
   required:
     if: always()
     name: Required

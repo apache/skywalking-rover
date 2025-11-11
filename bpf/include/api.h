@@ -20,12 +20,52 @@
 
 // include linux relate bpf
 #include <stddef.h>
+#include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/bpf.h>
 #include <linux/ptrace.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+
+// Define types commonly needed but not in BPF headers
+typedef __s64 ssize_t;
+typedef __s8 int8_t;
+typedef __s16 int16_t;
+typedef __s32 int32_t;
+typedef __s64 int64_t;
+typedef __u8 uint8_t;
+typedef __u16 uint16_t;
+typedef __u32 uint32_t;
+typedef __u64 uint64_t;
+// BSD-style type aliases
+typedef __u8 u_int8_t;
+typedef __u16 u_int16_t;
+typedef __u32 u_int32_t;
+typedef __u64 u_int64_t;
+
+struct iovec {
+    void *iov_base;
+    __kernel_size_t iov_len;
+};
+
+// Socket address family constants (from linux/socket.h)
+#ifndef AF_UNSPEC
+#define AF_UNSPEC 0
+#endif
+#ifndef AF_INET
+#define AF_INET 2
+#endif
+#ifndef AF_INET6
+#define AF_INET6 10
+#endif
+
+// Socket address structures (simplified for BPF)
+typedef unsigned short sa_family_t;
+struct sockaddr {
+    sa_family_t sa_family;
+    char sa_data[14];
+};
 
 #define _KERNEL(P)                                                                   \
 	({                                                                     \

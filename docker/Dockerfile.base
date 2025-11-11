@@ -14,12 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.24@sha256:ef5b4be1f94b36c90385abd9b6b4f201723ae28e71acacb76d00687333c17282
+FROM golang:1.24.8@sha256:273d4e65baa782dbe293c9192d600b72b17d415c1429e16bed99efcc5e61efb8
 
 RUN apt update -y && apt upgrade -y && \
     git clone --depth 1 --branch v1.1.0 https://github.com/libbpf/libbpf.git && \
     mkdir -p /usr/include/bpf && cp libbpf/src/*.h /usr/include/bpf && \
-    apt install -y lsb-release wget software-properties-common "$([ $(uname -m) = "x86_64" ] && echo "libc6-dev-i386" || echo "libc6-dev-armhf-cross")" && \
+    apt install -y lsb-release wget "$([ $(uname -m) = "x86_64" ] && echo "libc6-dev-i386" || echo "libc6-dev-armhf-cross")" && \
     ([ $(uname -m) = "x86_64" ] && cp -rf /usr/include/asm-generic/* /usr/include/asm || cp -rf /usr/include/$(uname -m)*/* /usr/include/) && \
     apt-get -y install build-essential libelf-dev libz-dev libcap-dev binutils-dev pkg-config libelf1 && \
     git clone --depth 1 --recurse-submodules --branch v7.2.0 https://github.com/libbpf/bpftool.git && \

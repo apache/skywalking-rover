@@ -20,16 +20,13 @@
 #include "syscall_reading.h"
 #include "protocol_analyzer.h"
 
-#include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
 #include <linux/sched.h>
 #include <linux/bpf.h>
 #include <linux/ptrace.h>
 #include <linux/socket.h>
+#include <linux/in.h>
+#include <linux/in6.h>
 #include <asm/errno.h>
-#include <arpa/inet.h>
-#include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>

@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
 #include <linux/sched.h>
 #include <linux/bpf.h>
 #include <linux/ptrace.h>
@@ -29,7 +26,6 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
-#include <sys/uio.h>
 #include "network.h"
 #include "protocol_analyzer.h"
 #include "socket.h"
