@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package common
+package common //nolint:revive // package name is acceptable in this context
 
 import "github.com/apache/skywalking-rover/pkg/module"
 
