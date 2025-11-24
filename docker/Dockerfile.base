@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.24.8@sha256:273d4e65baa782dbe293c9192d600b72b17d415c1429e16bed99efcc5e61efb8
+FROM golang:1.25
 
 RUN apt update -y && apt upgrade -y && \
     git clone --depth 1 --branch v1.1.0 https://github.com/libbpf/libbpf.git && \
