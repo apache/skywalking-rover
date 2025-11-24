@@ -15,7 +15,7 @@
 # limitations under the License.
 
 ARG BASE_IMAGE=apache/skywalking-rover:latest
-FROM $BASE_IMAGE as build
+FROM $BASE_IMAGE AS build
 
 ARG VERSION="latest"
 

@@ -15,7 +15,6 @@
 # limitations under the License.
 
 name: Compatibility Checks
-
 # This GitHub Action aims to help to check the compatibility on the GCP
 # Please provide the following data to run:
 # 1. Secret.GCP_SERVICE_ACCOUNT_CREDENTIALS: The Key of the service account in Google Cloud. The account must have been granted to operate GCloud Storage and GCP machine instance.
@@ -23,19 +22,17 @@ name: Compatibility Checks
 # 3. GCloud storage name: The name of the GCloud storage, which use to update the checker files and check the result of compatibility.
 #
 # This CI costs credit on Google Cloud, we only offer this for developers to run on your own environment.
-
 on:
   workflow_dispatch:
     inputs:
       gcloud-project:
-        description: 'Which project(ID) to create GCP?'
+        description: Which project(ID) to create GCP?
         type: string
         required: true
       gcloud-storage:
-        description: 'Which GCloud Storage(Name) to storage compatibility result?'
+        description: Which GCloud Storage(Name) to storage compatibility result?
         type: string
         required: true
-
 jobs:
   upload-checkers:
     name: Upload checkers
@@ -48,30 +45,30 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
-          go-version: "1.24"
-      - id: 'auth'
-        uses: 'google-github-actions/auth@v1'
+          go-version: "1.25"
+      - id: auth
+        uses: google-github-actions/auth@v1
         with:
-          credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}'
-      - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@v1'
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
       - name: Build and Upload
         run: |
           # build skywalking rover binary
           make container-btfgen build
           cp bin/skywalking-rover-latest-linux-amd64 scripts/check/profiling
-  
+
           # build demo program
           cd scripts/check/profiling
           go build demo.go
           mv demo demo-program
-          
+
           # upload to the gcloud
           gcloud storage cp  --project "${{ github.event.inputs.gcloud-project }}" ./* gs://${{ github.event.inputs.gcloud-storage }}/runner
-
   checks:
     name: Compatibility Checks
-    needs: [upload-checkers]
+    needs:
+      - upload-checkers
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -96,7 +93,6 @@ jobs:
             project: ubuntu-os-cloud
             family: ubuntu-2210-amd64
             image: ubuntu-2210-kinetic-amd64-v20221201
-
           # ubuntu pro
           - name: Ubuntu_Pro
             project: ubuntu-os-pro-cloud
@@ -114,7 +110,6 @@ jobs:
             project: ubuntu-os-pro-cloud
             family: ubuntu-pro-2204-lts
             image: ubuntu-pro-2204-jammy-v20221201
-
           # centos
           - name: Centos
             project: centos-cloud
@@ -128,7 +123,6 @@ jobs:
             project: centos-cloud
             family: centos-stream-9
             image: centos-stream-9-v20221102
-
           # debian
           - name: Debian
             project: debian-cloud
@@ -138,7 +132,6 @@ jobs:
             project: debian-cloud
             family: debian-11
             image: debian-11-bullseye-v20221102
-
           # RHEL
           - name: RHEL
             project: rhel-cloud
@@ -152,7 +145,6 @@ jobs:
             project: rhel-cloud
             family: rhel-9
             image: rhel-9-v20221102
-
           # rocky
           - name: Rocky
             project: rocky-linux-cloud
@@ -162,7 +154,6 @@ jobs:
             project: rocky-linux-cloud
             family: rocky-linux-9
             image: rocky-linux-9-v20221102
-
           # Fedora
           - name: Fedora
             project: fedora-cloud
@@ -184,44 +175,44 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - id: 'auth'
-        uses: 'google-github-actions/auth@v1'
+      - id: auth
+        uses: google-github-actions/auth@v1
         with:
-          credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}'
-      - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@v1'
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
       - name: Check
         env:
-          INSTANCE_PROJECT: "${{ matrix.system.project }}"
-          INSTANCE_IMAGE: "${{ matrix.system.image }}"
-          INSTANCE_FAMILY: "${{ matrix.system.family }}"
-          INSTANCE_SYSTEM: "${{ matrix.system.name }}"
+          INSTANCE_PROJECT: ${{ matrix.system.project }}
+          INSTANCE_IMAGE: ${{ matrix.system.image }}
+          INSTANCE_FAMILY: ${{ matrix.system.family }}
+          INSTANCE_SYSTEM: ${{ matrix.system.name }}
         run: |
           # download the runner
           mkdir -p /tmp/runner
           gcloud storage cp gs://${{ github.event.inputs.gcloud-storage }}/runner/* /tmp/runner
-          
+
           # create instance
           gcloud compute instances create "skywalking-rover-test-$INSTANCE_IMAGE" --image "$INSTANCE_IMAGE" \
           	--project "${{ github.event.inputs.gcloud-project }}" --image-project "$INSTANCE_PROJECT" --machine-type e2-medium --zone us-west1-b
-          
+
           # generate the public ssh key
           ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -f ~/.ssh/google_compute_engine -q -N ""
-          
+
           # scp runner
           gcloud compute scp --recurse /tmp/runner test@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/ \
-            --zone us-west1-b --project "${{ github.event.inputs.gcloud-project }}" 
-          
+            --zone us-west1-b --project "${{ github.event.inputs.gcloud-project }}"
+
           # run checker
           gcloud compute ssh --zone "us-west1-b" "test@skywalking-rover-test-$INSTANCE_IMAGE" \
             --project "${{ github.event.inputs.gcloud-project }}" \
             --command "cd /tmp/runner; chmod +x /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64; sudo bash check.sh /tmp/runner/config.yaml /tmp/runner/demo-program /tmp/runner/skywalking-rover-latest-linux-amd64 /tmp/runner/result/$INSTANCE_SYSTEM/$INSTANCE_FAMILY json"
-          
+
           # scp from instance and upload to the storage
           gcloud compute scp --recurse test@"skywalking-rover-test-$INSTANCE_IMAGE":/tmp/runner/result /tmp/runner \
-            --zone us-west1-b  --project "${{ github.event.inputs.gcloud-project }}" 
+            --zone us-west1-b  --project "${{ github.event.inputs.gcloud-project }}"
           gcloud storage cp -r /tmp/runner/result gs://"${{ github.event.inputs.gcloud-storage }}"/ \
-            --project "${{ github.event.inputs.gcloud-project }}" 
+            --project "${{ github.event.inputs.gcloud-project }}"
 
           # delete test instance
           gcloud compute instances delete --project "${{ github.event.inputs.gcloud-project }}" "skywalking-rover-test-$INSTANCE_IMAGE" --zone us-west1-b -q

@@ -1,6 +1,6 @@
 module github.com/apache/skywalking-rover
 
-go 1.24.8
+go 1.25
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.9.0
