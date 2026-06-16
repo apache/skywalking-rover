@@ -36,9 +36,11 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+const methodConnect = "CONNECT"
+
 var (
 	requestMethods = []string{
-		"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", "CONNECT", "TRACE", "PATCH",
+		"GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE", methodConnect, "TRACE", "PATCH",
 	}
 	pooledReader = sync.Pool{
 		New: func() any {

@@ -28,6 +28,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
+const kernelModuleName = "kernel"
+
 type KernelFinder struct {
 	kernelFileExists bool
 }
@@ -68,7 +70,7 @@ func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
 	}
 
 	kernelModule := &Module{
-		Name:    "kernel",
+		Name:    kernelModuleName,
 		Symbols: symbols,
 		// kernel module could handling all symbols
 		Ranges: []*ModuleRange{
@@ -80,6 +82,6 @@ func (k *KernelFinder) Analyze(filepath string) (*Info, error) {
 	}
 
 	return NewInfo(map[string]*Module{
-		"kernel": kernelModule,
+		kernelModuleName: kernelModule,
 	}), nil
 }

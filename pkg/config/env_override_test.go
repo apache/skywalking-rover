@@ -26,6 +26,16 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	keyData1 = "data1"
+	keyData2 = "data2"
+	keyData3 = "data3"
+	keyData4 = "data4"
+	keyData5 = "data5"
+	valueDEF = "DEF"
+	value456 = "456"
+)
+
 func TestOverrideEnv(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -34,18 +44,18 @@ func TestOverrideEnv(t *testing.T) {
 		result map[string]interface{}
 	}{
 		{
-			name: "no-env",
+			name: caseNoEnv,
 			env:  nil,
 			file: "testdata/override-no-env.yaml",
 			result: map[string]interface{}{
-				"data1": "abc",
-				"data2": 123,
-				"data3": []interface{}{1, 2},
-				"data4": map[string]interface{}{
+				keyData1: valueABC,
+				keyData2: 123,
+				keyData3: []interface{}{1, 2},
+				keyData4: map[string]interface{}{
 					"a": 1,
 					"b": 2,
 				},
-				"data5": []interface{}{
+				keyData5: []interface{}{
 					map[string]interface{}{
 						"a": 1,
 					},
@@ -55,8 +65,8 @@ func TestOverrideEnv(t *testing.T) {
 		{
 			name: "full-env",
 			env: map[string]string{
-				"TEST_1":           "DEF",
-				"TEST_2":           "456",
+				"TEST_1":           valueDEF,
+				"TEST_2":           value456,
 				"TEST_3_1":         "2",
 				"TEST_3_2_NOT_SET": "",
 				"TEST_4_A":         "3",
@@ -64,16 +74,16 @@ func TestOverrideEnv(t *testing.T) {
 			},
 			file: "testdata/override-env.yaml",
 			result: map[string]interface{}{
-				"data1": "DEF",
-				"data2": "456",
-				"data3": []interface{}{
+				keyData1: valueDEF,
+				keyData2: value456,
+				keyData3: []interface{}{
 					"2", "2",
 				},
-				"data4": map[string]interface{}{
+				keyData4: map[string]interface{}{
 					"a": "3",
 					"b": "1",
 				},
-				"data5": []interface{}{
+				keyData5: []interface{}{
 					map[string]interface{}{
 						"a": "3",
 					},

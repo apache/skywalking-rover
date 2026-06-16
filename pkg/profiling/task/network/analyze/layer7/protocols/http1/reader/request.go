@@ -104,7 +104,7 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	if !ok {
 		return nil, enums.ParseResultSkipPackage, fmt.Errorf("the protocol version cannot be identity: %s", proto)
 	}
-	justAuthority := req.Method == "CONNECT" && !strings.HasPrefix(requestURI, "/")
+	justAuthority := req.Method == methodConnect && !strings.HasPrefix(requestURI, "/")
 	if justAuthority {
 		requestURI = "http://" + requestURI
 	}

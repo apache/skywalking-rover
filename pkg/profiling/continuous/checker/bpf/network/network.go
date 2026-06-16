@@ -35,6 +35,8 @@ import (
 // nolint
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target $TARGET -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf $REPO_ROOT/bpf/profiling/continuous/network.c -- -I$REPO_ROOT/bpf/include
 
+const kprobeTCPRecvmsg = "tcp_recvmsg"
+
 var log = logger.GetLogger("profiling", "continuous", "checker", "network", "bpf")
 
 var locker sync.Mutex
@@ -140,8 +142,8 @@ func startBPFIfNeed() error {
 
 	bpfLinker = btf.NewLinker()
 	bpfLinker.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_sendmsg": bpf.TcpSendmsg})
-	bpfLinker.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_recvmsg": bpf.TcpRecvmsg})
-	bpfLinker.AddLink(link.Kretprobe, map[string]*ebpf.Program{"tcp_recvmsg": bpf.RetTcpRecvmsg})
+	bpfLinker.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeTCPRecvmsg: bpf.TcpRecvmsg})
+	bpfLinker.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeTCPRecvmsg: bpf.RetTcpRecvmsg})
 
 	reader := newNetworkBufferReader(func(event BufferEvent) {
 		for _, n := range notifiers {

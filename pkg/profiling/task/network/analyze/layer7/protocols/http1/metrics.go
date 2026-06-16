@@ -47,6 +47,12 @@ var (
 	transportResponse = "Response"
 )
 
+const (
+	entityTagServiceName         = "service_name"
+	entityTagServiceInstanceName = "service_instance_name"
+	entityTagProcessName         = "process_name"
+)
+
 type URIMetrics struct {
 	RequestCounter *metrics.Counter
 	StatusCounter  map[int]*metrics.Counter
@@ -269,9 +275,9 @@ func (h *Trace) appendHTTPEvent(attaches []*v3.SpanAttachedEvent, process api.Pr
 		// connection
 		&commonv3.KeyStringValuePair{Key: "connection_role", Value: traffic.Role.String()},
 		// entity
-		&commonv3.KeyStringValuePair{Key: "service_name", Value: process.Entity().ServiceName},
-		&commonv3.KeyStringValuePair{Key: "service_instance_name", Value: process.Entity().InstanceName},
-		&commonv3.KeyStringValuePair{Key: "process_name", Value: process.Entity().ProcessName},
+		&commonv3.KeyStringValuePair{Key: entityTagServiceName, Value: process.Entity().ServiceName},
+		&commonv3.KeyStringValuePair{Key: entityTagServiceInstanceName, Value: process.Entity().InstanceName},
+		&commonv3.KeyStringValuePair{Key: entityTagProcessName, Value: process.Entity().ProcessName},
 	)
 
 	event.Summary = make([]*commonv3.KeyIntValuePair, 0)
@@ -322,9 +328,9 @@ func (h *Trace) appendPerDetailEvent(attaches []*v3.SpanAttachedEvent, process a
 		&commonv3.KeyStringValuePair{Key: "network_name", Value: host.NetworkName(int(detail.IfIndex))},
 		&commonv3.KeyStringValuePair{Key: "network_index", Value: fmt.Sprintf("%d", detail.IfIndex)},
 		// entity
-		&commonv3.KeyStringValuePair{Key: "service_name", Value: process.Entity().ServiceName},
-		&commonv3.KeyStringValuePair{Key: "service_instance_name", Value: process.Entity().InstanceName},
-		&commonv3.KeyStringValuePair{Key: "process_name", Value: process.Entity().ProcessName},
+		&commonv3.KeyStringValuePair{Key: entityTagServiceName, Value: process.Entity().ServiceName},
+		&commonv3.KeyStringValuePair{Key: entityTagServiceInstanceName, Value: process.Entity().InstanceName},
+		&commonv3.KeyStringValuePair{Key: entityTagProcessName, Value: process.Entity().ProcessName},
 	)
 
 	if detail.RTTTime > 0 {

@@ -26,74 +26,80 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 )
 
+const (
+	moduleTest1 = "test1"
+	moduleTest2 = "test2"
+	moduleTest3 = "test3"
+)
+
 func TestResolveDependency(t *testing.T) {
 	tests := []testDependencyStruct{
 		{
 			name: "no dependency",
 			moduleWithDependencies: map[string][]string{
-				"test1": nil,
-				"test2": nil,
+				moduleTest1: nil,
+				moduleTest2: nil,
 			},
 			setupModules: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			expectSequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 		},
 		{
 			name: "test1 on test2",
 			moduleWithDependencies: map[string][]string{
-				"test1": {"test2"},
-				"test2": nil,
+				moduleTest1: {moduleTest2},
+				moduleTest2: nil,
 			},
 			setupModules: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			expectSequence: []string{
-				"test2", "test1",
+				moduleTest2, moduleTest1,
 			},
 		},
 		{
 			name: "test1 depend on test2, and other no depend test3",
 			moduleWithDependencies: map[string][]string{
-				"test1": {"test2"},
-				"test2": nil,
-				"test3": nil,
+				moduleTest1: {moduleTest2},
+				moduleTest2: nil,
+				moduleTest3: nil,
 			},
 			setupModules: []string{
-				"test1", "test2", "test3",
+				moduleTest1, moduleTest2, moduleTest3,
 			},
 			expectSequence: []string{
-				"test2", "test1", "test3",
+				moduleTest2, moduleTest1, moduleTest3,
 			},
 		},
 		{
 			name: "test1 depend on test2 and test2 depend on test3",
 			moduleWithDependencies: map[string][]string{
-				"test1": {"test2"},
-				"test2": {"test3"},
-				"test3": nil,
+				moduleTest1: {moduleTest2},
+				moduleTest2: {moduleTest3},
+				moduleTest3: nil,
 			},
 			setupModules: []string{
-				"test1", "test2", "test3",
+				moduleTest1, moduleTest2, moduleTest3,
 			},
 			expectSequence: []string{
-				"test3", "test2", "test1",
+				moduleTest3, moduleTest2, moduleTest1,
 			},
 		},
 		{
 			name: "test1 depend on test2 and test3, and test2 depend on test3",
 			moduleWithDependencies: map[string][]string{
-				"test1": {"test2", "test3"},
-				"test2": {"test3"},
-				"test3": nil,
+				moduleTest1: {moduleTest2, moduleTest3},
+				moduleTest2: {moduleTest3},
+				moduleTest3: nil,
 			},
 			setupModules: []string{
-				"test1", "test2", "test3",
+				moduleTest1, moduleTest2, moduleTest3,
 			},
 			expectSequence: []string{
-				"test3", "test2", "test1",
+				moduleTest3, moduleTest2, moduleTest1,
 			},
 		},
 	}
@@ -147,20 +153,20 @@ func TestRun(t *testing.T) {
 		{
 			name: "simple and shutdown by module",
 			dependencies: map[string][]string{
-				"test1": nil,
-				"test2": nil,
+				moduleTest1: nil,
+				moduleTest2: nil,
 			},
 			modules: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			startSequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			startNotifySequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			shutdownSequence: []string{
-				"test2", "test1",
+				moduleTest2, moduleTest1,
 			},
 			triggerShutdown: func(_ context.Context, _ context.CancelFunc, starter *ModuleStarter) {
 				starter.moduleManager.ShutdownModules(nil)
@@ -169,20 +175,20 @@ func TestRun(t *testing.T) {
 		{
 			name: "simple and shutdown by context.down",
 			dependencies: map[string][]string{
-				"test1": nil,
-				"test2": nil,
+				moduleTest1: nil,
+				moduleTest2: nil,
 			},
 			modules: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			startSequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			startNotifySequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			shutdownSequence: []string{
-				"test2", "test1",
+				moduleTest2, moduleTest1,
 			},
 			triggerShutdown: func(_ context.Context, cancel context.CancelFunc, _ *ModuleStarter) {
 				cancel()
@@ -191,20 +197,20 @@ func TestRun(t *testing.T) {
 		{
 			name: "dependency with module shutdown",
 			dependencies: map[string][]string{
-				"test1": {"test2"},
-				"test2": nil,
+				moduleTest1: {moduleTest2},
+				moduleTest2: nil,
 			},
 			modules: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			startSequence: []string{
-				"test2", "test1",
+				moduleTest2, moduleTest1,
 			},
 			startNotifySequence: []string{
-				"test2", "test1",
+				moduleTest2, moduleTest1,
 			},
 			shutdownSequence: []string{
-				"test1", "test2",
+				moduleTest1, moduleTest2,
 			},
 			triggerShutdown: func(_ context.Context, _ context.CancelFunc, starter *ModuleStarter) {
 				starter.moduleManager.ShutdownModules(nil)

@@ -24,24 +24,33 @@ import (
 	"testing"
 )
 
+const (
+	caseNoEnv     = "no-env"
+	keyTestA      = "testa"
+	keyTestB      = "testb"
+	valueABC      = "abc"
+	valueZZZ      = "zzz"
+	fileConfigEnv = "testdata/config-env.yaml"
+)
+
 func TestLoad(t *testing.T) {
 	tests := []testLoadConfig{
 		{
-			name: "no-env",
+			name: caseNoEnv,
 			env:  nil,
 			file: "testdata/config-no-env.yaml",
 			topKeys: []string{
-				"testa", "testb",
+				keyTestA, keyTestB,
 			},
 			unmarshalls: map[string]struct {
 				newData  interface{}
 				validate interface{}
 			}{
-				"testa": {
+				keyTestA: {
 					newData:  &configWithString{},
-					validate: &configWithString{"abc"},
+					validate: &configWithString{valueABC},
 				},
-				"testb": {
+				keyTestB: {
 					newData:  &configWithInteger{},
 					validate: &configWithInteger{2},
 				},
@@ -50,19 +59,19 @@ func TestLoad(t *testing.T) {
 		{
 			name: "env-not-set",
 			env:  nil,
-			file: "testdata/config-env.yaml",
+			file: fileConfigEnv,
 			topKeys: []string{
-				"testa", "testb",
+				keyTestA, keyTestB,
 			},
 			unmarshalls: map[string]struct {
 				newData  interface{}
 				validate interface{}
 			}{
-				"testa": {
+				keyTestA: {
 					newData:  &configWithString{},
 					validate: &configWithString{"def"},
 				},
-				"testb": {
+				keyTestB: {
 					newData:  &configWithInteger{},
 					validate: &configWithInteger{456},
 				},
@@ -71,22 +80,22 @@ func TestLoad(t *testing.T) {
 		{
 			name: "env-set",
 			env: map[string]string{
-				"TEST_A_DATA": "zzz",
+				"TEST_A_DATA": valueZZZ,
 				"TEST_B_DATA": "999",
 			},
-			file: "testdata/config-env.yaml",
+			file: fileConfigEnv,
 			topKeys: []string{
-				"testa", "testb",
+				keyTestA, keyTestB,
 			},
 			unmarshalls: map[string]struct {
 				newData  interface{}
 				validate interface{}
 			}{
-				"testa": {
+				keyTestA: {
 					newData:  &configWithString{},
-					validate: &configWithString{"zzz"},
+					validate: &configWithString{valueZZZ},
 				},
-				"testb": {
+				keyTestB: {
 					newData:  &configWithInteger{},
 					validate: &configWithInteger{999},
 				},
