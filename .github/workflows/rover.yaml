@@ -24,9 +24,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.26.x"
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
         with:
