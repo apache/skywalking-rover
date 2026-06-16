@@ -19,7 +19,7 @@
 GO_LINT = $(GO_PATH)/bin/golangci-lint
 
 linter:
-	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v2.4.0
+	$(GO_LINT) version || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GO_PATH)/bin v2.12.2
 
 .PHONY: lint
 lint: linter generate
