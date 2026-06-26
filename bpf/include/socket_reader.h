@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "api.h"
 #include "socket_opts.h"
 
 struct socket_buffer_reader_t {

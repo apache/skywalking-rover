@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "api.h"
+
 #define CONNECTION_PROTOCOL_UNKNOWN 0
 #define CONNECTION_PROTOCOL_HTTP1 1
 #define CONNECTION_PROTOCOL_HTTP2 2
