@@ -26,6 +26,7 @@ Release Notes.
 * Bump up go version to `1.24` and eBPF library to `0.18.0`.
 * Support detect ztunnel environment in the inbound request.
 * Increase the transmit buffer size in the network profiling and access log module.
+* Reduce eBPF verifier complexity by converting hot inline helpers to BPF-to-BPF calls, fixing the "program too large" failure when loading access log programs on newer kernels.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

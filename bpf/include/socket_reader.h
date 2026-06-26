@@ -30,7 +30,7 @@ struct {
     __uint(max_entries, 1);
 } socket_buffer_reader_map SEC(".maps");
 
-static __inline struct socket_buffer_reader_t* read_socket_data(char* buf, struct iovec *iovec, __u32 bytes_count) {
+static __noinline struct socket_buffer_reader_t* read_socket_data(char* buf, struct iovec *iovec, __u32 bytes_count) {
     __u64 size = 0;
     __u32 kZero = 0;
     char* data_buf;

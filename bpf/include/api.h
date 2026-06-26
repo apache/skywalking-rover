@@ -28,6 +28,16 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 
+// Force a function to be emitted as a real BPF-to-BPF call instead of being
+// inlined. The verifier checks a non-inlined sub-program only once, instead of
+// re-verifying every inlined copy on every code path, which dramatically lowers
+// the processed-instruction count for large programs (avoids the
+// "BPF program is too large" / 1M instruction limit). BPF-to-BPF calls require
+// kernel >= 4.16, which the network / access-log data path already mandates.
+#ifndef __noinline
+#define __noinline __attribute__((noinline))
+#endif
+
 // Define types commonly needed but not in BPF headers
 typedef __s64 ssize_t;
 typedef __s8 int8_t;

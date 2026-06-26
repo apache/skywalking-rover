@@ -142,7 +142,7 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event, sizeof(*socket_data_event));
 }
 
-static __always_inline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct upload_data_args *args, __u8 force_unfinished) {
+static __noinline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct upload_data_args *args, __u8 force_unfinished) {
     ssize_t already_send = 0;
 #pragma unroll
     for (__u8 index = 0; index < SOCKET_UPLOAD_CHUNK_LIMIT; index++) {
@@ -195,7 +195,7 @@ if (iov_index < iovlen) {                                                   \
     loop_count++;                                                                                                                    \
 }
 
-static __always_inline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct upload_data_args *args) {
+static __noinline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct upload_data_args *args) {
     ssize_t already_send = 0;
     ssize_t cur_iov_sended = 0;
     __u8 iov_index = 0;

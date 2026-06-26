@@ -285,7 +285,7 @@ static __always_inline void submit_new_connection(void* ctx, bool success, __u32
     bpf_map_update_elem(&active_connection_map, &conid, &con, 0);
 }
 
-static __inline struct active_connection_t* get_or_create_active_conn(void *ctx, __u32 tgid, __u32 fd, __u32 func_name, __u8 role) {
+static __noinline struct active_connection_t* get_or_create_active_conn(void *ctx, __u32 tgid, __u32 fd, __u32 func_name, __u8 role) {
     __u64 conid = gen_tgid_fd(tgid, fd);
     struct active_connection_t *conn = bpf_map_lookup_elem(&active_connection_map, &conid);
     if (conn != NULL) {
