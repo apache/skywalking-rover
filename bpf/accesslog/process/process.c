@@ -37,7 +37,11 @@ struct trace_event_raw_sched_process_fork {
 
 SEC("tracepoint/sched/sched_process_fork")
 int tracepoint_sched_process_fork(struct trace_event_raw_sched_process_fork* ctx) {
-    __u32 tgid = ctx->parent_pid;
+    // ctx->parent_pid is the forking task's TID (thread id), not the process id.
+    // For multi-threaded apps (e.g. JVM) a worker thread forking would report its
+    // thread TID, which the periodic /proc scan never lists, causing the process to
+    // flip between detected and dead. Use the real TGID instead.
+    __u32 tgid = bpf_get_current_pid_tgid() >> 32;
     // adding to the monitor
     __u32 v = 1;
     bpf_map_update_elem(&process_monitor_control, &tgid, &v, 0);

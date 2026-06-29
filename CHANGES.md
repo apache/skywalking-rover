@@ -30,6 +30,7 @@ Release Notes.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
+* Fix process fork tracepoint reporting thread TID instead of process TGID, causing repeated process detected/dead churn.
 
 #### Documentation
 * Add a dead link checker in the CI.
