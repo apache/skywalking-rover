@@ -34,6 +34,7 @@ Release Notes.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
+* Fix process fork tracepoint reporting thread TID instead of process TGID, causing repeated process detected/dead churn.
 * Fix panic in the access log module when handling HTTP/2 streams without a body.
 
 #### Documentation
