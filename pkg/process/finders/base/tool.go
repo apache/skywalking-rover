@@ -44,6 +44,16 @@ func BuildProfilingStat(ps *process.Process) (*profiling.Info, error) {
 	return process_tool.ProfilingStat(ps.Pid, exePath)
 }
 
+// SupportProfiling reports whether the process's executable can be profiled without retaining the
+// parsed symbol data in memory (see process_tool.SupportProfiling).
+func SupportProfiling(ps *process.Process) (bool, error) {
+	exePath := tryToFindFileExecutePath(ps)
+	if exePath == "" {
+		return false, fmt.Errorf("could not found executable file")
+	}
+	return process_tool.SupportProfiling(exePath)
+}
+
 func tryToFindFileExecutePath(ps *process.Process) string {
 	exe, err := ps.Exe()
 	if err != nil {

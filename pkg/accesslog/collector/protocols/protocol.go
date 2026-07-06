@@ -58,8 +58,15 @@ type Protocol interface {
 
 func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer, dataIDRange *buffer.DataIDRange,
 	allDetailInclude bool) ([]events.SocketDetail, *buffer.DataIDRange, bool) {
-	if buf == nil || !allDetailInclude {
+	// a previous buffer was already incomplete: keep propagating the incompleteness.
+	if !allDetailInclude {
 		return result, dataIDRange, false
+	}
+	// a nil buffer means this part of the message is legitimately absent (a request without body,
+	// or a response that ends the stream on the HEADERS frame such as 204/304/redirect or a gRPC
+	// trailers-only response): skip it rather than treating the whole message as incomplete.
+	if buf == nil {
+		return result, dataIDRange, true
 	}
 	details := buf.BuildDetails()
 	if details == nil || details.Len() == 0 {
@@ -79,6 +86,15 @@ func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buf
 		return result, currentDataIDRange, true
 	}
 	return result, dataIDRange.Append(currentDataIDRange), true
+}
+
+// DataIDRangeBounds returns the from/to data id bounds of the range, or (0, 0) when it is nil, so
+// callers can build an error message without dereferencing a possibly-nil range.
+func DataIDRangeBounds(dataIDRange *buffer.DataIDRange) (from, to uint64) {
+	if dataIDRange != nil {
+		from, to = dataIDRange.From, dataIDRange.To
+	}
+	return
 }
 
 func AnalyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {

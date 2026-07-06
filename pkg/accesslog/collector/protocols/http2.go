@@ -245,17 +245,19 @@ func (r *HTTP2Protocol) validateIsStreamOpenTooLong(connection *PartitionConnect
 
 func (r *HTTP2Protocol) HandleWholeStream(_ *PartitionConnection, stream *HTTP2Streaming) error {
 	details := make([]events.SocketDetail, 0)
-	var allInclude = true
+	allInclude := true
 	var idRange *buffer.DataIDRange
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.ReqHeaderBuffer, idRange, allInclude)
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.ReqBodyBuffer, idRange, allInclude)
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.RespHeaderBuffer, idRange, allInclude)
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, stream.RespBodyBuffer, idRange, allInclude)
 
-	if !allInclude {
-		return fmt.Errorf("cannot found any detail events for HTTP/2 protocol, data id: %d-%d, current details count: %d",
-			stream.ReqHeaderBuffer.FirstSocketBuffer().DataID(), stream.RespBodyBuffer.LastSocketBuffer().DataID(),
-			len(details))
+	// idRange is nil / details empty when no buffer contributed any event (e.g. all buffers absent);
+	// guard it so the error path never dereferences a nil buffer as it used to (which panicked).
+	if !allInclude || idRange == nil || len(details) == 0 {
+		from, to := DataIDRangeBounds(idRange)
+		return fmt.Errorf("cannot found full detail events for HTTP/2 protocol, data id: %d-%d, current details count: %d",
+			from, to, len(details))
 	}
 	idRange.DeleteDetails(stream.ReqHeaderBuffer)
 

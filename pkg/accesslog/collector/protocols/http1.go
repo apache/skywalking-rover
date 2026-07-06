@@ -220,10 +220,11 @@ func (p *HTTP1Protocol) HandleHTTPData(metrics *HTTP1Metrics, _ *PartitionConnec
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, response.HeaderBuffer(), idRange, allInclude)
 	details, idRange, allInclude = AppendSocketDetailsFromBuffer(details, response.BodyBuffer(), idRange, allInclude)
 
-	if !allInclude {
+	if !allInclude || idRange == nil || len(details) == 0 {
+		from, to := DataIDRangeBounds(idRange)
 		return fmt.Errorf("cannot found full detail events for HTTP/1.x protocol, "+
 			"data id: %d-%d, current details count: %d",
-			idRange.From, idRange.To, len(details))
+			from, to, len(details))
 	}
 
 	http1Log.Debugf("found fully HTTP1 request and response, contains %d detail events, "+

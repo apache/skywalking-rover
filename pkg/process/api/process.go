@@ -78,6 +78,8 @@ type DetectedProcess interface {
 	DetectType() ProcessDetectType
 	// ProfilingStat of process
 	ProfilingStat() *profiling.Info
+	// SupportProfiling reports whether the process can be profiled without retaining its symbols
+	SupportProfiling() bool
 	// ExposePorts define which ports are exposed
 	ExposePorts() []int
 	// ExposeHosts define which hosts are exposed

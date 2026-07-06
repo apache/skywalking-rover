@@ -151,7 +151,7 @@ access_log:
     queue_size: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_QUEUE_SIZE:2000}
   protocol_analyze:
     # The size of socket data buffer on each CPU
-    per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:400KB}
+    per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:1MB}
     # The count of parallel protocol event parse
     parse_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARSE_PARALLELS:2}
     # The count of parallel protocol analyzer
@@ -161,6 +161,6 @@ access_log:
 
 pprof:
   # Is active the pprof
-  active: ${ROVER_PPROF_ACTIVE:false}
+  active: ${ROVER_PPROF_ACTIVE:true}
   # The bind port of the pprof HTTP server
   port: ${ROVER_PPROF_PORT:6060}

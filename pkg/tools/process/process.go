@@ -61,26 +61,37 @@ func KernelFileProfilingStat() (*profiling.Info, error) {
 	return kernelFinder.Analyze(profiling.KernelProcSymbolFilePath)
 }
 
-// ProfilingStat is validating the exe file could be profiling and get info
-func ProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
+// SupportProfiling reports whether the executable can be profiled (not excluded and has a usable
+// symbol table) WITHOUT retaining the parsed symbol/module data in memory. Use this for the
+// discovery-time "support_ebpf_profiling" flag: the heavy symbol data is only needed while an
+// actual profiling task runs and is built on demand by ProfilingStat.
+func SupportProfiling(exePath string) (bool, error) {
 	stat, err := os.Stat(exePath)
 	if err != nil {
-		return nil, fmt.Errorf("check file error: %v", err)
+		return false, fmt.Errorf("check file error: %v", err)
 	}
 	for _, notSupport := range NotSupportProfilingExe {
 		if strings.HasPrefix(stat.Name(), notSupport) {
-			return nil, fmt.Errorf("not support %s language profiling", notSupport)
+			return false, fmt.Errorf("not support %s language profiling", notSupport)
 		}
 	}
-	context := newAnalyzeContext()
 
-	// the executable file must have the symbols
-	symbols, err := context.GetFinder(exePath).AnalyzeSymbols(exePath)
+	// the executable file must have the symbols; the parsed symbols are discarded here so they
+	// are not retained in memory for every discovered process.
+	symbols, err := newAnalyzeContext().GetFinder(exePath).AnalyzeSymbols(exePath)
 	if err != nil || len(symbols) == 0 {
-		return nil, fmt.Errorf("could not found any symbol in the execute file: %s, error: %v", exePath, err)
+		return false, fmt.Errorf("could not found any symbol in the execute file: %s, error: %v", exePath, err)
+	}
+	return true, nil
+}
+
+// ProfilingStat is validating the exe file could be profiling and get info
+func ProfilingStat(pid int32, exePath string) (*profiling.Info, error) {
+	if support, err := SupportProfiling(exePath); !support {
+		return nil, err
 	}
 
-	return analyzeProfilingInfo(context, pid)
+	return analyzeProfilingInfo(newAnalyzeContext(), pid)
 }
 
 // Modules Read the profiling info of the process, without the symbol check

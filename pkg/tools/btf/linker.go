@@ -199,7 +199,9 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *per
 			}
 
 			if record.LostSamples != 0 {
-				log.Warnf("perf event queue(%s) full, dropped %d samples", emap.String(), record.LostSamples)
+				// accumulate and report in an aggregated, periodic summary instead of logging
+				// every burst on its own (see lostsamples.go).
+				recordLostSamples(emap.String(), record.LostSamples)
 				recordPool.PutRecord(record)
 				continue
 			}

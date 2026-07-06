@@ -350,7 +350,7 @@ func (f *ProcessFinder) BuildNecessaryProperties(ps api.DetectedProcess) []*comm
 	return []*commonv3.KeyStringValuePair{
 		{
 			Key:   "support_ebpf_profiling",
-			Value: strconv.FormatBool(ps.ProfilingStat() != nil),
+			Value: strconv.FormatBool(ps.SupportProfiling()),
 		},
 	}
 }

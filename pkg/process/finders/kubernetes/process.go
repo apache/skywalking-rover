@@ -18,6 +18,9 @@
 package kubernetes
 
 import (
+	"errors"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/shirou/gopsutil/process"
@@ -31,11 +34,11 @@ type Process struct {
 	original *process.Process
 
 	// process data
-	pid           int32
-	cmd           string
-	profilingOnce sync.Once
-	profiling     *profiling.Info
-	podContainer  *PodContainer
+	pid                  int32
+	cmd                  string
+	supportProfilingOnce sync.Once
+	supportProfiling     bool
+	podContainer         *PodContainer
 
 	// entity for the backend
 	entity *api.ProcessEntity
@@ -67,12 +70,22 @@ func (p *Process) DetectType() api.ProcessDetectType {
 	return api.Kubernetes
 }
 
+// ProfilingStat builds the full profiling info (heavy: parses and retains the ELF symbol tables).
+// It intentionally does NOT cache the result on the process: the info is only needed while a
+// profiling task runs and is held by that task's runner, so it is released once the task ends.
 func (p *Process) ProfilingStat() *profiling.Info {
-	p.profilingOnce.Do(func() {
-		stat, _ := base.BuildProfilingStat(p.original)
-		p.profiling = stat
+	stat, _ := base.BuildProfilingStat(p.original)
+	return stat
+}
+
+// SupportProfiling reports whether the process can be profiled, WITHOUT retaining the symbol data.
+// The result is a bool that is cheap to cache, so keep-alive reporting does not re-parse the ELF
+// symbol tables of every discovered process on each report.
+func (p *Process) SupportProfiling() bool {
+	p.supportProfilingOnce.Do(func() {
+		p.supportProfiling, _ = base.SupportProfiling(p.original)
 	})
-	return p.profiling
+	return p.supportProfiling
 }
 
 func (p *Process) PodContainer() *PodContainer {
@@ -89,7 +102,15 @@ func (p *Process) ExposePorts() []int {
 	}
 	connections, err := p.original.Connections()
 	if err != nil {
-		log.Warnf("query the process connection error: pid: %d, error: %v", p.pid, err)
+		// A short-lived process may exit between discovery and this query, making its
+		// /proc/<pid>/net/* files disappear. That is an expected race for ephemeral processes
+		// (e.g. curl/sleep from load generators), not a real error, so keep it at debug level
+		// to avoid flooding the log.
+		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file or directory") {
+			log.Debugf("skip querying connections for the exited process, pid: %d, error: %v", p.pid, err)
+		} else {
+			log.Warnf("query the process connection error: pid: %d, error: %v", p.pid, err)
+		}
 		return result
 	}
 	for _, c := range connections {
