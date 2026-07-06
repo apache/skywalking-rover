@@ -67,7 +67,7 @@ func (m *Module) Start(_ context.Context, mgr *module.Manager) error {
 	defer m.mutex.Unlock()
 
 	m.server = &http.Server{
-		Addr:              fmt.Sprintf(":%d", m.config.Port),
+		Addr:              fmt.Sprintf("%s:%d", m.config.Host, m.config.Port),
 		ReadHeaderTimeout: 3 * time.Second,
 		Handler:           mux,
 	}

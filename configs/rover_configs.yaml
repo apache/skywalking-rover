@@ -162,5 +162,7 @@ access_log:
 pprof:
   # Is active the pprof
   active: ${ROVER_PPROF_ACTIVE:true}
+  # The bind host of the pprof HTTP server, defaults to 127.0.0.1 so it only listens on the local host
+  host: ${ROVER_PPROF_HOST:127.0.0.1}
   # The bind port of the pprof HTTP server
   port: ${ROVER_PPROF_PORT:6060}

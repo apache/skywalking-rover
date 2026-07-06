@@ -22,7 +22,10 @@ import "github.com/apache/skywalking-rover/pkg/module"
 type Config struct {
 	module.Config `mapstructure:",squash"`
 
-	Port int `mapstructure:"port"`
+	// Host is the bind address of the pprof HTTP server. It defaults to 127.0.0.1 so the debug
+	// endpoints are only reachable from the local host and are not exposed on the network.
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
 }
 
 func (c *Config) IsActive() bool {

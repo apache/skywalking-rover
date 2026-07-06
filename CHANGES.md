@@ -31,6 +31,7 @@ Release Notes.
 * Increase the default access log protocol per-CPU buffer to 1MB to reduce dropped samples.
 * Aggregate dropped perf event sample warnings periodically instead of logging every burst.
 * Lower the log level for connection query errors of short-lived exited processes.
+* Enable pprof by default but bind it to 127.0.0.1 so it is not exposed on the network.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

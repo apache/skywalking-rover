@@ -79,8 +79,11 @@ func SupportProfiling(exePath string) (bool, error) {
 	// the executable file must have the symbols; the parsed symbols are discarded here so they
 	// are not retained in memory for every discovered process.
 	symbols, err := newAnalyzeContext().GetFinder(exePath).AnalyzeSymbols(exePath)
-	if err != nil || len(symbols) == 0 {
-		return false, fmt.Errorf("could not found any symbol in the execute file: %s, error: %v", exePath, err)
+	if err != nil {
+		return false, fmt.Errorf("could not analyze symbols in the executable file %s: %w", exePath, err)
+	}
+	if len(symbols) == 0 {
+		return false, fmt.Errorf("could not find any symbol in the executable file: %s", exePath)
 	}
 	return true, nil
 }
