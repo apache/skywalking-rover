@@ -221,6 +221,12 @@ func (r *Runner) buildProtocolLog(protocolLog common.ProtocolLog) (*common.Conne
 		}
 		return nil, nil, nil, true
 	}
+	// hold the log for one more flush cycle while the ztunnel lb mapping is still being
+	// correlated(bounded per-connection), so a short connection resolves to the real pod
+	// IP instead of being emitted with the raw service IP
+	if r.context.ConnectionMgr.ShouldDeferForResolution(connection) {
+		return nil, nil, nil, true
+	}
 	kernelLogs := make([]*v3.AccessLogKernelLog, 0)
 	for _, kl := range protocolLog.RelateKernelLogs() {
 		event := forwarder.BuildKernelLogFromEvent(common.LogTypeKernelTransfer, kl)
@@ -246,6 +252,12 @@ func (r *Runner) buildKernelLog(kernelLog common.KernelLog) (*common.ConnectionI
 		if time.Since(kernelLog.Event().Timestamp()) > kernelAccessLogCacheTime {
 			return nil, nil, false
 		}
+		return nil, nil, true
+	}
+	// hold the log for one more flush cycle while the ztunnel lb mapping is still being
+	// correlated(bounded per-connection), so a short connection resolves to the real pod
+	// IP instead of being emitted with the raw service IP
+	if r.context.ConnectionMgr.ShouldDeferForResolution(connection) {
 		return nil, nil, true
 	}
 	event := forwarder.BuildKernelLogFromEvent(kernelLog.Type(), kernelLog.Event())

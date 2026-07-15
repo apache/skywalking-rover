@@ -18,6 +18,11 @@
 logger:
   # The lowest level of printing allowed.
   level: ${ROVER_LOGGER_LEVEL:INFO}
+  # Comma separated list of modules(name prefix) to elevate to the debug level
+  # regardless of the level above, e.g. "accesslog.collector.ztunnel". Keeps the
+  # high volume modules quiet(bounding the logging allocation) while still getting
+  # debug detail for the modules under investigation.
+  debug_modules: ${ROVER_LOGGER_DEBUG_MODULES:}
 
 core:
   # The name of the cluster.

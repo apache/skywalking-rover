@@ -247,6 +247,13 @@ func (m *Linker) OpenUProbeExeFile(path string) *UProbeExeFile {
 	}
 }
 
+// Found reports whether the executable was opened successfully. When it is false the AddLink*
+// calls are silent no-ops, so a caller that must not proceed(e.g. arm a BPF gate) without a real
+// uprobe attached should check this instead of assuming AddLink succeeded.
+func (u *UProbeExeFile) Found() bool {
+	return u.found
+}
+
 func (u *UProbeExeFile) AddLink(symbol string, enter, exit *ebpf.Program) {
 	u.AddLinkWithType(symbol, true, enter)
 	u.AddLinkWithType(symbol, false, exit)

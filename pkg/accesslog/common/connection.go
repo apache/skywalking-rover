@@ -21,7 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -52,11 +55,36 @@ const (
 	// clean the active connection in BPF interval
 	cleanActiveConnectionInterval = time.Second * 20
 
-	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the connection information
+	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the
+	// connection information. It is also the upper bound the resolution-defer grace must stay under
+	// (see resolutionGraceFor): a connection has to survive in the manager for the whole time its
+	// access log may be held waiting for the ztunnel lb mapping.
 	connectionDeleteDelayTime = time.Second * 20
 
 	// the connection check exist time
 	connectionCheckExistTime = time.Second * 30
+
+	// the interval of reporting the un-resolved remote address summary
+	unresolvedRemoteReportInterval = time.Second * 30
+	// the max count of distinct un-resolved remote addresses to track per interval
+	unresolvedRemoteMaxTrack = 100
+	// the max count of top un-resolved remote addresses in the report log
+	unresolvedRemoteTopCount = 10
+
+	// resolutionDeferMargin is added to the flush period to bound how long a connection whose remote
+	// is still being resolved is held before its access log is sent with the raw service IP. It only
+	// absorbs the short async delivery jitter of the ztunnel ConnectionResult mapping event(which is
+	// promptly delivered now that the mapping perf queue is drained by several reader goroutines,
+	// ztunnelMappingQueueParallels, and applied by the pull-per-flush-cycle plus the push in
+	// RetroResolveBySrc). It is deliberately SHORT: a LONGER hold was measured to REGRESS the
+	// strict no-degenerate check(grace 30s and 50s both produced MORE failures than 15s), because a
+	// connection that still does not resolve emits its raw-IP log in a LATER minute-bucket, which
+	// then lingers in the topology query window longer. So the residual is minimized at the source
+	// (parallel readers + push), not by holding longer.
+	resolutionDeferMargin = time.Second * 10
+	// defaultFlushPeriod is used to derive the resolution grace period when the configured
+	// flush period cannot be parsed
+	defaultFlushPeriod = time.Second * 5
 )
 
 type ConnectEventWithSocket struct {
@@ -76,6 +104,20 @@ type ConnectionProcessor interface {
 type FlusherListener interface {
 	// ReadyToFlushConnection notify which connection ready to flush
 	ReadyToFlushConnection(connection *ConnectionInfo, getConnectionFromEvent events.Event)
+}
+
+// ResolutionAwareFlusher is an optional interface a FlusherListener may implement to
+// report that a connection's remote address is still being resolved(e.g. the ztunnel
+// lb mapping has not been correlated yet). When any listener reports pending, the runner
+// defers the connection's logs for a bounded grace period instead of emitting them with
+// the raw service IP, which would leave a degenerate "-|service|-" entity in the backend.
+type ResolutionAwareFlusher interface {
+	IsResolutionPending(connection *ConnectionInfo) bool
+	// UnresolvedReason returns a short category for WHY a connection reached the end of its
+	// lifetime without its real destination being attached, so the periodic summary can attribute
+	// the raw-IP socket pairs to a likely cause(which resolution source / environment did not
+	// provide the mapping). An empty string means this flusher has no opinion for the connection.
+	UnresolvedReason(connection *ConnectionInfo) string
 }
 
 type ProcessListener interface {
@@ -107,6 +149,28 @@ type ConnectionManager struct {
 	connectTracker *ip.ConnTrack
 
 	connectionProtocolBreakMap *cache.Expiring
+
+	// statistics of the remote address resolving, for the periodic summary report
+	remoteAddressBuildCount      atomic.Int64
+	unresolvedRemoteCount        atomic.Int64
+	ztunnelResolvedRemoteCount   atomic.Int64
+	conntrackResolvedRemoteCount atomic.Int64
+	unresolvedRemoteLock         sync.Mutex
+	unresolvedRemotes            map[string]int64
+	unresolvedByReason           map[string]int64
+	// resolutionLatency buckets the open->resolution delay of ztunnel-resolved connections, to
+	// LOCATE the late-mapping-event problem: a mass in the >=15s(over-grace) bucket proves the
+	// mapping events are being delivered too slowly(perf-queue reader backlog), which is exactly the
+	// window in which a connection would have already flushed with the raw IP -> degenerate node.
+	resolutionLatencyUnder1s  atomic.Int64
+	resolutionLatency1to5s    atomic.Int64
+	resolutionLatency5to15s   atomic.Int64
+	resolutionLatencyOver15s  atomic.Int64
+	resolutionLatencyMaxMilli atomic.Int64
+
+	// resolutionGracePeriod is how long a connection whose remote is still being resolved
+	// is deferred before its logs are flushed anyway; derived from the flush period + margin
+	resolutionGracePeriod time.Duration
 }
 
 func (c *ConnectionManager) RegisterProcessor(processor ConnectionProcessor) {
@@ -131,12 +195,34 @@ type ConnectionInfo struct {
 	LastCheckExistTime time.Time
 	DeleteAfter        *time.Time
 	ProtocolBreak      bool
+	// CreatedAt is when the connection was first seen by the manager; used to measure how long a
+	// ClusterIP connection took to be resolved(open -> ztunnel mapping applied), which locates the
+	// late-mapping-event problem: a large open-to-resolution latency means the mapping event was
+	// delivered slowly(perf-queue reader backlog), not that it was missing.
+	CreatedAt time.Time
+	// ResolutionDeadline, once set, is the time until which this connection's access logs
+	// are deferred waiting for a resolver(the ztunnel lb mapping) to attach the real pod
+	// IP. It is set on the first deferred flush and bounds the wait PER CONNECTION: after
+	// it passes the logs are emitted as-is(raw service IP) even if still unresolved, so a
+	// genuinely un-resolvable remote is not delayed forever and a long-lived connection is
+	// not re-deferred on every log.
+	ResolutionDeadline *time.Time
 }
 
-func NewConnectionManager(_ *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
+func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
 	track, err := ip.NewConnTrack()
 	if err != nil {
 		log.Warnf("cannot create the connection tracker, %v", err)
+	}
+	// derive the resolution grace period from the flush period(+margin): the ztunnel lb
+	// mapping arrives asynchronously and normally lands within one flush period, so
+	// waiting a flush period plus a small margin lets short connections resolve to the
+	// real pod IP instead of being reported with the raw service IP
+	flushPeriod := defaultFlushPeriod
+	if config != nil {
+		if parsed, perr := time.ParseDuration(config.Flush.Period); perr == nil && parsed > 0 {
+			flushPeriod = parsed
+		}
 	}
 	mgr := &ConnectionManager{
 		moduleMgr:                  moduleMgr,
@@ -150,12 +236,91 @@ func NewConnectionManager(_ *Config, moduleMgr *module.Manager, bpfLoader *bpf.L
 		flushListeners:             make([]FlusherListener, 0),
 		connectTracker:             track,
 		connectionProtocolBreakMap: cache.NewExpiring(),
+		unresolvedRemotes:          make(map[string]int64),
+		unresolvedByReason:         make(map[string]int64),
+		resolutionGracePeriod:      resolutionGraceFor(flushPeriod),
 	}
 	return mgr
 }
 
+// resolutionGraceFor bounds the resolution-defer grace so it stays below connectionDeleteDelayTime
+// (with one flush period of headroom). A connection is removed connectionDeleteDelayTime after it
+// closes, and a deferred log can only be emitted at a flush cycle at or after its resolution
+// deadline; a grace reaching past the delete time would let the connection be deleted first and its
+// re-queued logs dropped. When even one flush period does not fit(an unusually large configured
+// flush period), the grace is zero and ShouldDeferForResolution does not defer at all - the log is
+// then emitted immediately with the raw IP, which is unresolved but never dropped.
+func resolutionGraceFor(flushPeriod time.Duration) time.Duration {
+	grace := flushPeriod + resolutionDeferMargin
+	if maxGrace := connectionDeleteDelayTime - flushPeriod; grace > maxGrace {
+		grace = maxGrace
+	}
+	if grace < 0 {
+		grace = 0
+	}
+	return grace
+}
+
+// ShouldDeferForResolution reports whether the connection's access logs should be held
+// back for one more flush cycle because a resolver(the ztunnel lb mapping) has not yet
+// attached the real destination. It is bounded per connection: the first time a
+// connection is found pending, a deadline(now + grace) is recorded, and once that
+// deadline passes the logs are flushed as-is even if still unresolved. This closes the
+// short-connection race where the asynchronous ztunnel mapping event is processed just
+// after the connection has already been flushed with the raw service IP.
+func (c *ConnectionManager) ShouldDeferForResolution(conn *ConnectionInfo) bool {
+	// grace <= 0 means deferral is disabled(the flush period is too large to fit a grace below
+	// connectionDeleteDelayTime, see resolutionGraceFor) - never hold a log back in that case
+	if conn == nil || c.resolutionGracePeriod <= 0 {
+		return false
+	}
+	pending := false
+	for _, l := range c.flushListeners {
+		if r, ok := l.(ResolutionAwareFlusher); ok && r.IsResolutionPending(conn) {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		// resolved(or no resolver is waiting) - do not defer
+		return false
+	}
+	now := time.Now()
+	if conn.ResolutionDeadline == nil {
+		deadline := now.Add(c.resolutionGracePeriod)
+		conn.ResolutionDeadline = &deadline
+		return true
+	}
+	return now.Before(*conn.ResolutionDeadline)
+}
+
+// RecordResolutionLatency records how long a connection took from open to being resolved by the
+// ztunnel correlation, into coarse buckets, so the periodic summary can show the open->resolution
+// delay distribution. The >=15s bucket is the diagnostic smoking gun for the late-mapping-event
+// problem(events delivered after the resolution-defer grace would have already flushed the raw IP).
+func (c *ConnectionManager) RecordResolutionLatency(conn *ConnectionInfo) {
+	if conn == nil || conn.CreatedAt.IsZero() {
+		return
+	}
+	d := time.Since(conn.CreatedAt)
+	switch {
+	case d < time.Second:
+		c.resolutionLatencyUnder1s.Add(1)
+	case d < 5*time.Second:
+		c.resolutionLatency1to5s.Add(1)
+	case d < 15*time.Second:
+		c.resolutionLatency5to15s.Add(1)
+	default:
+		c.resolutionLatencyOver15s.Add(1)
+	}
+	if ms := d.Milliseconds(); ms > c.resolutionLatencyMaxMilli.Load() {
+		c.resolutionLatencyMaxMilli.Store(ms)
+	}
+}
+
 func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessLogContext) {
 	c.processOP.AddListener(c)
+	c.startUnresolvedRemoteReporter(ctx)
 
 	// starting to clean up the un-active connection in BPF
 	go func() {
@@ -267,6 +432,7 @@ func (c *ConnectionManager) buildRemoteAddress(e *events.SocketConnectEvent, soc
 		}
 	}
 
+	c.remoteAddressBuildCount.Add(1)
 	// found local address with pid
 	if pid, exist := c.localIPWithPid[socket.DestIP]; exist && pid != 0 {
 		return c.buildLocalAddress(uint32(pid), socket.DestPort, socket)
@@ -275,6 +441,163 @@ func (c *ConnectionManager) buildRemoteAddress(e *events.SocketConnectEvent, soc
 	log.Debugf("building the remote address to unknown, connection: %d-%d, role: %s, local: %s:%d, remote: %s:%d",
 		e.GetConnectionID(), e.GetRandomID(), socket.Role, socket.SrcIP, socket.SrcPort, socket.DestIP, socket.DestPort)
 	return c.buildAddressFromRemote(socket.DestIP, socket.DestPort)
+}
+
+// recordConnectionResolveResult records the final remote address resolve result of the
+// connection, it MUST be called when the connection is being deleted from the manager,
+// at that point all resolvers are finalized: the conntrack rewriting happens on the
+// address building, and the ztunnel correlation could attach the real destination on
+// any later flush, so judging any earlier would mis-count the resolved connections
+func (c *ConnectionManager) recordConnectionResolveResult(connection *ConnectionInfo) {
+	if connection == nil || connection.RPCConnection == nil {
+		return
+	}
+	remote := connection.RPCConnection.GetRemote()
+	if remote == nil || remote.GetIp() == nil {
+		// the remote address is resolved to a local monitored process, not a raw IP
+		return
+	}
+	if connection.RPCConnection.GetAttachment() != nil {
+		// the ztunnel correlation attached the real destination
+		c.ztunnelResolvedRemoteCount.Add(1)
+		return
+	}
+	if connection.Socket != nil && connection.Socket.ConnTrackResolved {
+		// the conntrack query already rewrote the address to the real peer(e.g. pod IP),
+		// the address is sent as a raw IP but the backend could resolve it
+		c.conntrackResolvedRemoteCount.Add(1)
+		return
+	}
+	// ask the resolution-aware flusher(s) WHY this connection ended up unresolved, so the summary
+	// can group the raw-IP socket pairs by the environment/source that failed to provide a mapping
+	reason := "unresolved"
+	for _, l := range c.flushListeners {
+		if r, ok := l.(ResolutionAwareFlusher); ok {
+			if rs := r.UnresolvedReason(connection); rs != "" {
+				reason = rs
+				break
+			}
+		}
+	}
+	src := "unknown"
+	if connection.Socket != nil {
+		src = fmt.Sprintf("%s:%d", connection.Socket.SrcIP, connection.Socket.SrcPort)
+	}
+	c.recordUnresolvedRemote(reason, fmt.Sprintf("%s->%s:%d", src, remote.GetIp().GetHost(), remote.GetIp().GetPort()))
+}
+
+// recordUnresolvedRemote records a socket pair(src->dst) that cannot be resolved by any of the
+// resolvers(local process, conntrack, ztunnel correlation) - it would reach the backend as a raw
+// IP - together with the categorized reason, for the periodic summary. The per-reason totals are
+// always counted; the per-pair map is bounded so a flood of distinct pairs cannot grow it without
+// limit.
+func (c *ConnectionManager) recordUnresolvedRemote(reason, socketPair string) {
+	c.unresolvedRemoteCount.Add(1)
+	c.unresolvedRemoteLock.Lock()
+	defer c.unresolvedRemoteLock.Unlock()
+	c.unresolvedByReason[reason]++
+	key := reason + " " + socketPair
+	if _, exist := c.unresolvedRemotes[key]; !exist && len(c.unresolvedRemotes) >= unresolvedRemoteMaxTrack {
+		return
+	}
+	c.unresolvedRemotes[key]++
+}
+
+// drainUnresolvedRemotes returns, since the last report, the top un-resolved socket pairs(each
+// prefixed with its reason) and the full per-reason breakdown, and resets the tracking maps.
+func (c *ConnectionManager) drainUnresolvedRemotes() (topPairs, byReason string) {
+	c.unresolvedRemoteLock.Lock()
+	pairs := c.unresolvedRemotes
+	reasons := c.unresolvedByReason
+	c.unresolvedRemotes = make(map[string]int64)
+	c.unresolvedByReason = make(map[string]int64)
+	c.unresolvedRemoteLock.Unlock()
+
+	sortByCount := func(m map[string]int64, topN int) string {
+		if len(m) == 0 {
+			return "none"
+		}
+		type kv struct {
+			k string
+			v int64
+		}
+		sorted := make([]kv, 0, len(m))
+		for k, v := range m {
+			sorted = append(sorted, kv{k: k, v: v})
+		}
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].v > sorted[j].v })
+		if topN > 0 && len(sorted) > topN {
+			sorted = sorted[:topN]
+		}
+		items := make([]string, 0, len(sorted))
+		for _, s := range sorted {
+			items = append(items, fmt.Sprintf("%s=%d", s.k, s.v))
+		}
+		return strings.Join(items, ", ")
+	}
+	return sortByCount(pairs, unresolvedRemoteTopCount), sortByCount(reasons, 0)
+}
+
+// startUnresolvedRemoteReporter periodically reports the summary of remote addresses
+// that cannot be resolved(by neither the conntrack nor the ztunnel correlation) at the info level
+func (c *ConnectionManager) startUnresolvedRemoteReporter(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(unresolvedRemoteReportInterval)
+		defer ticker.Stop()
+		var lastUnresolvedCount int64
+		for {
+			select {
+			case <-ticker.C:
+				unresolvedCount := c.unresolvedRemoteCount.Load()
+				if unresolvedCount == lastUnresolvedCount {
+					continue
+				}
+				lastUnresolvedCount = unresolvedCount
+				conntrackStats := "not available"
+				if c.connectTracker != nil {
+					conntrackStats = c.connectTracker.StatsString()
+				}
+				topPairs, byReason := c.drainUnresolvedRemotes()
+				log.Infof("remote address resolve summary: total remote addresses built: %d, "+
+					"resolved by conntrack: %d, resolved by ztunnel correlation: %d, unresolved(sent as raw IP): %d, "+
+					"conntrack stats: {%s}, unresolved by reason: {%s}, "+
+					"open->resolution latency buckets {<1s: %d, 1-5s: %d, 5-15s: %d, >=15s: %d, max: %dms}, "+
+					"top unresolved socket pairs since last report: %s",
+					c.remoteAddressBuildCount.Load(), c.conntrackResolvedRemoteCount.Load(),
+					c.ztunnelResolvedRemoteCount.Load(), unresolvedCount,
+					conntrackStats, byReason,
+					c.resolutionLatencyUnder1s.Load(), c.resolutionLatency1to5s.Load(),
+					c.resolutionLatency5to15s.Load(), c.resolutionLatencyOver15s.Load(),
+					c.resolutionLatencyMaxMilli.Load(), topPairs)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// RetroResolveBySrc is the push side of the ztunnel correlation: when a source-keyed mapping
+// arrives(a ConnectionResult / access-log event), the collector calls this so every connection
+// still held in the manager for that source address is re-offered to the flush listeners right
+// away, instead of waiting for the connection's own next flush cycle to pull the cache. This
+// closes the window where a short connection's mapping event lands between its flush cycles or
+// just as it would flush, which is the dominant residual "-|service|-" cause under high load.
+func (c *ConnectionManager) RetroResolveBySrc(srcIP string, srcPort uint16) {
+	c.connections.IterCb(func(_ string, v interface{}) {
+		connection, ok := v.(*ConnectionInfo)
+		if !ok || connection.Socket == nil || connection.RPCConnection == nil {
+			return
+		}
+		// only an unresolved client(outbound) leg for this exact source is a candidate
+		if connection.RPCConnection.Attachment != nil ||
+			connection.Socket.Role != enums.ConnectionRoleClient ||
+			connection.Socket.SrcIP != srcIP || connection.Socket.SrcPort != srcPort {
+			return
+		}
+		for _, flush := range c.flushListeners {
+			flush.ReadyToFlushConnection(connection, nil)
+		}
+	})
 }
 
 func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, event events.Event) {
@@ -373,6 +696,7 @@ func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, so
 		PID:                event.PID,
 		Socket:             socket,
 		LastCheckExistTime: time.Now(),
+		CreatedAt:          time.Now(),
 		ProtocolBreak:      protocolBreak,
 	}
 }
@@ -588,7 +912,7 @@ func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor boo
 func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	// delete all connections which marked as deletable
 	// all deletable connection events been sent
-	deletableConnections := make(map[string]bool)
+	deletableConnections := make(map[string]*ConnectionInfo)
 	now := time.Now()
 	c.connections.IterCb(func(key string, v interface{}) {
 		con, ok := v.(*ConnectionInfo)
@@ -609,11 +933,13 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 		}
 
 		if shouldDelete && now.After(*con.DeleteAfter) {
-			deletableConnections[key] = true
+			deletableConnections[key] = con
 		}
 	})
 
-	for key := range deletableConnections {
+	for key, con := range deletableConnections {
+		// the connection state is finalized, record the remote address resolve result
+		c.recordConnectionResolveResult(con)
 		log.Debugf("deleting the connection in manager: %s", key)
 		c.connections.Remove(key)
 	}

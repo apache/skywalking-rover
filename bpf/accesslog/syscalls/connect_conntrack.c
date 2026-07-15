@@ -93,7 +93,7 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     }
 
     // already contains the remote address
-    if (connect_args->has_remote && &(connect_args->remote) != NULL) {
+    if (connect_args->has_remote) {
         return 0;
     }
 
@@ -142,7 +142,3 @@ int nf_confirm(struct pt_regs* ctx) {
     return nf_conn_aware(ctx, (struct nf_conn*)PT_REGS_PARM3(ctx));
 }
 
-SEC("kprobe/ctnetlink_fill_info")
-int nf_ctnetlink_fill_info(struct pt_regs* ctx) {
-    return nf_conn_aware(ctx, (struct nf_conn*)PT_REGS_PARM5(ctx));
-}

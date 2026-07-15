@@ -18,6 +18,8 @@
 package logger
 
 import (
+	"strings"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,26 +28,48 @@ const (
 )
 
 type Config struct {
+	// Level is the global lowest level that is allowed to be printed.
 	Level string `mapstructure:"level"`
+	// DebugModules is a comma separated list of module(name prefix) to elevate to
+	// the debug level regardless of Level, e.g. "accesslog.collector.ztunnel".
+	// This keeps the high volume modules quiet(bounding the logging allocation
+	// churn) while still getting debug detail for the modules under investigation.
+	DebugModules string `mapstructure:"debug_modules"`
 }
 
 // setupLogger when Bootstrap
 func setupLogger(config *Config) (err error) {
-	return updateLogger(root, config)
-}
-
-func updateLogger(log *logrus.Logger, config *Config) error {
 	level, err := logrus.ParseLevel(config.Level)
 	if err != nil {
 		return err
 	}
-	log.SetLevel(level)
+	root.SetLevel(level)
+	// debugRoot stays at DebugLevel; only the allowlist decides who uses it.
+
+	debugPrefixes = parseDebugModules(config.DebugModules)
+	// re-apply the allowlist to the loggers created before the config was loaded
+	// (package-level GetLogger vars run at import time).
+	registryMux.Lock()
+	for _, l := range registry {
+		l.apply()
+	}
+	registryMux.Unlock()
 	return nil
 }
 
-func initializeDefaultLogger() *logrus.Logger {
+func parseDebugModules(value string) []string {
+	res := make([]string, 0)
+	for _, p := range strings.Split(value, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			res = append(res, p)
+		}
+	}
+	return res
+}
+
+func initializeLogger(level logrus.Level) *logrus.Logger {
 	l := logrus.New()
-	l.SetLevel(DefaultLoggerLevel)
+	l.SetLevel(level)
 	l.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 		DisableColors: true,

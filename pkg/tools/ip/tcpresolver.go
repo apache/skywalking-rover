@@ -36,6 +36,9 @@ type SocketPair struct {
 	DestPort uint16
 
 	NeedConnTrack bool
+	// ConnTrackResolved is true when the conntrack query successfully rewrote
+	// the DestIP to the real peer address
+	ConnTrackResolved bool
 }
 
 func (s *SocketPair) IsValid() bool {

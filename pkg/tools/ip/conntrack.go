@@ -20,6 +20,7 @@ package ip
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/florianl/go-conntrack"
@@ -42,6 +43,12 @@ var numberStrategies = []struct {
 
 type ConnTrack struct {
 	tracker *conntrack.Nfct
+
+	// counters for quantifying the conntrack resolve success/miss rate
+	queryCount    atomic.Int64
+	resolvedCount atomic.Int64
+	notFoundCount atomic.Int64
+	ignoredCount  atomic.Int64
 }
 
 func NewConnTrack() (*ConnTrack, error) {
@@ -60,6 +67,7 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) error {
 	}
 
 	tuple := c.parseSocketToTuple(addr)
+	c.queryCount.Add(1)
 	for _, info := range numberStrategies {
 		tuple.Proto.Number = &(info.proto)
 
@@ -67,23 +75,37 @@ func (c *ConnTrack) UpdateRealPeerAddress(addr *SocketPair) error {
 		session, e := c.tracker.Get(conntrack.Conntrack, family, conntrack.Con{Origin: tuple})
 		if e != nil {
 			// try to get the reply session, if the info not exists or from accept events, have error is normal
-			return fmt.Errorf("cannot get the conntrack session, type: %s, family: %d, origin src: %s:%d, origin dest: %s:%d, error: %v", info.name,
-				family, tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, e)
+			c.notFoundCount.Add(1)
+			return fmt.Errorf("cannot get the conntrack session, type: %s, family: %d, origin src: %s:%d, origin dest: %s:%d, error: %v, stats: %s", info.name,
+				family, tuple.Src, *tuple.Proto.SrcPort, tuple.Dst, *tuple.Proto.DstPort, e, c.StatsString())
 		}
 
 		if res := c.filterValidateReply(session, tuple); res != nil {
 			if !ShouldIgnoreConntrack(addr.DestIP, res.Src.String(), *res.Proto.SrcPort) {
+				c.resolvedCount.Add(1)
 				addr.DestIP = res.Src.String()
 				addr.NeedConnTrack = false
-				log.Debugf("update real peer address from conntrack: %s:%d", addr.DestIP, addr.DestPort)
+				addr.ConnTrackResolved = true
+				log.Debugf("update real peer address from conntrack: %s:%d, stats: %s", addr.DestIP, addr.DestPort, c.StatsString())
 			} else {
-				log.Debugf("ignore conntrack, original dest IP: %s:%d, conntrack IP: %s:%d",
-					addr.DestIP, addr.DestPort, res.Src.String(), *res.Proto.SrcPort)
+				c.ignoredCount.Add(1)
+				log.Debugf("ignore conntrack, original dest IP: %s:%d, conntrack IP: %s:%d, stats: %s",
+					addr.DestIP, addr.DestPort, res.Src.String(), *res.Proto.SrcPort, c.StatsString())
 			}
 			return nil
 		}
 	}
+	c.notFoundCount.Add(1)
+	log.Debugf("no matched conntrack reply tuple found, origin src: %s:%d, origin dest: %s:%d, stats: %s",
+		addr.SrcIP, addr.SrcPort, addr.DestIP, addr.DestPort, c.StatsString())
 	return nil
+}
+
+// StatsString returns the cumulative conntrack query result counters,
+// used to quantify the resolve miss rate from logs
+func (c *ConnTrack) StatsString() string {
+	return fmt.Sprintf("queries: %d, resolved: %d, not found: %d, ignored: %d",
+		c.queryCount.Load(), c.resolvedCount.Load(), c.notFoundCount.Load(), c.ignoredCount.Load())
 }
 
 func ShouldIgnoreConntrack(originalDestIP, conntrackIP string, conntrackPort uint16) bool {

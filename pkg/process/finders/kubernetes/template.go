@@ -151,6 +151,15 @@ func (t *TemplatePodJudgment) HasContainer(name string) bool {
 			return true
 		}
 	}
+	// native sidecars(e.g. istio-proxy on k8s 1.28+) run as restartPolicy:Always initContainers,
+	// so a sidecar-injected pod carries the sidecar in InitContainers rather than Containers. Check
+	// both, otherwise the "exclude pods that have <sidecar>" filter silently fails to match a
+	// native-sidecar pod and the pod(its app process) gets monitored anyway.
+	for _, c := range t.pc.Pod.Spec.InitContainers {
+		if c.Name == name {
+			return true
+		}
+	}
 	return false
 }
 

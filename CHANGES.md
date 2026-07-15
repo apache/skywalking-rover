@@ -32,11 +32,19 @@ Release Notes.
 * Aggregate dropped perf event sample warnings periodically instead of logging every burst.
 * Lower the log level for connection query errors of short-lived exited processes.
 * Enable pprof by default but bind it to 127.0.0.1 so it is not exposed on the network.
+* Support collecting the ztunnel outbound connection mappings from the ztunnel admin config dump, as a symbol-independent fallback of the uprobe based events in the access log module.
+* Support cross-checking the ztunnel proxied connection count from the ztunnel prometheus metrics in the access log module.
+* Report a periodic info-level summary of un-resolved remote addresses, including the conntrack and ztunnel correlation statistics, in the access log module.
+* Attach all matched ztunnel `track_outbound` symbol copies when attaching the uprobe in the access log module.
+* Add success/failure counters to the conntrack real peer address queries.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
 * Fix process fork tracepoint reporting thread TID instead of process TGID, causing repeated process detected/dead churn.
 * Fix panic in the access log module when handling HTTP/2 streams without a body.
+* Fix the ztunnel event reader and process finder not being registered when the ztunnel process starts after the rover.
+* Fix ghost connections created by failed accept syscalls with a negative socket fd in the access log module.
+* Remove the ineffective `ctnetlink_fill_info` kprobe and fix an always-true condition in the conntrack BPF program.
 
 #### Documentation
 * Add a dead link checker in the CI.

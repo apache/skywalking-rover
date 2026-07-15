@@ -14,4 +14,6 @@ pkg/**/bpf_*.go
 
 pkg/tools/btf/files/**/*.btf
 
-.config
+.config.omc/
+.omc/
+.config/

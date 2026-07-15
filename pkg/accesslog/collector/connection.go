@@ -125,9 +125,6 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
 		"nf_confirm": ctx.BPF.NfConfirm,
 	})
-	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"ctnetlink_fill_info": ctx.BPF.NfCtnetlinkFillInfo,
-	})
 	return nil
 }
 
@@ -159,6 +156,13 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 			"pid: %d, fd: %d, role: %s: func: %s, family: %d, success: %d, conntrack exist: %t",
 			event.ConID, event.RandomID, event.PID, event.SocketFD, enums.ConnectionRole(event.Role), enums.SocketFunctionName(event.FuncName),
 			event.SocketFamily, event.ConnectSuccess, event.ConnTrackUpstreamPort != 0)
+		// a negative fd means the syscall failed(e.g. non-blocking accept returns -EAGAIN),
+		// there is no real connection behind it, so ignore the event
+		if int32(event.SocketFD) < 0 {
+			connectionLogger.Debugf("ignore the connect event with negative socket fd, connection ID: %d, randomID: %d, "+
+				"pid: %d, fd: %d", event.ConID, event.RandomID, event.PID, int32(event.SocketFD))
+			return
+		}
 		socketPair := c.BuildSocketFromConnectEvent(event)
 		if socketPair == nil {
 			connectionLogger.Debugf("cannot found the socket paire from connect event, connection ID: %d, randomID: %d",
@@ -271,6 +275,9 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			if !ip.ShouldIgnoreConntrack(remoteAddr, conntrackIP, uint16(event.ConnTrackUpstreamPort)) {
 				result.DestIP = conntrackIP
 				result.DestPort = uint16(event.ConnTrackUpstreamPort)
+				// the BPF conntrack path rewrote the dest to the real peer; mark it so the
+				// resolve summary counts it as conntrack-resolved instead of unresolved
+				result.ConnTrackResolved = true
 				ignoredConntrack = false
 			}
 
@@ -308,6 +315,9 @@ func (c *ConnectionPartitionContext) BuildSocketPair(event *events.SocketConnect
 			if !ip.ShouldIgnoreConntrack(remoteAddr, conntrackIP, uint16(event.ConnTrackUpstreamPort)) {
 				result.DestIP = conntrackIP
 				result.DestPort = uint16(event.ConnTrackUpstreamPort)
+				// the BPF conntrack path rewrote the dest to the real peer; mark it so the
+				// resolve summary counts it as conntrack-resolved instead of unresolved
+				result.ConnTrackResolved = true
 				ignoredConntrack = false
 			}
 

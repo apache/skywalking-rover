@@ -23,8 +23,9 @@ import (
 )
 
 var (
-	hostProcMappingPath string
-	hostEtcMappingPath  string
+	hostProcMappingPath       string
+	hostEtcMappingPath        string
+	hostVarLogPodsMappingPath string
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
 		os.Setenv("HOST_PROC", hostProcMappingPath)
 	}
 	hostEtcMappingPath = os.Getenv("ROVER_HOST_ETC_MAPPING")
+	hostVarLogPodsMappingPath = os.Getenv("ROVER_HOST_VAR_LOG_PODS_MAPPING")
 }
 
 func GetHostProcInHost(procSubPath string) string {
@@ -48,6 +50,19 @@ func GetHostEtcInHost(etcSubPath string) string {
 		return cleanPath(hostEtcMappingPath + "/" + etcSubPath)
 	}
 	return cleanPath("/etc/" + etcSubPath)
+}
+
+// GetHostVarLogPodsInHost resolves a path under the kubelet pod-log directory(/var/log/pods on the
+// host) as seen from inside the agent container. That directory is where the kubelet writes every
+// pod's container logs for ALL CRI runtimes(containerd, CRI-O, cri-dockerd), so it is the runtime
+// independent place to tail the ztunnel access log. The host mount point is injected through
+// ROVER_HOST_VAR_LOG_PODS_MAPPING(the same pattern as ROVER_HOST_PROC_MAPPING), so it is not
+// hard-coded; when unset the real host path /var/log/pods is used.
+func GetHostVarLogPodsInHost(subPath string) string {
+	if hostVarLogPodsMappingPath != "" {
+		return cleanPath(hostVarLogPodsMappingPath + "/" + subPath)
+	}
+	return cleanPath("/var/log/pods/" + subPath)
 }
 
 func cleanPath(p string) string {

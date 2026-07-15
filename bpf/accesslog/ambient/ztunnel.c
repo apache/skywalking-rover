@@ -41,12 +41,64 @@ int connection_manager_track_outbound(struct pt_regs* ctx) {
         return 0;
     }
     bool success = true;
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM3(ctx), &event->orginal_src_ip, &event->src_port);
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM4(ctx), &event->original_dst_ip, &event->dst_port);
-    success = get_socket_addr_ip_in_ztunnel(success, (void *)PT_REGS_PARM5(ctx), &event->lb_dst_ip, &event->lb_dst_port);
+    // track_outbound(&self, src, original_dst, actual_dst) returns a large ConnectionResult
+    // struct via a hidden sret pointer. On x86-64 SysV the sret pointer occupies the first
+    // integer arg register(PARM1), so &self is PARM2 and the three SocketAddr args are PARM3/4/5.
+    // On AArch64 AAPCS64 the sret pointer is passed in x8, which is OUTSIDE the PARM1..8 arg
+    // registers, so the arguments are NOT shifted: &self is PARM1 and the args are PARM2/3/4.
+    // original_dst is the service ClusterIP, actual_dst is the load balanced real pod.
+#if defined(bpf_target_x86)
+    void *src_arg = (void *)PT_REGS_PARM3(ctx);
+    void *original_dst_arg = (void *)PT_REGS_PARM4(ctx);
+    void *actual_dst_arg = (void *)PT_REGS_PARM5(ctx);
+#else
+    void *src_arg = (void *)PT_REGS_PARM2(ctx);
+    void *original_dst_arg = (void *)PT_REGS_PARM3(ctx);
+    void *actual_dst_arg = (void *)PT_REGS_PARM4(ctx);
+#endif
+    success = get_socket_addr_ip_in_ztunnel(success, src_arg, &event->orginal_src_ip, &event->src_port);
+    success = get_socket_addr_ip_in_ztunnel(success, original_dst_arg, &event->original_dst_ip, &event->dst_port);
+    success = get_socket_addr_ip_in_ztunnel(success, actual_dst_arg, &event->lb_dst_ip, &event->lb_dst_port);
     if (!success) {
         return 0;
     }
+    bpf_perf_event_output(ctx, &ztunnel_lb_socket_mapping_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    return 0;
+}
+
+// ConnectionResult::new(src: SocketAddr, dst: SocketAddr, hbone_target, ...) is an
+// associated function(no &self) that ztunnel constructs UNCONDITIONALLY for every proxied
+// connection - including the outbound legs that skip track_outbound through an early-return
+// in proxy_to - so it is a strictly-higher-coverage, log-level-independent source(the same
+// data ztunnel would print as the "connection complete"/"connection opened" access log, but
+// captured at construction time regardless of the log level). It returns a large struct via
+// the hidden sret pointer, which on x86-64 occupies PARM1 and shifts the arguments by one
+// (src=PARM2, dst=PARM3); on AArch64 the sret pointer is in x8(not a PARM) so the arguments
+// are not shifted(src=PARM1, dst=PARM2). src is the downstream app addr and dst is the REAL
+// backend pod addr. There is no service ClusterIP among the arguments, so this mapping is
+// keyed by the source address alone in user space(the app's ephemeral src port is unique per
+// connection). original_dst_ip is left zero to mark this event as a "src-only" mapping.
+SEC("uprobe/connection_result_new")
+int connection_result_new(struct pt_regs* ctx) {
+    struct ztunnel_socket_mapping_t *event = create_ztunnel_socket_mapping_event();
+    if (event == NULL) {
+        return 0;
+    }
+    bool success = true;
+#if defined(bpf_target_x86)
+    void *src_arg = (void *)PT_REGS_PARM2(ctx);
+    void *dst_arg = (void *)PT_REGS_PARM3(ctx);
+#else
+    void *src_arg = (void *)PT_REGS_PARM1(ctx);
+    void *dst_arg = (void *)PT_REGS_PARM2(ctx);
+#endif
+    success = get_socket_addr_ip_in_ztunnel(success, src_arg, &event->orginal_src_ip, &event->src_port);
+    success = get_socket_addr_ip_in_ztunnel(success, dst_arg, &event->lb_dst_ip, &event->lb_dst_port);
+    if (!success) {
+        return 0;
+    }
+    event->original_dst_ip = 0;
+    event->dst_port = 0;
     bpf_perf_event_output(ctx, &ztunnel_lb_socket_mapping_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
     return 0;
 }
