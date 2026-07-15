@@ -32,6 +32,15 @@ import (
 // Requires CAP_SYS_ADMIN. Everything that must happen inside the target
 // namespace(creating sockets, dialing, reading responses) should be done
 // inside fn, since only the calling OS thread is switched.
+//
+// Failure contract: if switching BACK to the original namespace fails, RunInNetNS
+// returns the error but deliberately does NOT unlock the OS thread - it leaves the
+// goroutine locked to that thread so the Go runtime destroys the thread(instead of
+// reusing it for other goroutines) while it is still in the target namespace. The
+// caller MUST therefore treat a restore error as terminal for the goroutine and
+// return/exit promptly, doing no further work that could run in the wrong namespace.
+// Run RunInNetNS from a dedicated, short-lived goroutine so a poisoned thread is
+// discarded when that goroutine exits.
 func RunInNetNS(netnsPath string, fn func() error) error {
 	target, err := os.Open(netnsPath)
 	if err != nil {

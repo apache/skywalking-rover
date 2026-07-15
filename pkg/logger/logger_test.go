@@ -80,8 +80,8 @@ func TestGlobalDebugLevelEmitsAllModules(t *testing.T) {
 	// with no allowlist but a global debug level, every module logs at debug.
 	base, debug := applyConfig(t, "debug", "")
 
-	any := GetLogger("access_log", "collector", "connection")
-	any.Debugf("global-debug")
+	anyMod := GetLogger("access_log", "collector", "connection")
+	anyMod.Debugf("global-debug")
 	if !emitted(base, debug, "global-debug") {
 		t.Errorf("expected debug logs when the global level is debug")
 	}

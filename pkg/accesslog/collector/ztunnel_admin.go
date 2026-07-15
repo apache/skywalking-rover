@@ -251,7 +251,7 @@ func (z *ZTunnelCollector) httpGetInZTunnelNetNS(rawURL string) ([]byte, error) 
 	return body, nil
 }
 
-func parseZTunnelAddress(addr string) (string, int, error) {
+func parseZTunnelAddress(addr string) (ip string, port int, err error) {
 	if addr == "" {
 		return "", 0, fmt.Errorf("empty address")
 	}
@@ -259,7 +259,7 @@ func parseZTunnelAddress(addr string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	port, err := strconv.Atoi(portStr)
+	port, err = strconv.Atoi(portStr)
 	if err != nil {
 		return "", 0, err
 	}

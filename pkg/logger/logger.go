@@ -74,7 +74,7 @@ func (l *Logger) apply() {
 }
 
 func (l *Logger) Enable(level logrus.Level) bool {
-	return l.Entry.Logger.IsLevelEnabled(level)
+	return l.Logger.IsLevelEnabled(level)
 }
 
 // matchDebugModule reports whether the module(or one of its parent modules) is

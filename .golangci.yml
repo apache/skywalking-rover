@@ -78,6 +78,17 @@ linters:
       - third_party$
       - builtin$
       - examples$
+    rules:
+      # test code is held to looser style rules: table-driven tests naturally repeat
+      # literal fixture values, use wide data rows, and keep fixed-argument helpers for
+      # readability, which the style linters below would otherwise flag.
+      - path: _test\.go
+        linters:
+          - goconst
+          - gocyclo
+          - lll
+          - unparam
+          - dupl
 formatters:
   enable:
     - gofmt

@@ -19,11 +19,8 @@ package collector
 
 import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
-	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
 )
-
-var log = logger.GetLogger("accesslog", "collector")
 
 type Collector interface {
 	Start(mgr *module.Manager, context *common.AccessLogContext) error

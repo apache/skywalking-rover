@@ -48,10 +48,19 @@ var (
 	ZTunnelAccessLogPollInterval = time.Second
 )
 
+const (
+	// the two access log messages ztunnel emits per proxied outbound connection(see the
+	// ZTunnelAccessLogPodsGlob doc): "connection complete" at INFO, "connection opened" at DEBUG
+	msgConnectionComplete = "connection complete"
+	msgConnectionOpened   = "connection opened"
+)
+
 // startAccessLogTailer starts a background goroutine that tails the local ztunnel access log
 // and feeds the (downstream src -> real pod) mappings into the same ipMappingCache the uprobe
 // fills, keyed by the source address alone(like the ConnectionResult::new source). It is a
 // best-effort fallback: if the log file is absent(no mount / logging disabled) it simply idles.
+//
+//nolint:gocyclo // linear tail state machine(rotation/truncation/EOF); splitting obscures the flow
 func (z *ZTunnelCollector) startAccessLogTailer() {
 	if z.accessLogTailerStarted {
 		return
@@ -131,7 +140,7 @@ func (z *ZTunnelCollector) startAccessLogTailer() {
 			}
 			for {
 				line, err := reader.ReadString('\n')
-				if len(line) > 0 {
+				if line != "" {
 					offset += int64(len(line))
 					if strings.HasSuffix(line, "\n") {
 						z.handleAccessLogLine(line)
@@ -167,6 +176,8 @@ func newestMatch(glob string) string {
 
 // handleAccessLogLine parses one CRI log line and, if it is an outbound ztunnel access log
 // event, feeds its (src -> real pod) mapping into the cache keyed by the source address.
+//
+//nolint:gocyclo // linear parser over 2 on-disk + 2 payload formats; helpers wouldn't cut complexity
 func (z *ZTunnelCollector) handleAccessLogLine(line string) {
 	// The kubelet writes container logs in one of two on-disk formats depending on the runtime:
 	//   - CRI(containerd / CRI-O / cri-dockerd): "<rfc3339-ts> <stream> <F|P> <payload>", where a
@@ -205,7 +216,7 @@ func (z *ZTunnelCollector) handleAccessLogLine(line string) {
 
 	var srcAddr, podAddr, direction, message string
 	if strings.HasPrefix(strings.TrimSpace(payload), "{") {
-		// LOG_FORMAT=json
+		// ztunnel is configured with LOG_FORMAT=json: the payload is a JSON object
 		var m map[string]interface{}
 		if json.Unmarshal([]byte(payload), &m) != nil {
 			return
@@ -228,10 +239,10 @@ func (z *ZTunnelCollector) handleAccessLogLine(line string) {
 			podAddr = extractLogField(payload, "dst.addr=")
 		}
 		direction = strings.Trim(extractLogField(payload, "direction="), "\"")
-		if strings.Contains(payload, "connection complete") {
-			message = "connection complete"
-		} else if strings.Contains(payload, "connection opened") {
-			message = "connection opened"
+		if strings.Contains(payload, msgConnectionComplete) {
+			message = msgConnectionComplete
+		} else if strings.Contains(payload, msgConnectionOpened) {
+			message = msgConnectionOpened
 		}
 	}
 
@@ -239,7 +250,7 @@ func (z *ZTunnelCollector) handleAccessLogLine(line string) {
 	if direction != "outbound" || srcAddr == "" || podAddr == "" {
 		return
 	}
-	if message != "connection complete" && message != "connection opened" {
+	if message != msgConnectionComplete && message != msgConnectionOpened {
 		return
 	}
 	srcIP, sp, err := parseZTunnelAddress(srcAddr)

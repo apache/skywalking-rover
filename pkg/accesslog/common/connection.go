@@ -552,19 +552,26 @@ func (c *ConnectionManager) startUnresolvedRemoteReporter(ctx context.Context) {
 				if unresolvedCount == lastUnresolvedCount {
 					continue
 				}
+				intervalUnresolved := unresolvedCount - lastUnresolvedCount
 				lastUnresolvedCount = unresolvedCount
 				conntrackStats := "not available"
 				if c.connectTracker != nil {
 					conntrackStats = c.connectTracker.StatsString()
 				}
 				topPairs, byReason := c.drainUnresolvedRemotes()
-				log.Infof("remote address resolve summary: total remote addresses built: %d, "+
-					"resolved by conntrack: %d, resolved by ztunnel correlation: %d, unresolved(sent as raw IP): %d, "+
-					"conntrack stats: {%s}, unresolved by reason: {%s}, "+
-					"open->resolution latency buckets {<1s: %d, 1-5s: %d, 5-15s: %d, >=15s: %d, max: %dms}, "+
+				// the built/resolved/unresolved totals and the latency buckets are cumulative since
+				// start; the by-reason breakdown and the top socket pairs are drained and reset every
+				// report. To keep the line internally consistent the unresolved count is shown as the
+				// per-interval delta(which matches the by-reason breakdown's window) next to the
+				// cumulative total, and each field states which window it describes.
+				log.Infof("remote address resolve summary: total remote addresses built(cumulative): %d, "+
+					"resolved by conntrack(cumulative): %d, resolved by ztunnel correlation(cumulative): %d, "+
+					"unresolved(sent as raw IP) since last report: %d(cumulative total: %d), "+
+					"conntrack stats(cumulative): {%s}, unresolved by reason since last report: {%s}, "+
+					"open->resolution latency buckets(cumulative) {<1s: %d, 1-5s: %d, 5-15s: %d, >=15s: %d, max: %dms}, "+
 					"top unresolved socket pairs since last report: %s",
 					c.remoteAddressBuildCount.Load(), c.conntrackResolvedRemoteCount.Load(),
-					c.ztunnelResolvedRemoteCount.Load(), unresolvedCount,
+					c.ztunnelResolvedRemoteCount.Load(), intervalUnresolved, unresolvedCount,
 					conntrackStats, byReason,
 					c.resolutionLatencyUnder1s.Load(), c.resolutionLatency1to5s.Load(),
 					c.resolutionLatency5to15s.Load(), c.resolutionLatencyOver15s.Load(),
