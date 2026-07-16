@@ -155,7 +155,7 @@ func (r *Resolver) Refresh() error {
 		if !ok {
 			return nil
 		}
-		id := uint64(stat.Ino)
+		id := stat.Ino
 		idByContainer[container] = id
 		containerByID[id] = container
 		// The path is logged with the id because this mapping is the one thing that has to agree

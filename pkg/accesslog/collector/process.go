@@ -54,7 +54,7 @@ func NewProcessCollector() *ProcessCollector {
 
 func (p *ProcessCollector) Start(_ *module.Manager, context *common.AccessLogContext) error {
 	// Nothing is attached unless user space can actually judge what the kernel reports. Leaving the
-	// tracepoints off is not a degraded mode - it is exactly the behaviour before this collector
+	// tracepoints off is not a degraded mode - it is exactly the behavior before this collector
 	// existed, with the periodic scan still discovering every process that lives long enough.
 	if !context.ConnectionMgr.ProcessExecuteMonitorReady() {
 		processLog.Info("not monitoring process execution; short-lived processes will only be " +

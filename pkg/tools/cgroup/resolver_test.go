@@ -54,7 +54,7 @@ func inodeOf(t *testing.T, path string) uint64 {
 	if !ok {
 		t.Fatalf("no Stat_t for %s", path)
 	}
-	return uint64(stat.Ino)
+	return stat.Ino
 }
 
 func mkdirAll(t *testing.T, parts ...string) string {

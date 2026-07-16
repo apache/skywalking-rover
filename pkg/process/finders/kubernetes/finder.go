@@ -307,7 +307,7 @@ func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]
 
 // BuildProcessesWithFallbackName is BuildProcesses for a process whose /proc entry may already be
 // gone: fallbackName(the kernel task name) then stands in for the command line. Passing "" gives
-// exactly the behaviour of BuildProcesses.
+// exactly the behavior of BuildProcesses.
 func (f *ProcessFinder) BuildProcessesWithFallbackName(p *process.Process, pc *PodContainer,
 	fallbackName string) ([]*Process, error) {
 	// find builder
