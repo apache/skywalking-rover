@@ -63,6 +63,10 @@ var (
 	dockerPodsRegex    = regexp.MustCompile(`docker-(?P<Group>\w+)\.scope`)
 	ipExistTimeout     = time.Minute * 10
 	ipSearchParallel   = 10
+
+	// containerScopeRegexes is built once rather than per call: containerIDFromCgroupDir is the
+	// normalizer for a full cgroup tree walk, so a per-call slice would allocate once per directory.
+	containerScopeRegexes = []*regexp.Regexp{kubepodsRegex, openShiftPodsRegex, dockerPodsRegex}
 )
 
 // containerIDFromCgroupDir turns the base name of a cgroup directory into the id of the container
@@ -70,7 +74,7 @@ var (
 // /proc/<pid>/cgroup, so that a container resolved by walking the tree and one resolved by reading
 // a process's cgroup line come out with the same id.
 func containerIDFromCgroupDir(dirName string) string {
-	for _, re := range []*regexp.Regexp{kubepodsRegex, openShiftPodsRegex, dockerPodsRegex} {
+	for _, re := range containerScopeRegexes {
 		if m := re.FindStringSubmatch(dirName); len(m) > 1 {
 			return m[1]
 		}
@@ -504,10 +508,25 @@ func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
 // does. Only when /proc has nothing left to say - the process already exited, which is the whole
 // reason it is worth catching this early - does it fall back to what the kernel handed us: the
 // cgroup id identifies the container, and the task name stands in for the command line.
+// This runs once per process the kernel reports, so the pod/container map is built once and shared
+// by both paths below. Calling ShouldMonitor here instead would rebuild it a second time for every
+// event, and rebuilding means walking every pod of every informer - the kind of per-event cost that
+// made these tracepoints too expensive to keep the last time round.
 func (f *ProcessFinder) ShouldMonitorExecuting(exec *api.ProcessExecuteContext) bool {
-	if f.ShouldMonitor(exec.Pid) {
-		return true
+	containers := f.registry.BuildPodContainers()
+	if len(containers) == 0 {
+		return false
 	}
+
+	// the ordinary path: the process is still alive, so /proc answers just as it does for the
+	// periodic scan
+	if alive, err := process.NewProcess(exec.Pid); err == nil {
+		if processes, monitor := f.buildProcess(alive, nil, containers); monitor && len(processes) > 0 {
+			f.manager.AddDetectedProcess(processes)
+			return true
+		}
+	}
+
 	if exec.CgroupID == 0 || f.cgroupResolver == nil {
 		// no kernel side identity to fall back on(cgroup v1, or the tree could not be walked)
 		return false
@@ -516,7 +535,7 @@ func (f *ProcessFinder) ShouldMonitorExecuting(exec *api.ProcessExecuteContext) 
 	if !exist {
 		return false
 	}
-	pc, exist := f.registry.BuildPodContainers()[containerID]
+	pc, exist := containers[containerID]
 	if !exist || pc == nil {
 		return false
 	}

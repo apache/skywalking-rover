@@ -210,6 +210,69 @@ func TestResolverIsIndifferentToDepth(t *testing.T) {
 	}
 }
 
+// TestRefreshFailsOnUnreadableSubtree pins the difference between the two kinds of walk error.
+//
+// A cgroup vanishing mid-walk is routine and must be skipped. Anything else - here an unreadable
+// directory - has to fail the refresh instead, because a mapping that is quietly missing entries is
+// indistinguishable from those containers simply having no short-lived processes: nothing errors,
+// nothing is attributed, and there is no signal anywhere. Failing lets the caller keep its previous
+// mapping, or fall back, knowing that it did.
+func TestRefreshFailsOnUnreadableSubtree(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so the error cannot be provoked")
+	}
+	root, _, _ := buildTree(t)
+	locked := mkdirAll(t, root, "kubepods.slice", "locked.slice")
+	mkdirAll(t, locked, "cri-containerd-"+strings.Repeat("9", 64)+".scope")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	// restored so t.TempDir can clean the tree up
+	t.Cleanup(func() { os.Chmod(locked, 0o755) }) //nolint:errcheck // best effort
+
+	r := NewResolver(root, testNormalizer)
+	err := r.Refresh()
+	if err == nil {
+		t.Fatal("an unreadable subtree must fail the refresh, not silently shrink the mapping")
+	}
+	if !strings.Contains(err.Error(), "locked.slice") {
+		t.Fatalf("the error should name the path it could not read, got: %v", err)
+	}
+}
+
+// TestRefreshKeepsPreviousMappingOnFailure guards what a failed refresh must NOT do: throw away a
+// mapping that was good. The periodic refresh only logs its error, so if a failure emptied the
+// mapping the agent would stop attributing anything until some later walk happened to succeed.
+func TestRefreshKeepsPreviousMappingOnFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so the error cannot be provoked")
+	}
+	root, systemdContainer, _ := buildTree(t)
+	r := NewResolver(root, testNormalizer)
+	if err := r.Refresh(); err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+	before, exist := r.CgroupIDByContainer(systemdContainer)
+	if !exist {
+		t.Fatal("the container should be mapped after a good refresh")
+	}
+
+	locked := mkdirAll(t, root, "kubepods.slice", "locked2.slice")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) }) //nolint:errcheck // best effort
+
+	if err := r.Refresh(); err == nil {
+		t.Fatal("expected the refresh to fail")
+	}
+	after, exist := r.CgroupIDByContainer(systemdContainer)
+	if !exist || after != before {
+		t.Fatalf("a failed refresh must leave the previous mapping intact, got exist=%v id=%d want id=%d",
+			exist, after, before)
+	}
+}
+
 func TestAvailableProbesUnifiedHierarchy(t *testing.T) {
 	root, _, _ := buildTree(t)
 	if !Available(root) {

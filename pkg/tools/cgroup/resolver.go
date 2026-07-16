@@ -129,9 +129,15 @@ func (r *Resolver) Refresh() error {
 	scanned := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// cgroups come and go while we walk; a vanished directory is normal churn on a busy
-			// node, so skip it rather than abandoning the whole refresh.
-			return nil //nolint:nilerr // deliberate: keep walking past transient errors
+			// A cgroup that vanished mid-walk is normal churn on a busy node, so skip it. Anything
+			// else - a permission or an IO error - must not be swallowed: it would leave the mapping
+			// quietly incomplete, and an incomplete mapping does not look like a failure. It looks
+			// exactly like the containers it missed having no short-lived processes. Fail instead,
+			// so the caller keeps its previous mapping, or falls back, knowingly.
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("reading %s: %w", path, err)
 		}
 		if !d.IsDir() {
 			return nil
