@@ -56,6 +56,19 @@ type ProcessFinder interface {
 	ParseProcessID(process api.DetectedProcess, downstream *v3.EBPFProcessDownstream) string
 }
 
+// ExecutingProcessFinder is an optional interface a ProcessFinder may implement to judge a process
+// the kernel has just started, using what the kernel captured about it.
+//
+// It exists because ShouldMonitor(pid) can only work while /proc/<pid> is readable, and the whole
+// reason to look at a process this early is that it may not live long enough for that. A finder
+// that cannot make use of the kernel-side data simply does not implement this, and the manager
+// falls back to ShouldMonitor.
+type ExecutingProcessFinder interface {
+	// ShouldMonitorExecuting validates a just-started process and, if true, adds it to the storage
+	// exactly like ShouldMonitor does.
+	ShouldMonitorExecuting(exec *api.ProcessExecuteContext) bool
+}
+
 // ProcessManager is an API work for help ProcessFinder synchronized process with backend
 type ProcessManager interface {
 	GetModuleManager() *module.Manager

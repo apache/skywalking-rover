@@ -26,6 +26,7 @@ var (
 	hostProcMappingPath       string
 	hostEtcMappingPath        string
 	hostVarLogPodsMappingPath string
+	hostSysMappingPath        string
 )
 
 func init() {
@@ -36,6 +37,7 @@ func init() {
 	}
 	hostEtcMappingPath = os.Getenv("ROVER_HOST_ETC_MAPPING")
 	hostVarLogPodsMappingPath = os.Getenv("ROVER_HOST_VAR_LOG_PODS_MAPPING")
+	hostSysMappingPath = os.Getenv("ROVER_HOST_SYS_MAPPING")
 }
 
 func GetHostProcInHost(procSubPath string) string {
@@ -63,6 +65,22 @@ func GetHostVarLogPodsInHost(subPath string) string {
 		return cleanPath(hostVarLogPodsMappingPath + "/" + subPath)
 	}
 	return cleanPath("/var/log/pods/" + subPath)
+}
+
+// GetHostSysInHost resolves a path under the host's /sys as seen from inside the agent container.
+//
+// The cgroup tree lives under here, and reading the *host's* copy of it is what makes a cgroup id
+// resolvable at all: the agent's own /sys shows only its own cgroup subtree. Where the host's /sys
+// is mounted is a property of the deployment, not something that can be assumed - the helm chart
+// bind-mounts the host /sys at /sys, while an environment where the node is itself a container
+// (kind) has to reach it through another prefix - so the mount point is injected through
+// ROVER_HOST_SYS_MAPPING(the same pattern as ROVER_HOST_PROC_MAPPING); when unset the real host
+// path /sys is used.
+func GetHostSysInHost(subPath string) string {
+	if hostSysMappingPath != "" {
+		return cleanPath(hostSysMappingPath + "/" + subPath)
+	}
+	return cleanPath("/sys/" + subPath)
 }
 
 func cleanPath(p string) string {

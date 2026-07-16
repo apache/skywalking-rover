@@ -167,3 +167,67 @@ func (m *ProcessManager) ShouldMonitor(pid int32) bool {
 	}
 	return monitor
 }
+
+// cgroupResolvingFinder is what a finder must offer for cgroup ids to be resolvable; only the
+// Kubernetes finder knows about containers, so only it implements this.
+type cgroupResolvingFinder interface {
+	CgroupResolvable() bool
+	CgroupIDByContainer(containerID string) (uint64, bool)
+}
+
+// CgroupResolvable reports whether any finder can resolve cgroup ids on this host.
+func (m *ProcessManager) CgroupResolvable() bool {
+	for _, finder := range m.finders {
+		if resolver, ok := finder.(cgroupResolvingFinder); ok && resolver.CgroupResolvable() {
+			return true
+		}
+	}
+	return false
+}
+
+// CgroupIDByContainer returns the cgroup id of a container as resolved by whichever finder knows it.
+func (m *ProcessManager) CgroupIDByContainer(containerID string) (uint64, bool) {
+	for _, finder := range m.finders {
+		if resolver, ok := finder.(cgroupResolvingFinder); ok {
+			if id, exist := resolver.CgroupIDByContainer(containerID); exist {
+				return id, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// ExecutingProcessesWanted reports whether any *active* finder implements ExecutingProcessFinder,
+// which is what makes reporting a process the instant it starts worth its cost.
+//
+// Implementing that interface is the finder's way of saying it can act on a process that may
+// already be gone; a finder without it can only fall back to the /proc based check, which for a
+// short-lived process answers "no" after having paid for the lookup. m.finders holds only the
+// active finders, so an inactive one cannot keep the reports switched on.
+func (m *ProcessManager) ExecutingProcessesWanted() bool {
+	for _, finder := range m.finders {
+		if _, ok := finder.(base.ExecutingProcessFinder); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// ShouldMonitorExecuting judges a process the kernel has just started. Finders that can use the
+// kernel-side context take it; the rest fall back to the /proc based check, which is all they could
+// have done anyway.
+func (m *ProcessManager) ShouldMonitorExecuting(exec *api.ProcessExecuteContext) bool {
+	monitor := false
+	for _, finder := range m.finders {
+		if executing, ok := finder.(base.ExecutingProcessFinder); ok {
+			if executing.ShouldMonitorExecuting(exec) {
+				monitor = true
+			}
+			continue
+		}
+		if finder.ShouldMonitor(exec.Pid) {
+			monitor = true
+		}
+	}
+	return monitor
+}

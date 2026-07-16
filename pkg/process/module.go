@@ -103,6 +103,22 @@ func (m *Module) ShouldMonitor(pid int32) bool {
 	return m.manager.ShouldMonitor(pid)
 }
 
+func (m *Module) ShouldMonitorExecuting(exec *api.ProcessExecuteContext) bool {
+	return m.manager.ShouldMonitorExecuting(exec)
+}
+
+func (m *Module) ExecutingProcessesWanted() bool {
+	return m.manager.ExecutingProcessesWanted()
+}
+
+func (m *Module) CgroupResolvable() bool {
+	return m.manager.CgroupResolvable()
+}
+
+func (m *Module) CgroupIDByContainer(containerID string) (uint64, bool) {
+	return m.manager.CgroupIDByContainer(containerID)
+}
+
 func (m *Module) NodeName() string {
 	return m.config.Kubernetes.NodeName
 }

@@ -37,6 +37,7 @@ Release Notes.
 * Report a periodic info-level summary of un-resolved remote addresses, including the conntrack and ztunnel correlation statistics, in the access log module.
 * Attach all matched ztunnel `track_outbound` symbol copies when attaching the uprobe in the access log module.
 * Add success/failure counters to the conntrack real peer address queries.
+* Support monitoring short-lived processes in the access log module.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

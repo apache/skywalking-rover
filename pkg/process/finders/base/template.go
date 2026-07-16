@@ -60,7 +60,14 @@ func NewTemplateRover(manager *module.Manager) *TemplateRover {
 
 // NewTemplateProcess is generated the process context for render
 func NewTemplateProcess(_ *module.Manager, p *process.Process) *TemplateProcess {
-	return &TemplateProcess{p}
+	return &TemplateProcess{Process: p}
+}
+
+// NewTemplateProcessWithFallbackName is like NewTemplateProcess, but names the process from
+// fallbackName(the kernel task name) when its command line cannot be read - which is what happens
+// to a process that has already exited, the very case a short-lived process is reported for.
+func NewTemplateProcessWithFallbackName(_ *module.Manager, p *process.Process, fallbackName string) *TemplateProcess {
+	return &TemplateProcess{Process: p, fallbackName: fallbackName}
 }
 
 type TemplateRover struct {
@@ -97,6 +104,26 @@ func (t *TemplateRover) HostName() string {
 
 type TemplateProcess struct {
 	*process.Process
+	// fallbackName stands in for the command line when /proc no longer holds one
+	fallbackName string
+}
+
+// Cmdline is the process's command line, falling back to the kernel task name when /proc cannot
+// supply one. It shadows the embedded gopsutil method so that every caller - the periodic scan and
+// the kernel-driven one alike - names a process by the same rule, otherwise the same pid could be
+// registered under two different names and flip between detected and dead.
+//
+// An empty command line falls back too: a zombie still has a readable /proc entry but an empty
+// cmdline, which would otherwise name the process "".
+func (p *TemplateProcess) Cmdline() (string, error) {
+	cmdline, err := p.Process.Cmdline()
+	if err == nil && cmdline != "" {
+		return cmdline, nil
+	}
+	if p.fallbackName != "" {
+		return p.fallbackName, nil
+	}
+	return cmdline, err
 }
 
 // ExeFilePath Execute file path

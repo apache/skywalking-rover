@@ -51,6 +51,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/base"
+	"github.com/apache/skywalking-rover/pkg/tools/cgroup"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
@@ -59,9 +60,41 @@ var log = logger.GetLogger("process", "finder", "kubernetes")
 var (
 	kubepodsRegex      = regexp.MustCompile(`cri-containerd-(?P<Group>\w+)\.scope`)
 	openShiftPodsRegex = regexp.MustCompile(`crio-(?P<Group>\w+)\.scope`)
+	dockerPodsRegex    = regexp.MustCompile(`docker-(?P<Group>\w+)\.scope`)
 	ipExistTimeout     = time.Minute * 10
 	ipSearchParallel   = 10
 )
+
+// containerIDFromCgroupDir turns the base name of a cgroup directory into the id of the container
+// it holds, or "" when it holds none. It mirrors the naming GetProcessCGroup already parses out of
+// /proc/<pid>/cgroup, so that a container resolved by walking the tree and one resolved by reading
+// a process's cgroup line come out with the same id.
+func containerIDFromCgroupDir(dirName string) string {
+	for _, re := range []*regexp.Regexp{kubepodsRegex, openShiftPodsRegex, dockerPodsRegex} {
+		if m := re.FindStringSubmatch(dirName); len(m) > 1 {
+			return m[1]
+		}
+	}
+	// the cgroupfs driver, unlike the systemd one, names the directory after the container id
+	if isContainerID(dirName) {
+		return dirName
+	}
+	return ""
+}
+
+// isContainerID reports whether a bare cgroup directory name is a container id, which keeps the
+// host's own slices(system.slice, init.scope, ...) out of the mapping.
+func isContainerID(name string) bool {
+	if len(name) < 12 {
+		return false
+	}
+	for _, c := range name {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 type ProcessFinder struct {
 	conf *Config
@@ -73,6 +106,9 @@ type ProcessFinder struct {
 	cancelCtx    context.CancelFunc
 	stopChan     chan struct{}
 	processCache *lru.Cache
+
+	// cgroupResolver maps cgroup ids to containers; nil when the host has no usable cgroup v2 tree
+	cgroupResolver *cgroup.Resolver
 
 	// k8s clients
 	k8sConfig *rest.Config
@@ -124,6 +160,24 @@ func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBa
 	}
 	f.processCache = processCache
 
+	// The cgroup mapping is what lets an already-exited process still be attributed to its pod, and
+	// what lets the access log module filter in kernel space. It needs a cgroup v2 tree; on a v1
+	// host the finder simply keeps working the way it always has, through the periodic /proc scan.
+	cgroupMountPoint := cgroup.DefaultMountPoint()
+	if cgroup.Available(cgroupMountPoint) {
+		f.cgroupResolver = cgroup.NewResolver(cgroupMountPoint, containerIDFromCgroupDir)
+		if err := f.cgroupResolver.Refresh(); err != nil {
+			log.Warnf("cannot read the cgroup tree at %s, falling back to process discovery alone: %v",
+				cgroupMountPoint, err)
+			f.cgroupResolver = nil
+		} else {
+			log.Infof("resolving containers by cgroup id, %d container cgroups mapped", f.cgroupResolver.Size())
+		}
+	} else {
+		log.Infof("no cgroup v2 hierarchy at %s, containers will only be discovered by the periodic scan",
+			cgroupMountPoint)
+	}
+
 	return nil
 }
 
@@ -172,6 +226,10 @@ func (f *ProcessFinder) Start() {
 }
 
 func (f *ProcessFinder) analyzeProcesses() error {
+	// keep the cgroup mapping in step with the containers that come and go on this node; this scan
+	// reads /proc directly, so it can never be held back by a stale mapping
+	f.RefreshCgroupResolver()
+
 	// find out all containers
 	containers := f.registry.BuildPodContainers()
 	if len(containers) == 0 {
@@ -240,6 +298,14 @@ func (f *ProcessFinder) buildProcess(p *process.Process, detectedProcesses []api
 }
 
 func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]*Process, error) {
+	return f.BuildProcessesWithFallbackName(p, pc, "")
+}
+
+// BuildProcessesWithFallbackName is BuildProcesses for a process whose /proc entry may already be
+// gone: fallbackName(the kernel task name) then stands in for the command line. Passing "" gives
+// exactly the behaviour of BuildProcesses.
+func (f *ProcessFinder) BuildProcessesWithFallbackName(p *process.Process, pc *PodContainer,
+	fallbackName string) ([]*Process, error) {
 	// find builder
 	builders := make([]*ProcessBuilder, 0)
 	for _, b := range f.conf.Analyzers {
@@ -258,8 +324,16 @@ func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]
 	}
 
 	cmdline, err := p.Cmdline()
-	if err != nil {
-		return nil, err
+	if err != nil || cmdline == "" {
+		// the process is gone(or is a zombie, which keeps a readable but empty cmdline); the
+		// kernel task name is all that is left to identify it by
+		if fallbackName == "" {
+			if err != nil {
+				return nil, fmt.Errorf("cannot read the command line of process %d: %w", p.Pid, err)
+			}
+			return nil, fmt.Errorf("the command line of process %d is empty", p.Pid)
+		}
+		cmdline = fallbackName
 	}
 
 	// build process
@@ -267,9 +341,9 @@ func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]
 	for _, builder := range builders {
 		entity := &api.ProcessEntity{}
 		entity.Layer = builder.Layer
-		entity.ServiceName, err = f.buildEntity(err, p, pc, builder.ServiceNameBuilder)
-		entity.InstanceName, err = f.buildEntity(err, p, pc, builder.InstanceNameBuilder)
-		entity.ProcessName, err = f.buildEntity(err, p, pc, builder.ProcessNameBuilder)
+		entity.ServiceName, err = f.buildEntity(nil, p, pc, builder.ServiceNameBuilder, fallbackName)
+		entity.InstanceName, err = f.buildEntity(err, p, pc, builder.InstanceNameBuilder, fallbackName)
+		entity.ProcessName, err = f.buildEntity(err, p, pc, builder.ProcessNameBuilder, fallbackName)
 		entity.Labels = builder.Labels
 		if err != nil {
 			return nil, err
@@ -284,11 +358,12 @@ func (f *ProcessFinder) BuildProcesses(p *process.Process, pc *PodContainer) ([]
 	return processes, nil
 }
 
-func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodContainer, entity *base.TemplateBuilder) (string, error) {
+func (f *ProcessFinder) buildEntity(err error, ps *process.Process, pc *PodContainer, entity *base.TemplateBuilder,
+	fallbackName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return renderTemplate(entity, ps, pc, f)
+	return renderTemplate(entity, ps, pc, f, fallbackName)
 }
 
 func (f *ProcessFinder) GetProcessCGroup(pid int32) ([]string, error) {
@@ -421,6 +496,81 @@ func (f *ProcessFinder) ShouldMonitor(pid int32) bool {
 	}
 	f.manager.AddDetectedProcess(processes)
 	return true
+}
+
+// ShouldMonitorExecuting judges a process the kernel has just started.
+//
+// It prefers the ordinary /proc based path, which is richer and is exactly what the periodic scan
+// does. Only when /proc has nothing left to say - the process already exited, which is the whole
+// reason it is worth catching this early - does it fall back to what the kernel handed us: the
+// cgroup id identifies the container, and the task name stands in for the command line.
+func (f *ProcessFinder) ShouldMonitorExecuting(exec *api.ProcessExecuteContext) bool {
+	if f.ShouldMonitor(exec.Pid) {
+		return true
+	}
+	if exec.CgroupID == 0 || f.cgroupResolver == nil {
+		// no kernel side identity to fall back on(cgroup v1, or the tree could not be walked)
+		return false
+	}
+	containerID, exist := f.cgroupResolver.ContainerByCgroupID(exec.CgroupID)
+	if !exist {
+		return false
+	}
+	pc, exist := f.registry.BuildPodContainers()[containerID]
+	if !exist || pc == nil {
+		return false
+	}
+	// the process is gone, so nothing can be read from /proc; a bare Process carries the pid, which
+	// is all the entity building still needs from it.
+	processes, err := f.BuildProcessesWithFallbackName(&process.Process{Pid: exec.Pid}, pc, exec.Comm)
+	if err != nil || len(processes) == 0 {
+		log.Debugf("cannot build the exited process %d in container %s: %v", exec.Pid, containerID, err)
+		return false
+	}
+	detected := make([]api.DetectedProcess, 0, len(processes))
+	for _, p := range processes {
+		detected = append(detected, p)
+	}
+	f.manager.AddDetectedProcess(detected)
+	return true
+}
+
+// RefreshCgroupResolver rebuilds the cgroup id -> container mapping. The caller drives it from the
+// periodic scan, which reads /proc and is therefore never blocked by whatever the mapping says.
+func (f *ProcessFinder) RefreshCgroupResolver() {
+	if f.cgroupResolver == nil {
+		return
+	}
+	if err := f.cgroupResolver.Refresh(); err != nil {
+		log.Warnf("cannot refresh the cgroup mapping, already started short-lived processes may not "+
+			"be attributed until the next refresh: %v", err)
+	}
+}
+
+// CgroupResolvable reports whether this host lets cgroup ids be resolved at all, which decides
+// whether a caller may filter by cgroup or has to filter some other way.
+func (f *ProcessFinder) CgroupResolvable() bool {
+	return f.cgroupResolver != nil
+}
+
+// ContainerByCgroupID names the container a cgroup id belongs to. This is the direction that lets
+// an already-exited process still be attributed: the cgroup id comes with the kernel event, so
+// nothing has to be read from the process's /proc entry.
+func (f *ProcessFinder) ContainerByCgroupID(cgroupID uint64) (string, bool) {
+	if f.cgroupResolver == nil {
+		return "", false
+	}
+	return f.cgroupResolver.ContainerByCgroupID(cgroupID)
+}
+
+// CgroupIDByContainer exposes the cgroup id of a container so the access log module can seed the
+// kernel side allowlist with it. The second result is false when the container's cgroup is not(yet)
+// mapped, which the caller must read as "cannot filter on this one", never as "monitor nothing".
+func (f *ProcessFinder) CgroupIDByContainer(containerID string) (uint64, bool) {
+	if f.cgroupResolver == nil {
+		return 0, false
+	}
+	return f.cgroupResolver.CgroupIDByContainer(containerID)
 }
 
 func (f *ProcessFinder) IsPodIP(ip string) (bool, error) {

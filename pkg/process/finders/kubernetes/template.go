@@ -59,11 +59,12 @@ func executeFilter(builders []*base.TemplateBuilder, p *process.Process, pc *Pod
 	return true, nil
 }
 
-func renderTemplate(builder *base.TemplateBuilder, p *process.Process, pc *PodContainer, finder *ProcessFinder) (string, error) {
+func renderTemplate(builder *base.TemplateBuilder, p *process.Process, pc *PodContainer, finder *ProcessFinder,
+	fallbackName string) (string, error) {
 	moduleManager := finder.manager.GetModuleManager()
 	return builder.Execute(&EntityRenderContext{
 		Rover:     base.NewTemplateRover(moduleManager),
-		Process:   base.NewTemplateProcess(moduleManager, p),
+		Process:   base.NewTemplateProcessWithFallbackName(moduleManager, p, fallbackName),
 		Pod:       &TemplatePod{pc, finder},
 		Container: &TemplateContainer{pc},
 	})

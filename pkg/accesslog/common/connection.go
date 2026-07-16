@@ -138,6 +138,20 @@ type ConnectionManager struct {
 	// monitoring process map in BPF
 	processMonitorMap   *ebpf.Map
 	activeConnectionMap *ebpf.Map
+	// processNotMonitorMap and cgroupAllowlistMap are the two ways the fork/exec tracepoints decide
+	// what to skip; which one is in force is settled once at startup, see processExecuteMonitorReady
+	processNotMonitorMap *ebpf.Map
+	cgroupAllowlistMap   *ebpf.Map
+	// processExecuteMonitorReady records whether the tracepoints were attached at all
+	processExecuteMonitorReady bool
+	// cgroupSeeder resolves a container to its cgroup id; nil when the host cannot resolve them
+	cgroupSeeder process.CgroupOperator
+	// allowedCgroups counts which monitored pids live in each allowed cgroup, so a cgroup stays
+	// allowed until the last of them is gone
+	allowedCgroups map[uint64]map[int32]bool
+	// processVerdicts remembers what was concluded about a process, so its access logs can outlive
+	// it just long enough to be flushed
+	processVerdicts *cache.Expiring
 
 	monitorFilter MonitorFilter
 
@@ -232,6 +246,10 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		monitoringProcesses:        make(map[int32][]api.ProcessInterface),
 		processMonitorMap:          bpfLoader.ProcessMonitorControl,
 		activeConnectionMap:        bpfLoader.ActiveConnectionMap,
+		processNotMonitorMap:       bpfLoader.ProcessNotMonitor,
+		cgroupAllowlistMap:         bpfLoader.CgroupMonitorAllowlist,
+		processVerdicts:            cache.NewExpiring(),
+		allowedCgroups:             make(map[uint64]map[int32]bool),
 		monitorFilter:              filter,
 		flushListeners:             make([]FlusherListener, 0),
 		connectTracker:             track,
@@ -240,7 +258,50 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		unresolvedByReason:         make(map[string]int64),
 		resolutionGracePeriod:      resolutionGraceFor(flushPeriod),
 	}
+	mgr.setupProcessExecuteMonitor(bpfLoader)
 	return mgr
+}
+
+// setupProcessExecuteMonitor settles, once, how the kernel should filter the processes it reports,
+// and whether reporting them is worth doing at all.
+//
+// The cgroup allowlist is the preferred filter because it rejects a host process without emitting
+// anything, but it needs the process discovery to resolve cgroup ids, which in turn needs a cgroup
+// v2 tree. Where that is missing the per-process rejection list still keeps the cost to one report
+// per process, which is what makes these tracepoints affordable in the first place.
+func (c *ConnectionManager) setupProcessExecuteMonitor(bpfLoader *bpf.Loader) {
+	// Nothing is reported unless some active finder can actually act on it. This is not a
+	// micro-optimisation: a finder that only ever monitors long-lived processes(the VM finder takes
+	// a process only if it holds a listening port, which one living for milliseconds never does)
+	// would reject every reported process *after* paying for a /proc read - all cost, no coverage.
+	// That cost is precisely why these tracepoints were removed from this agent once before.
+	if !c.processOP.ExecutingProcessesWanted() {
+		log.Infof("not monitoring process execution: no active process finder can use it, so " +
+			"short-lived processes stay discoverable only by the periodic scan")
+		return
+	}
+
+	seeder, canSeedCgroups := c.processOP.(process.CgroupOperator)
+	if canSeedCgroups {
+		canSeedCgroups = seeder.CgroupResolvable()
+	}
+	c.cgroupSeeder = seeder
+
+	enabled := uint32(0)
+	if canSeedCgroups {
+		enabled = 1
+	}
+	if err := bpfLoader.CgroupFilterEnabled.Set(enabled); err != nil {
+		log.Warnf("cannot select the process execution filter, not monitoring process execution: %v", err)
+		return
+	}
+	c.processExecuteMonitorReady = true
+	if canSeedCgroups {
+		log.Infof("monitoring process execution, filtering by the cgroups of the monitored containers")
+	} else {
+		log.Infof("monitoring process execution, filtering per process: no cgroup v2 tree is available, " +
+			"so every process is reported once before it can be skipped")
+	}
 }
 
 // resolutionGraceFor bounds the resolution-defer grace so it stays below connectionDeleteDelayTime
@@ -377,11 +438,159 @@ func (c *ConnectionManager) Stop() {
 	c.processOP.DeleteListener(c)
 }
 
-func (c *ConnectionManager) OnNewProcessExecuting(pid int32) {
-	// if the process should not be monitoring, then delete in the map
-	if !c.processOP.ShouldMonitor(pid) {
-		c.updateMonitorStatusForProcess(pid, false)
+// ProcessVerdict is what user space concluded about a process the kernel reported.
+type ProcessVerdict int
+
+const (
+	// ProcessVerdictUnknown means no conclusion has been reached yet, either because the report is
+	// still being handled or because the process vanished before it could be identified.
+	ProcessVerdictUnknown ProcessVerdict = iota
+	// ProcessVerdictMonitored means the process is currently monitored.
+	ProcessVerdictMonitored
+	// ProcessVerdictApproved means the process passed every filter and has since exited. Its logs
+	// are still worth sending: the process being short-lived is the reason it is interesting.
+	ProcessVerdictApproved
+	// ProcessVerdictRejected means the process was positively identified as one we must not report.
+	ProcessVerdictRejected
+)
+
+// processVerdictKeepTime is how long a verdict outlives the process. It only has to cover the gap
+// between a process exiting and its last buffered access logs being flushed.
+const processVerdictKeepTime = time.Minute
+
+// ProcessExecuteMonitorReady reports whether user space can judge the processes the kernel would
+// report, and therefore whether the fork/exec tracepoints are worth attaching at all.
+func (c *ConnectionManager) ProcessExecuteMonitorReady() bool {
+	return c.processExecuteMonitorReady
+}
+
+// OnNewProcessExecuting handles a process the kernel has just started and optimistically marked as
+// monitored. Everything the kernel could capture is passed in, because the process may already be
+// gone - that is precisely the case this exists for.
+func (c *ConnectionManager) OnNewProcessExecuting(pid int32, cgroupID uint64, comm string) {
+	// The cgroup id here is the kernel's own(bpf_get_current_cgroup_id), while the allowlist that
+	// let this event through was seeded from a cgroup id user space read as a directory inode. The
+	// two must be the same number for any of this to work, so log the kernel's side of it: paired
+	// with the "cgroup mapping: id=... path=..." lines from the walk, it shows whether they agree.
+	log.Debugf("process execution reported by the kernel: pid=%d cgroup=%d comm=%s", pid, cgroupID, comm)
+
+	if c.processOP.ShouldMonitorExecuting(&api.ProcessExecuteContext{Pid: pid, CgroupID: cgroupID, Comm: comm}) {
+		// the finder registered it; AddNewProcess arrives through the listener and records the
+		// verdict, so there is nothing to undo here
+		return
 	}
+
+	// Stop tracing it. Whether this counts as a positive rejection decides if its already buffered
+	// access logs may be sent, so be careful about the difference: a process we could still see is
+	// one we truly judged, while a process that vanished before we looked was never judged at all
+	// and its logs must not be trusted.
+	c.updateMonitorStatusForProcess(pid, false)
+	if !path.Exists(host.GetHostProcInHost(fmt.Sprintf("%d", pid))) {
+		log.Debugf("the process %d exited before it could be identified, its access logs will be dropped", pid)
+		return
+	}
+	c.recordProcessVerdict(pid, ProcessVerdictRejected)
+	// Remember the rejection in the kernel so the process stops being reported on every exec/fork.
+	// Only meaningful in the fallback mode; with the cgroup allowlist the process never gets here.
+	c.rejectProcessInBPF(pid)
+}
+
+// allowCgroupsOfProcesses lets the kernel report the processes that start inside these processes'
+// cgroups, which is how a short-lived sibling - a `kubectl exec`, a CronJob - gets monitored from
+// its very first syscall instead of waiting for the next discovery round to notice it.
+//
+// The pids sharing a cgroup are counted, because a container's cgroup must stay allowed until the
+// last of its processes is gone; dropping it when any one process exits would blind the rest.
+func (c *ConnectionManager) allowCgroupsOfProcesses(pid int32, processes []api.ProcessInterface) {
+	if c.cgroupAllowlistMap == nil || c.cgroupSeeder == nil {
+		return
+	}
+	for _, cgroupID := range c.cgroupIDsOf(processes) {
+		pids := c.allowedCgroups[cgroupID]
+		if pids == nil {
+			pids = make(map[int32]bool)
+			c.allowedCgroups[cgroupID] = pids
+			if err := c.cgroupAllowlistMap.Update(cgroupID, uint32(1), ebpf.UpdateAny); err != nil {
+				log.Warnf("failed to allow the cgroup %d, short-lived processes in it will only be "+
+					"found by the periodic scan: %v", cgroupID, err)
+				delete(c.allowedCgroups, cgroupID)
+				continue
+			}
+			log.Debugf("allowing process execution reports from cgroup %d", cgroupID)
+		}
+		pids[pid] = true
+	}
+}
+
+// disallowCgroupsOfProcesses drops a pid from its cgroups and stops the kernel reporting a cgroup
+// once nothing monitored is left in it.
+func (c *ConnectionManager) disallowCgroupsOfProcesses(pid int32, processes []api.ProcessInterface) {
+	if c.cgroupAllowlistMap == nil || c.cgroupSeeder == nil {
+		return
+	}
+	for _, cgroupID := range c.cgroupIDsOf(processes) {
+		pids := c.allowedCgroups[cgroupID]
+		if pids == nil {
+			continue
+		}
+		delete(pids, pid)
+		if len(pids) > 0 {
+			continue
+		}
+		delete(c.allowedCgroups, cgroupID)
+		if err := c.cgroupAllowlistMap.Delete(cgroupID); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			log.Warnf("failed to disallow the cgroup %d: %v", cgroupID, err)
+		}
+	}
+}
+
+// cgroupIDsOf resolves the cgroups the given processes live in. Only Kubernetes processes have a
+// container to resolve through, and a container whose cgroup is not mapped yet simply yields
+// nothing, leaving the periodic scan to cover it.
+func (c *ConnectionManager) cgroupIDsOf(processes []api.ProcessInterface) []uint64 {
+	ids := make([]uint64, 0, 1)
+	for _, p := range processes {
+		if p.DetectType() != api.Kubernetes {
+			continue
+		}
+		k8sProcess, ok := p.DetectProcess().(*kubernetes.Process)
+		if !ok {
+			continue
+		}
+		cgroupID, exist := c.cgroupSeeder.CgroupIDByContainer(k8sProcess.PodContainer().CGroupID())
+		if !exist {
+			continue
+		}
+		ids = append(ids, cgroupID)
+	}
+	return ids
+}
+
+// rejectProcessInBPF records a process as not worth reporting, so the tracepoints skip it from now
+// on. Without it a busy unmonitored process would be re-reported and re-checked forever.
+func (c *ConnectionManager) rejectProcessInBPF(pid int32) {
+	if c.processNotMonitorMap == nil {
+		return
+	}
+	if err := c.processNotMonitorMap.Update(uint32(pid), uint32(1), ebpf.UpdateAny); err != nil {
+		log.Warnf("failed to record the process %d as not monitored: %v", pid, err)
+	}
+}
+
+func (c *ConnectionManager) recordProcessVerdict(pid int32, verdict ProcessVerdict) {
+	c.processVerdicts.Set(pid, verdict, processVerdictKeepTime)
+}
+
+// ProcessVerdictOf reports what was concluded about a process, so a caller can tell a process that
+// is genuinely not ours from one we simply have not judged yet.
+func (c *ConnectionManager) ProcessVerdictOf(pid uint32) ProcessVerdict {
+	if c.ProcessIsMonitor(pid) {
+		return ProcessVerdictMonitored
+	}
+	if v, exist := c.processVerdicts.Get(int32(pid)); exist {
+		return v.(ProcessVerdict)
+	}
+	return ProcessVerdictUnknown
 }
 
 func (c *ConnectionManager) GetExcludeNamespaces() []string {
@@ -778,6 +987,11 @@ func (c *ConnectionManager) AddNewProcess(pid int32, entities []api.ProcessInter
 	}
 	c.monitoringProcesses[pid] = monitorProcesses
 	c.updateMonitorStatusForProcess(pid, true)
+	c.recordProcessVerdict(pid, ProcessVerdictMonitored)
+	// Seeding the allowlist here, and nowhere earlier, is deliberate: this is the one point both the
+	// finder and the monitor filter(exclude namespaces, clusters) have passed, so a cgroup can only
+	// be allowed once everything agrees its processes are ours to report.
+	c.allowCgroupsOfProcesses(pid, monitorProcesses)
 	for _, entity := range monitorProcesses {
 		for _, host := range entity.ExposeHosts() {
 			c.localIPWithPid[host] = pid
@@ -845,8 +1059,12 @@ func (c *ConnectionManager) RemoveProcess(pid int32, _ []api.ProcessInterface) {
 	c.monitoringProcessLock.Lock()
 	defer c.monitoringProcessLock.Unlock()
 	// delete monitoring process and IP addresses
+	c.disallowCgroupsOfProcesses(pid, c.monitoringProcesses[pid])
 	delete(c.monitoringProcesses, pid)
 	c.updateMonitorStatusForProcess(pid, false)
+	// The process passed every filter while it lived, so its access logs are still worth sending
+	// once it is gone - a short-lived process being gone is the normal case, not a reason to drop.
+	c.recordProcessVerdict(pid, ProcessVerdictApproved)
 	c.rebuildLocalIPWithPID()
 	c.printTotalAddressesWithPid("remove monitoring process")
 	for _, l := range c.processListeners {

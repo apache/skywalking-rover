@@ -86,6 +86,22 @@ type DetectedProcess interface {
 	ExposeHosts() []string
 }
 
+// ProcessExecuteContext carries what the kernel captured about a process the moment it started,
+// for finders that are asked to judge it before the periodic /proc scan would have seen it.
+//
+// Everything here is read in kernel space precisely because a short-lived process may already be
+// gone by the time the event is handled, taking its /proc entry with it. A finder should still
+// prefer /proc while it is there - it is richer - and only lean on these fields as the fallback.
+type ProcessExecuteContext struct {
+	// Pid of the process in the host pid namespace
+	Pid int32
+	// CgroupID as reported by bpf_get_current_cgroup_id, which is the inode of the process's
+	// cgroup v2 directory. Zero when the host could not provide one (cgroup v1).
+	CgroupID uint64
+	// Comm is the kernel's task name, a coarser stand-in for the command line
+	Comm string
+}
+
 // ProcessEntity is related to backend entity concept
 type ProcessEntity struct {
 	Layer        string
