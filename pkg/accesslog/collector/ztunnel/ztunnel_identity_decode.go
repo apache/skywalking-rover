@@ -20,13 +20,15 @@ package ztunnel
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"sync"
+
+	"github.com/cilium/ebpf"
+	lru "github.com/hashicorp/golang-lru"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	ztunneltool "github.com/apache/skywalking-rover/pkg/tools/ztunnel"
-	"github.com/cilium/ebpf"
-	lru "github.com/hashicorp/golang-lru"
-	"os"
-	"sync"
 )
 
 // ztunnel's SocketAddr is a 32 byte Rust enum over SocketAddrV4/V6. For the V4 variant the
@@ -46,7 +48,7 @@ const ztunnelReporterSource = 0
 
 // ztunnelSecurityPolicyMutualTLS is the connection_security_policy value that makes the
 // principals trustworthy. ztunnel applies the same filter before printing src.identity /
-// dst.identity to its access log, so honouring it keeps the uprobe from reporting an identity
+// dst.identity to its access log, so honoring it keeps the uprobe from reporting an identity
 // the access-log path would have suppressed.
 const ztunnelSecurityPolicyMutualTLS = 1
 
@@ -59,7 +61,7 @@ type ztunnelProbeSample struct {
 	DstIP   string
 	DstPort uint16
 
-	// Outbound reports the direction as ztunnel labelled it. It is only meaningful when the
+	// Outbound reports the direction as ztunnel labeled it. It is only meaningful when the
 	// offsets came from debug info or the table; a calibrated offset set cannot recover the
 	// reporter byte(it carries no signature to calibrate against), so callers must consult
 	// DirectionKnown before trusting it.
@@ -510,7 +512,7 @@ func (a *arcStrCache) decodeArcStr(r memoryReader, ptr uint64) (string, bool) {
 	return s, true
 }
 
-// isPlausibleIdentityBytes is the first line of the "did we read the right offsets" defence:
+// isPlausibleIdentityBytes is the first line of the "did we read the right offsets" defense:
 // every field the identity addition needs(namespace, service account, cluster id, SPIFFE
 // identity) is printable ASCII. Garbage produced by a wrong offset is overwhelmingly not, so
 // rejecting it here turns a version/ABI mismatch into a miss - and eventually into the

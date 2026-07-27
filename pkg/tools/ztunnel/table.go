@@ -288,7 +288,7 @@ func LoadTable() (*Table, error) {
 }
 
 // chainTables folds several tables into one whose lookups try each in order. Entries are kept
-// for reporting; the index resolves ties in favour of the earlier(more specific) source.
+// for reporting; the index resolves ties in favor of the earlier(more specific) source.
 func chainTables(sources ...*Table) *Table {
 	combined := &Table{Version: TableVersion, byBuildID: make(map[string]*Offsets)}
 	for _, source := range sources {

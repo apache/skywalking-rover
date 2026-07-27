@@ -174,7 +174,7 @@ func TestCalibrationRecoversMeasuredLayout(t *testing.T) {
 }
 
 // Calibration must not converge on a sample it cannot anchor: with no known real destination
-// there is no truth to recognise an offset by, and any "match" would be a coincidence.
+// there is no truth to recognize an offset by, and any "match" would be a coincidence.
 func TestCalibrationNeedsAnAnchor(t *testing.T) {
 	fixture := newCalibrationFixture("bookinfo", "bookinfo-reviews", "demo")
 	c := newZTunnelOffsetCalibrator(newArcStrCache(256), len(fixture.window))
@@ -201,7 +201,7 @@ func TestCalibrationRefusesWeakTruth(t *testing.T) {
 
 // When the config_dump reports a cluster that is not what ztunnel actually holds - the case the
 // config_dump is explicitly not trusted for - the cluster must come back ABSENT rather than
-// binding whichever neighbouring field happened to be nearby.
+// binding whichever neighboring field happened to be nearby.
 func TestCalibrationLeavesClusterAbsentWhenTruthDisagrees(t *testing.T) {
 	fixture := newCalibrationFixture("bookinfo", "bookinfo-reviews", "demo")
 	fixture.truth.byIP[fixtureRealDest].Cluster = "Kubernetes"
@@ -289,7 +289,7 @@ func validOffsets() *ztunneltool.Offsets {
 // there. Observe must be safe under that concurrency: before it took a lock this raced and the
 // runtime could abort the agent with "fatal error: concurrent map writes". Reaching the end without
 // the runtime aborting is the assertion(run with -race to also flag the write-write race).
-func TestCalibrationObserveIsConcurrencySafe(t *testing.T) {
+func TestCalibrationObserveIsConcurrencySafe(_ *testing.T) {
 	fixture := newCalibrationFixture("bookinfo", "bookinfo-reviews", "demo")
 	c := newZTunnelOffsetCalibrator(newArcStrCache(256), len(fixture.window))
 

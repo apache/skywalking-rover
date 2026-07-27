@@ -47,7 +47,7 @@ func TestIdentityUprobeEnabled(t *testing.T) {
 		{"", true}, // unset / empty -> enabled(the built-in default)
 		{"true", true},
 		{"TRUE", true},
-		{"nope", true}, // any unrecognised value -> enabled
+		{"nope", true}, // any unrecognized value -> enabled
 		{"1", true},
 		{"false", false},
 		{"FALSE", false},
@@ -138,7 +138,7 @@ func TestAccessLogEnabledWithActiveUprobe(t *testing.T) {
 
 // decodeCompact must read the mutual-TLS byte ONLY when the offsets located the security_policy field.
 // A calibrated set leaves it absent, so the shipped byte must be ignored and MutualTLS default to true;
-// a set that DID locate it must honour the byte.
+// a set that DID locate it must honor the byte.
 func TestDecodeCompactSecurityPolicyGating(t *testing.T) {
 	mem := newFakeMemory()
 	mem.writeArcStr(0x1000, "bookinfo")

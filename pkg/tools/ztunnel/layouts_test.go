@@ -134,7 +134,7 @@ func TestLayoutsValidateRejectsUnusable(t *testing.T) {
 }
 
 // The fingerprint decides whether two binaries share an entry, so it must not depend on Go's
-// randomised map iteration order.
+// randomized map iteration order.
 func TestLayoutsFingerprintIsStable(t *testing.T) {
 	first, second := validLayouts().Fingerprint(), validLayouts().Fingerprint()
 	if first != second {

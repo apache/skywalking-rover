@@ -27,7 +27,7 @@ import (
 //
 // The build ID is the ONLY sound key for a pre-generated offset table. A ztunnel version string
 // is not: the ztunnel shipped by a distribution can carry a version label whose code is nothing
-// like the upstream release of the same number - measured on a live cluster, an image labelled
+// like the upstream release of the same number - measured on a live cluster, an image labeled
 // "1.28.3" contained `ConnectionResultBuilder`(an upstream 1.29+ API) and the
 // `src.cluster`/`dst.cluster` access-log fields(upstream 1.31+), plus vendor-only patches.
 // Looking up offsets by that label would read the wrong bytes out of a differently-laid-out

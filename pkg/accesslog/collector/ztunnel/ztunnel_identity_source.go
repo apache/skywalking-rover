@@ -218,7 +218,7 @@ func (s *ztunnelIdentitySource) apply(sample *ztunnelProbeSample) {
 		if podIP, podPort := sample.DstIP, sample.DstPort; podIP != "" {
 			if _, exist := z.ipMappingCache.Get(key); !exist {
 				z.mappingEventCount.Add(1)
-				z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+				z.ipMappingCache.Set(key, &LoadBalanceAddress{
 					IP:     podIP,
 					Port:   podPort,
 					From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
@@ -259,9 +259,9 @@ func directionLabel(sample *ztunnelProbeSample) string {
 	case !sample.DirectionKnown:
 		return "unknown"
 	case sample.Outbound:
-		return "outbound"
+		return directionOutbound
 	default:
-		return "inbound"
+		return directionInbound
 	}
 }
 
@@ -380,7 +380,7 @@ func (z *Collector) prepareIdentityProbe(exePath string, pid int32) bool {
 	if !coversEverything {
 		// Either nothing could be resolved yet(calibration will try, and the tailer covers the
 		// gap meanwhile) or the resolved set does not carry the inbound peer identity. Both cases
-		// need the access-log tailer, which is exactly the behaviour that existed before this
+		// need the access-log tailer, which is exactly the behavior that existed before this
 		// probe, so nothing regresses while the uprobe path is incomplete.
 		z.startAccessLogTailer()
 	}
@@ -390,7 +390,7 @@ func (z *Collector) prepareIdentityProbe(exePath string, pid int32) bool {
 }
 
 // calibrationTruth exposes the ztunnel admin config_dump workload index as the known-good data
-// runtime calibration recognises field offsets by.
+// runtime calibration recognizes field offsets by.
 func (z *Collector) calibrationTruth() *calibrationTruth {
 	index := z.workloadIdentities.Load()
 	if index == nil {
@@ -407,7 +407,7 @@ func (z *Collector) realDestinationFor(srcIP string, srcPort uint16) string {
 	if !found {
 		return ""
 	}
-	address, ok := obj.(*ZTunnelLoadBalanceAddress)
+	address, ok := obj.(*LoadBalanceAddress)
 	if !ok || address.Source == sourceRecordInternal {
 		// a mapping this probe produced itself is not independent evidence, so it cannot anchor
 		// the calibration of this same probe

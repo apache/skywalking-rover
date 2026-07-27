@@ -20,12 +20,13 @@ package ztunnel
 import (
 	"context"
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/tools/host"
-	ztunneltool "github.com/apache/skywalking-rover/pkg/tools/ztunnel"
 	"os/exec"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/apache/skywalking-rover/pkg/tools/host"
+	ztunneltool "github.com/apache/skywalking-rover/pkg/tools/ztunnel"
 )
 
 // resolvedZTunnelOffsets is the outcome of walking the offset fallback ladder for one ztunnel
@@ -126,7 +127,7 @@ const (
 	ztunnelCalibrationMaxSamples = 500
 )
 
-// calibrationTruth is the known-good data calibration recognises offsets by: the ztunnel admin
+// calibrationTruth is the known-good data calibration recognizes offsets by: the ztunnel admin
 // /config_dump workload index, which maps a workload IP to the namespace, service account and
 // cluster ztunnel itself believes it has.
 type calibrationTruth struct {
@@ -157,9 +158,9 @@ type realDestinationLookup func(srcIP string, srcPort uint16) string
 // The cluster offset is located by matching the config_dump clusterId. That value is not fully
 // trusted, but using it to LOCATE rather than to verify is safe either way: a wrong clusterId is
 // simply not present in the window, so the cluster is reported absent instead of binding some
-// neighbouring field's offset.
+// neighboring field's offset.
 type ztunnelOffsetCalibrator struct {
-	// mu serialises Observe: the collector calls it from several BPF-event goroutines at once and the
+	// mu serializes Observe: the collector calls it from several BPF-event goroutines at once and the
 	// vote map is mutated there. Calibration is a transient, low-frequency startup phase, so a single
 	// lock costs nothing and removes the concurrent-map-write data race that would otherwise abort the
 	// agent with "fatal error: concurrent map writes".
@@ -446,15 +447,21 @@ func readZTunnelBuildInfo(pid int32) (*ztunneltool.BuildInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ZTunnelVersionTimeout)
 	defer cancel()
 
+	// the two ways to enter the ztunnel container's mount namespace to run `ztunnel version`.
+	const (
+		cmdNsenter           = "nsenter"
+		cmdChroot            = "chroot"
+		ztunnelVersionSubcmd = "version"
+	)
 	attempts := []struct {
 		name string
 		args []string
 	}{
-		{"nsenter", []string{
-			"nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "--", ztunnelBinaryInContainer, "version",
+		{cmdNsenter, []string{
+			cmdNsenter, "-t", fmt.Sprintf("%d", pid), "-m", "--", ztunnelBinaryInContainer, ztunnelVersionSubcmd,
 		}},
-		{"chroot", []string{
-			"chroot", host.GetHostProcInHost(fmt.Sprintf("%d/root", pid)), ztunnelBinaryInContainer, "version",
+		{cmdChroot, []string{
+			cmdChroot, host.GetHostProcInHost(fmt.Sprintf("%d/root", pid)), ztunnelBinaryInContainer, ztunnelVersionSubcmd,
 		}},
 	}
 

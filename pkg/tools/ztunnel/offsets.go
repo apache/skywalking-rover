@@ -85,7 +85,7 @@ type Offsets struct {
 	HboneTarget int `zt:"ConnectionResult.hbone_target"`
 
 	// HasDirection reports whether Reporter and SecurityPolicy are meaningful. Both are single
-	// byte enums holding 0 or 1, which carry no signature to recognise them by, so runtime
+	// byte enums holding 0 or 1, which carry no signature to recognize them by, so runtime
 	// calibration cannot recover them - it produces an offset set with HasDirection false, and
 	// the consumer then takes the direction from the monitored socket's own role instead.
 	HasDirection bool `zt:"-"`
@@ -137,6 +137,17 @@ const IdentitySpiffeSize = 24
 // "field not present" rather than whatever byte happens to live at offset zero.
 const OffsetAbsent = -1
 
+// field-name labels used in Validate's error messages, kept as named constants so the same labels
+// the offset tests assert on are not duplicated string literals.
+const (
+	fieldSrc                    = "src"
+	fieldDst                    = "dst"
+	fieldDestinationPrincipal   = "destinationPrincipal"
+	fieldDestinationCluster     = "destinationCluster"
+	fieldReporter               = "reporter"
+	fieldIdentityServiceAccount = "identityServiceAccount"
+)
+
 // Validate rejects an offset set that cannot describe a real ConnectionResult. It runs on
 // EVERY source - a hand-edited table file and a mis-converged calibration are just as capable
 // of producing nonsense as a mismatched binary - so that a bad set is refused up front instead
@@ -151,7 +162,18 @@ func (o *Offsets) Validate() error {
 	if spiffeSize <= 0 {
 		spiffeSize = IdentitySpiffeSize
 	}
-	// every pointer-sized field must be 8-byte aligned and leave room for its own value
+	if err := o.validatePointerFields(spiffeSize); err != nil {
+		return err
+	}
+	if err := o.validateDirectionEnums(); err != nil {
+		return err
+	}
+	return o.validateIdentityMembers(spiffeSize)
+}
+
+// validatePointerFields checks every pointer-sized field is 8-byte aligned and leaves room for its
+// own value inside the window.
+func (o *Offsets) validatePointerFields(spiffeSize int) error {
 	for _, f := range []struct {
 		name     string
 		off      int
@@ -160,20 +182,20 @@ func (o *Offsets) Validate() error {
 	}{
 		// Src and the destination identity are what the outbound DST_* addition is built from,
 		// so an offset set that cannot locate them is useless and refused.
-		{"src", o.Src, 8, true},
-		{"destinationPrincipal", o.DestinationPrincipal, spiffeSize, true},
+		{fieldSrc, o.Src, 8, true},
+		{fieldDestinationPrincipal, o.DestinationPrincipal, spiffeSize, true},
 		// The rest are optional: runtime calibration anchors itself on a connection whose real
 		// destination is already known, which pins the destination side but leaves the source
 		// side unanchored - and ztunnel leaves source_principal unset on an outbound connection
 		// anyway. OffsetAbsent marks a field this particular set could not locate; the decoder
 		// reads it as "field not present" rather than reading some arbitrary byte.
-		{"dst", o.Dst, 8, false},
+		{fieldDst, o.Dst, 8, false},
 		{"hboneTarget", o.HboneTarget, 8, false},
 		{"sourcePrincipal", o.SourcePrincipal, spiffeSize, false},
 		{"sourceNamespace", o.SourceNamespace, 8, false},
 		{"destinationNamespace", o.DestinationNamespace, 8, false},
 		{"sourceCluster", o.SourceCluster, 8, false},
-		{"destinationCluster", o.DestinationCluster, 8, false},
+		{fieldDestinationCluster, o.DestinationCluster, 8, false},
 	} {
 		if f.off == OffsetAbsent && !f.required {
 			continue
@@ -185,16 +207,20 @@ func (o *Offsets) Validate() error {
 			return fmt.Errorf("%s offset %d is not 8 byte aligned", f.name, f.off)
 		}
 	}
-	// the two direction enums are single bytes, gated INDEPENDENTLY by whether each was resolved:
-	// a table/DWARF set carries both; runtime calibration can recover the reporter(it flips between
-	// outbound and inbound) but not the security policy(constant on mesh traffic), so it sets one
-	// and leaves the other absent. An absent enum is "not present"(the decoder defaults it), a
-	// present one only has to sit inside the window.
+	return nil
+}
+
+// validateDirectionEnums checks the two single-byte direction enums, each gated INDEPENDENTLY by
+// whether it was resolved: a table/DWARF set carries both; runtime calibration can recover the
+// reporter(it flips between outbound and inbound) but not the security policy(constant on mesh
+// traffic), so it sets one and leaves the other absent. An absent enum is "not present"(the decoder
+// defaults it), a present one only has to sit inside the window.
+func (o *Offsets) validateDirectionEnums() error {
 	for _, f := range []struct {
 		name string
 		off  int
 	}{
-		{"reporter", o.Reporter},
+		{fieldReporter, o.Reporter},
 		{"securityPolicy", o.SecurityPolicy},
 	} {
 		if f.off == OffsetAbsent {
@@ -204,7 +230,11 @@ func (o *Offsets) Validate() error {
 			return fmt.Errorf("%s offset %d is outside the %d byte window", f.name, f.off, o.Window)
 		}
 	}
-	// the three Identity members must be distinct and inside one Spiffe value
+	return nil
+}
+
+// validateIdentityMembers checks the three Identity members are distinct and inside one Spiffe value.
+func (o *Offsets) validateIdentityMembers(spiffeSize int) error {
 	ids := map[int]string{}
 	for _, f := range []struct {
 		name string
@@ -212,7 +242,7 @@ func (o *Offsets) Validate() error {
 	}{
 		{"identityTrustDomain", o.IdentityTrustDomain},
 		{"identityNamespace", o.IdentityNamespace},
-		{"identityServiceAccount", o.IdentityServiceAccount},
+		{fieldIdentityServiceAccount, o.IdentityServiceAccount},
 	} {
 		if f.off < 0 || f.off+8 > spiffeSize {
 			return fmt.Errorf("%s offset %d does not fit in a %d byte Identity", f.name, f.off, spiffeSize)

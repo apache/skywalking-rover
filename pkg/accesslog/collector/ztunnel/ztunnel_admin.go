@@ -140,7 +140,7 @@ func (z *Collector) pollAdminConfigDump() error {
 	}
 	// Refresh the IP -> identity index. It is not read for the DST_*/PEER_* additions(those come
 	// from the identity cache the uprobe/access-log fill), but it is the known-good data runtime
-	// calibration recognises the ConnectionResult field offsets by, so it is kept current on any
+	// calibration recognizes the ConnectionResult field offsets by, so it is kept current on any
 	// node whose ztunnel is not covered by the pre-generated offset table.
 	z.refreshWorkloadIdentities(dump)
 	// the cross-network(east-west gateway) destination index: it decides whether an outbound DST_*
@@ -181,7 +181,7 @@ func (z *Collector) applyAdminConnectionMappings(dump *ztunnelConfigDump) {
 					srcIP, srcPort, origIP, origPort, actualIP, actualPort)
 			}
 			// always re-set to refresh the expiration for still-alive connections
-			z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+			z.ipMappingCache.Set(key, &LoadBalanceAddress{
 				IP:     actualIP,
 				Port:   uint16(actualPort),
 				From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,

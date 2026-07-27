@@ -28,7 +28,7 @@ import (
 // Only Version and GitRevision are ever matched against. IstioVersion deliberately is NOT:
 // measured across real images it is inconsistent to the point of uselessness - upstream
 // istio/ztunnel:1.26.0 reports "unknown", upstream 1.28.3 reports "1.28.3", and a vendor rebuild
-// labelled 1.28.3 reports "unknown" - because it is sourced from an ISTIO_META_ISTIO_VERSION
+// labeled 1.28.3 reports "unknown" - because it is sourced from an ISTIO_META_ISTIO_VERSION
 // environment variable that a deployment may simply not set. The istio release number belongs to
 // the offline generator, which knows which tag it built, not to runtime identification.
 type BuildInfo struct {
@@ -40,6 +40,18 @@ type BuildInfo struct {
 	IstioVersion string
 	RustVersion  string
 }
+
+// the field names ztunnel's `version` output prints, kept as named constants so the same labels
+// used by the parser tests are not duplicated string literals.
+const (
+	buildInfoFieldVersion      = "Version"
+	buildInfoFieldGitRevision  = "GitRevision"
+	buildInfoFieldBuildStatus  = "BuildStatus"
+	buildInfoFieldIstioVersion = "IstioVersion"
+	buildInfoFieldRustVersion  = "RustVersion"
+	// buildInfoUnknown is what String() renders for a nil/empty build info.
+	buildInfoUnknown = "unknown"
+)
 
 // buildInfoField pulls `Name:"value"` out of the single-line Go-style struct dump ztunnel prints.
 var buildInfoField = regexp.MustCompile(`(\w+):"([^"]*)"`)
@@ -62,15 +74,15 @@ func ParseBuildInfo(output string) (*BuildInfo, error) {
 	info := &BuildInfo{}
 	for _, match := range buildInfoField.FindAllStringSubmatch(line, -1) {
 		switch match[1] {
-		case "Version":
+		case buildInfoFieldVersion:
 			info.Version = match[2]
-		case "GitRevision":
+		case buildInfoFieldGitRevision:
 			info.GitRevision = match[2]
-		case "BuildStatus":
+		case buildInfoFieldBuildStatus:
 			info.BuildStatus = match[2]
-		case "IstioVersion":
+		case buildInfoFieldIstioVersion:
 			info.IstioVersion = match[2]
-		case "RustVersion":
+		case buildInfoFieldRustVersion:
 			info.RustVersion = match[2]
 		}
 	}
@@ -84,7 +96,7 @@ func ParseBuildInfo(output string) (*BuildInfo, error) {
 // the table" can see what it actually is.
 func (b *BuildInfo) String() string {
 	if b == nil {
-		return "unknown"
+		return buildInfoUnknown
 	}
 	return fmt.Sprintf("version=%s gitRevision=%s buildStatus=%s istioVersion=%s rustVersion=%s",
 		b.Version, b.GitRevision, b.BuildStatus, b.IstioVersion, b.RustVersion)

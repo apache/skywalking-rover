@@ -155,9 +155,15 @@ int connection_result_record_internal(struct pt_regs* ctx) {
         // peer"(decodeCompact), so no separate BPF-side zero check is needed here
         get_socket_addr_ip_in_ztunnel(true, (void *)((char *)self + cfg->src), &ev->src_ip, &ev->src_port);
         get_socket_addr_ip_in_ztunnel(true, (void *)((char *)self + cfg->dst), &ev->dst_ip, &ev->dst_port);
-        ev->has_direction = cfg->has_direction ? 1 : 0;
-        if (cfg->has_direction) {
+        // gate each single-byte read on its OWN offset being present: user space derives
+        // has_direction from reporter alone, so a set with reporter present but security_policy
+        // absent(-1) must still not read self+(-1). "direction known" means the reporter byte is
+        // meaningful; the security_policy byte is read independently when its offset resolved.
+        ev->has_direction = cfg->reporter >= 0 ? 1 : 0;
+        if (cfg->reporter >= 0) {
             bpf_probe_read_user(&ev->reporter, sizeof(ev->reporter), (void *)((char *)self + cfg->reporter));
+        }
+        if (cfg->security_policy >= 0) {
             bpf_probe_read_user(&ev->security_policy, sizeof(ev->security_policy), (void *)((char *)self + cfg->security_policy));
         }
         // identity string pointers: the two principal members are read at principal_base + member,

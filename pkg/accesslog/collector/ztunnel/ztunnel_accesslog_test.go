@@ -50,7 +50,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 		if !ok {
 			t.Fatal("expected a src-only mapping to be cached")
 		}
-		addr := obj.(*ZTunnelLoadBalanceAddress)
+		addr := obj.(*LoadBalanceAddress)
 		if addr.IP != "10.244.0.20" || addr.Port != 9080 || addr.Source != sourceAccessLog {
 			t.Fatalf("unexpected cached mapping: %+v", addr)
 		}
@@ -64,7 +64,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 		z.handleAccessLogLine(`2024-01-01T00:00:00Z stdout F {"src.addr":"10.0.0.5:45000",` +
 			`"dst.addr":"10.244.0.30:9080","direction":"outbound","message":"connection opened"}` + "\n")
 		obj, ok := z.ipMappingCache.Get(srcKey(z))
-		if !ok || obj.(*ZTunnelLoadBalanceAddress).IP != "10.244.0.30" {
+		if !ok || obj.(*LoadBalanceAddress).IP != "10.244.0.30" {
 			t.Fatal("expected the dst.addr fallback to be used when dst.hbone_addr is absent")
 		}
 	})
@@ -89,7 +89,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 		}
 		z.handleAccessLogLine(string(wrapper) + "\n")
 		obj, ok := z.ipMappingCache.Get(srcKey(z))
-		if !ok || obj.(*ZTunnelLoadBalanceAddress).IP != "10.244.0.20" {
+		if !ok || obj.(*LoadBalanceAddress).IP != "10.244.0.20" {
 			t.Fatal("expected the docker json-file wrapped access log line to be parsed")
 		}
 	})
@@ -118,11 +118,11 @@ func TestHandleAccessLogLine(t *testing.T) {
 	t.Run("does not overwrite a live uprobe mapping", func(t *testing.T) {
 		z := NewCollector(time.Minute)
 		key := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
-		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{IP: "10.244.0.99", Port: 9080, Source: sourceConnectionResult}, time.Minute)
+		z.ipMappingCache.Set(key, &LoadBalanceAddress{IP: "10.244.0.99", Port: 9080, Source: sourceConnectionResult}, time.Minute)
 		z.handleAccessLogLine(`2024-01-01T00:00:00Z stdout F {"src.addr":"10.0.0.5:45000",` +
 			`"dst.addr":"10.244.0.20:9080","direction":"outbound","message":"connection complete"}` + "\n")
 		obj, _ := z.ipMappingCache.Get(key)
-		addr := obj.(*ZTunnelLoadBalanceAddress)
+		addr := obj.(*LoadBalanceAddress)
 		if addr.IP != "10.244.0.99" || addr.Source != sourceConnectionResult {
 			t.Fatalf("the access-log fallback must not overwrite a live uprobe mapping, got %+v", addr)
 		}

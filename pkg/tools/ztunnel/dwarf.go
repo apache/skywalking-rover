@@ -48,7 +48,7 @@ func ExtractLayoutsFromDWARF(path string) (Layouts, error) {
 		names = append(names, dwarfName(typeName))
 	}
 	// the reader only decodes the named types, so a large Rust binary's whole debug info does not
-	// have to be materialised to read a few dozen offsets
+	// have to be materialized to read a few dozen offsets
 	reader, err := file.NewDwarfReader(names...)
 	if err != nil {
 		return nil, fmt.Errorf("no usable debug info in %s: %w", path, err)

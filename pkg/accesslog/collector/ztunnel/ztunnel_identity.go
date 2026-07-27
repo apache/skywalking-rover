@@ -52,7 +52,7 @@ func (z *Collector) identityStats() string {
 
 // refreshWorkloadIdentities rebuilds the IP -> identity index from a parsed ztunnel /config_dump and
 // atomically replaces the whole map, so readers never observe a partially-built index. The index is
-// the known-good data runtime calibration recognises the ConnectionResult field offsets by(see
+// the known-good data runtime calibration recognizes the ConnectionResult field offsets by(see
 // calibrationTruth); it is kept current on any node whose ztunnel the offset table does not cover.
 func (z *Collector) refreshWorkloadIdentities(dump *ztunnelConfigDump) {
 	m := buildWorkloadIdentities(dump)
@@ -224,7 +224,7 @@ func (z *Collector) accessLogEnabled() bool {
 // the outbound leg(the real destination), PEER_* for the inbound leg(the L3 peer). Returns nil when
 // no identity is resolvable(the caller then attaches none).
 func (z *Collector) buildConnectionAddition(connection *common.ConnectionInfo,
-	address *ZTunnelLoadBalanceAddress) []*keyStringValuePair {
+	address *LoadBalanceAddress) []*keyStringValuePair {
 	switch address.From {
 	case v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC:
 		return z.buildDstAddition(connection)

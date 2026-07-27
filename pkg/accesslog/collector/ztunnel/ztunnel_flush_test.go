@@ -45,7 +45,7 @@ func clientConn(srcIP string, srcPort uint16, dstIP string, dstPort uint16) *com
 func TestReadyToFlushConnectionSrcDstHitRetained(t *testing.T) {
 	z := NewCollector(time.Minute)
 	key := z.buildIPMappingCacheKey("10.0.0.5", 45000, "10.96.0.10", 9080)
-	z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+	z.ipMappingCache.Set(key, &LoadBalanceAddress{
 		IP: "10.244.0.20", Port: 9080,
 		From: v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC, Source: sourceTrackOutbound,
 	}, time.Minute)
@@ -66,7 +66,7 @@ func TestReadyToFlushConnectionSrcDstHitRetained(t *testing.T) {
 func TestReadyToFlushConnectionSrcOnlyFallbackRetainsEntry(t *testing.T) {
 	z := NewCollector(time.Minute)
 	srcKey := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
-	z.ipMappingCache.Set(srcKey, &ZTunnelLoadBalanceAddress{
+	z.ipMappingCache.Set(srcKey, &LoadBalanceAddress{
 		IP: "10.244.0.21", Port: 15008,
 		From: v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC, Source: sourceConnectionResult,
 	}, time.Minute)
@@ -93,7 +93,7 @@ func TestReadyToFlushConnectionSrcOnlyFallbackRetainsEntry(t *testing.T) {
 func TestReadyToFlushConnectionNoMappingLeavesUnattached(t *testing.T) {
 	z := NewCollector(time.Minute)
 	// a non-empty cache(so the empty-cache short circuit does not fire) with no matching key
-	z.ipMappingCache.Set("src:9.9.9.9:1", &ZTunnelLoadBalanceAddress{IP: "10.244.0.99"}, time.Minute)
+	z.ipMappingCache.Set("src:9.9.9.9:1", &LoadBalanceAddress{IP: "10.244.0.99"}, time.Minute)
 
 	conn := clientConn("10.0.0.5", 45000, "10.96.0.12", 9080)
 	z.ReadyToFlushConnection(conn, nil)
@@ -105,7 +105,7 @@ func TestReadyToFlushConnectionNoMappingLeavesUnattached(t *testing.T) {
 func TestReadyToFlushConnectionAlreadyAttachedIsNoop(t *testing.T) {
 	z := NewCollector(time.Minute)
 	srcKey := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
-	z.ipMappingCache.Set(srcKey, &ZTunnelLoadBalanceAddress{IP: "10.244.0.21", Source: sourceConnectionResult}, time.Minute)
+	z.ipMappingCache.Set(srcKey, &LoadBalanceAddress{IP: "10.244.0.21", Source: sourceConnectionResult}, time.Minute)
 
 	conn := clientConn("10.0.0.5", 45000, "10.96.0.11", 9080)
 	existing := &v3.ConnectionAttachment{}

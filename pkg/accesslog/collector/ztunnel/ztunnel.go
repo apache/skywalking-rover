@@ -162,7 +162,7 @@ type Collector struct {
 
 	// workloadIdentities is the IP -> identity index built from the ztunnel admin /config_dump
 	// "workloads" section, refreshed on every admin poll. It is the known-good truth runtime
-	// calibration recognises the ConnectionResult field offsets by(see calibrationTruth).
+	// calibration recognizes the ConnectionResult field offsets by(see calibrationTruth).
 	workloadIdentities atomic.Pointer[map[string]*WorkloadIdentity]
 	// splitHorizonGateways is the network-scoped VIP -> east-west gateway namespace index built from
 	// the config_dump "services" section, refreshed on every admin poll. A destination found here is
@@ -218,6 +218,71 @@ func newZTunnelCollector(expireTime time.Duration) *Collector {
 	}
 }
 
+// handleMappingEvent processes one ztunnel lb-socket mapping event(from the track_outbound /
+// ConnectionResult::new uprobes): it caches the (src[->remote]) -> load-balanced pod-IP mapping and
+// pushes an immediate retro-resolve so a connection already held in the manager resolves at once.
+func (z *Collector) handleMappingEvent(data interface{}) {
+	event := data.(*events.ZTunnelSocketMappingEvent)
+	localIP := z.convertBPFIPToString(event.OriginalSrcIP)
+	localPort := event.OriginalSrcPort
+	lbIP := z.convertBPFIPToString(event.LoadBalancedDestIP)
+	z.mappingEventCount.Add(1)
+	// diagnostic: mark that a ztunnel mapping event(any type) was seen for this source
+	if event.OriginalSrcIP != 0 && event.OriginalSrcPort != 0 {
+		z.seenEventSrcs.Set(z.buildSrcOnlyCacheKey(localIP, int(localPort)), struct{}{}, 5*time.Minute)
+	}
+
+	// A ConnectionResult::new event has no original service ClusterIP(OriginalDestIP == 0):
+	// it carries only the (downstream src -> real pod) pair and is keyed by the source
+	// address alone(the app's ephemeral src port is unique per connection). This is the
+	// higher-coverage source that also captures the outbound legs track_outbound skips via
+	// its early-returns.
+	if event.OriginalDestIP == 0 {
+		if !isPlausibleSrcOnlyMapping(event) {
+			z.invalidMappingCount.Add(1)
+			return
+		}
+		ztunnelLog.Debugf("received ztunnel src-only mapping event: %s:%d -> lb: %s:%d", localIP, localPort, lbIP, event.LoadBalancedDestPort)
+		srcOnlyKey := z.buildSrcOnlyCacheKey(localIP, int(localPort))
+		z.ipMappingCache.Set(srcOnlyKey, &LoadBalanceAddress{
+			IP:     lbIP,
+			Port:   event.LoadBalancedDestPort,
+			From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
+			Source: sourceConnectionResult,
+		}, ZTunnelSrcOnlyMappingExpireDuration)
+		// push: resolve any connection already held in the manager for this source right now,
+		// instead of waiting for its next flush to pull the cache(closes the late-event race)
+		z.retroResolve(localIP, localPort)
+		return
+	}
+
+	remoteIP := z.convertBPFIPToString(event.OriginalDestIP)
+	remotePort := event.OriginalDestPort
+	ztunnelLog.Debugf("received ztunnel lb socket mapping event: %s:%d -> %s:%d, lb: %s", localIP, localPort, remoteIP, remotePort, lbIP)
+
+	// the uprobe reads ztunnel's version-specific Rust internals(track_outbound
+	// arg registers + SocketAddr layout). A ztunnel that changed the function
+	// signature or the struct layout would make it read the wrong offsets and
+	// produce a GARBAGE mapping, which is worse than no mapping(it would attribute
+	// traffic to a wrong/non-existent pod). Reject implausible mappings so such a
+	// case degrades safely to "unresolved"(the raw service IP the backend can still
+	// name at the service level) instead of silently wrong data.
+	if !isPlausibleLBMapping(event) {
+		z.invalidMappingCount.Add(1)
+		ztunnelLog.Warnf("dropping implausible ztunnel lb mapping(possible ztunnel version/ABI mismatch): %s:%d -> %s:%d, lb: %s:%d",
+			localIP, localPort, remoteIP, remotePort, lbIP, event.LoadBalancedDestPort)
+		return
+	}
+
+	key := z.buildIPMappingCacheKey(localIP, int(localPort), remoteIP, int(remotePort))
+	z.ipMappingCache.Set(key, &LoadBalanceAddress{
+		IP:     lbIP,
+		Port:   event.LoadBalancedDestPort,
+		From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
+		Source: sourceTrackOutbound,
+	}, z.ipMappingExpireDuration)
+}
+
 func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
 	z.ctx, z.cancel = context.WithCancel(ctx.RuntimeContext)
 	z.alc = ctx
@@ -236,69 +301,10 @@ func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error
 	// connection has already flushed with the raw ClusterIP - the dominant residual "-|service|-"
 	// cause. Give it a larger per-CPU buffer and a few reader goroutines so mappings are delivered
 	// promptly, within the connection's resolution-defer window.
-	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelLbSocketMappingEventQueue, func(data interface{}) {
-		event := data.(*events.ZTunnelSocketMappingEvent)
-		localIP := z.convertBPFIPToString(event.OriginalSrcIP)
-		localPort := event.OriginalSrcPort
-		lbIP := z.convertBPFIPToString(event.LoadBalancedDestIP)
-		z.mappingEventCount.Add(1)
-		// diagnostic: mark that a ztunnel mapping event(any type) was seen for this source
-		if event.OriginalSrcIP != 0 && event.OriginalSrcPort != 0 {
-			z.seenEventSrcs.Set(z.buildSrcOnlyCacheKey(localIP, int(localPort)), struct{}{}, 5*time.Minute)
-		}
-
-		// A ConnectionResult::new event has no original service ClusterIP(OriginalDestIP == 0):
-		// it carries only the (downstream src -> real pod) pair and is keyed by the source
-		// address alone(the app's ephemeral src port is unique per connection). This is the
-		// higher-coverage source that also captures the outbound legs track_outbound skips via
-		// its early-returns.
-		if event.OriginalDestIP == 0 {
-			if !isPlausibleSrcOnlyMapping(event) {
-				z.invalidMappingCount.Add(1)
-				return
-			}
-			ztunnelLog.Debugf("received ztunnel src-only mapping event: %s:%d -> lb: %s:%d", localIP, localPort, lbIP, event.LoadBalancedDestPort)
-			srcOnlyKey := z.buildSrcOnlyCacheKey(localIP, int(localPort))
-			z.ipMappingCache.Set(srcOnlyKey, &ZTunnelLoadBalanceAddress{
-				IP:     lbIP,
-				Port:   event.LoadBalancedDestPort,
-				From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
-				Source: sourceConnectionResult,
-			}, ZTunnelSrcOnlyMappingExpireDuration)
-			// push: resolve any connection already held in the manager for this source right now,
-			// instead of waiting for its next flush to pull the cache(closes the late-event race)
-			z.retroResolve(localIP, localPort)
-			return
-		}
-
-		remoteIP := z.convertBPFIPToString(event.OriginalDestIP)
-		remotePort := event.OriginalDestPort
-		ztunnelLog.Debugf("received ztunnel lb socket mapping event: %s:%d -> %s:%d, lb: %s", localIP, localPort, remoteIP, remotePort, lbIP)
-
-		// the uprobe reads ztunnel's version-specific Rust internals(track_outbound
-		// arg registers + SocketAddr layout). A ztunnel that changed the function
-		// signature or the struct layout would make it read the wrong offsets and
-		// produce a GARBAGE mapping, which is worse than no mapping(it would attribute
-		// traffic to a wrong/non-existent pod). Reject implausible mappings so such a
-		// case degrades safely to "unresolved"(the raw service IP the backend can still
-		// name at the service level) instead of silently wrong data.
-		if !isPlausibleLBMapping(event) {
-			z.invalidMappingCount.Add(1)
-			ztunnelLog.Warnf("dropping implausible ztunnel lb mapping(possible ztunnel version/ABI mismatch): %s:%d -> %s:%d, lb: %s:%d",
-				localIP, localPort, remoteIP, remotePort, lbIP, event.LoadBalancedDestPort)
-			return
-		}
-
-		key := z.buildIPMappingCacheKey(localIP, int(localPort), remoteIP, int(remotePort))
-		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
-			IP:     lbIP,
-			Port:   event.LoadBalancedDestPort,
-			From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
-			Source: sourceTrackOutbound,
-		}, z.ipMappingExpireDuration)
-	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
-		return &events.ZTunnelSocketMappingEvent{}
-	})
+	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelLbSocketMappingEventQueue, z.handleMappingEvent,
+		os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+			return &events.ZTunnelSocketMappingEvent{}
+		})
 	go func() {
 		ticker := time.NewTicker(ZTunnelProcessFinderInterval)
 		var lastMissCount, lastEmptyCacheMissCount, lastIdentityMissed, lastIdentityResolved int64
@@ -373,7 +379,7 @@ func (z *Collector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.SocketPai
 	// the correlated connection as ztunnel inbound
 	z.ztunnelInboundTaggedSeen.Add(1)
 	key := z.buildIPMappingCacheKey(s.DestIP, int(s.DestPort), s.SrcIP, int(s.SrcPort))
-	z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+	z.ipMappingCache.Set(key, &LoadBalanceAddress{
 		From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_INBOUND_FUNC,
 		Source: sourceInbound,
 	}, z.ipMappingExpireDuration)
@@ -417,7 +423,7 @@ func (z *Collector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ 
 		return
 	}
 	z.mappingHitCount.Add(1)
-	address := lbIPObj.(*ZTunnelLoadBalanceAddress)
+	address := lbIPObj.(*LoadBalanceAddress)
 	// attribute the resolution to the source whose cached mapping actually won, so the periodic
 	// stats can report each source's share(non-resolution tags like sourceInbound are absent
 	// from the map and skipped)
@@ -861,22 +867,27 @@ func (z *Collector) collectZTunnelProcess(p *process.Process) error {
 
 	// setting the ztunnel pid in the BPF, this arms the `tgid_is_ztunnel` gate so the
 	// ztunnel's own connect() to the local workload(the inbound leg) is captured
-	if err = z.alc.BPF.ZtunnelProcessPid.Set(p.Pid); err != nil {
+	return z.armPidGate(p.Pid)
+}
+
+// armPidGate sets the ztunnel pid in the BPF - arming the `tgid_is_ztunnel` gate that captures
+// ztunnel's own inbound-leg connect() - and reads it back to confirm the gate armed with the
+// expected pid, so a "no ztunnel connect captured" problem is diagnosable directly from the log.
+func (z *Collector) armPidGate(pid int32) error {
+	if err := z.alc.BPF.ZtunnelProcessPid.Set(pid); err != nil {
 		return fmt.Errorf("failed to set ztunnel process pid in the BPF: %v", err)
 	}
-	// read back the value to confirm the BPF gate is actually armed with the expected pid,
-	// this makes the "no ztunnel connect captured" problem diagnosable directly from the log
 	var armedPid uint32
-	if err = z.alc.BPF.ZtunnelProcessPid.Get(&armedPid); err != nil {
+	if err := z.alc.BPF.ZtunnelProcessPid.Get(&armedPid); err != nil {
 		ztunnelLog.Warnf("cannot read back the ztunnel process pid from the BPF: %v", err)
-	} else if armedPid != uint32(p.Pid) {
+	} else if armedPid != uint32(pid) {
 		// the Set reported success but the gate holds a different pid: the inbound-leg capture
 		// (ztunnel's own connect() to the local workload) would silently target the wrong process.
 		// Surface it loudly instead of leaving "no ztunnel connect captured" to be puzzled over later.
 		ztunnelLog.Warnf("the ztunnel BPF pid gate did not arm with the expected pid: set %d but read "+
-			"back %d; the inbound leg may not be captured", p.Pid, armedPid)
+			"back %d; the inbound leg may not be captured", pid, armedPid)
 	} else {
-		ztunnelLog.Infof("armed the ztunnel BPF pid gate, expected pid: %d, read back: %d", p.Pid, armedPid)
+		ztunnelLog.Infof("armed the ztunnel BPF pid gate, expected pid: %d, read back: %d", pid, armedPid)
 	}
 	return nil
 }
@@ -888,12 +899,20 @@ func (z *Collector) collectZTunnelProcess(p *process.Process) error {
 // stay a single, dependency-free switch the e2e uprobe/file matrix can flip.
 func identityUprobeEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED"))) {
-	case "false", "0", "no", "off":
+	case envValueFalse, "0", "no", "off":
 		return false
 	default:
 		return true
 	}
 }
+
+// directionOutbound and directionInbound are the two legs ztunnel reports in an access-log line.
+const (
+	directionOutbound = "outbound"
+	directionInbound  = "inbound"
+	// envValueFalse is the canonical falsey env value the identity-uprobe switch checks for.
+	envValueFalse = "false"
+)
 
 // ztunnelMappingSource identifies WHICH of the redundant sources produced a cached mapping,
 // so the periodic stats can report the resolution share of each(uprobe vs access-log fallback).
@@ -904,16 +923,16 @@ const (
 	sourceConnectionResult ztunnelMappingSource = "connection_result"
 	sourceAccessLog        ztunnelMappingSource = "access_log"
 	sourceAdminDump        ztunnelMappingSource = "admin_dump"
-	sourceInbound          ztunnelMappingSource = "inbound"
+	sourceInbound          ztunnelMappingSource = directionInbound
 )
 
-type ZTunnelLoadBalanceAddress struct {
+type LoadBalanceAddress struct {
 	IP     string
 	Port   uint16
 	From   v3.ZTunnelAttachmentEnvironmentDetectBy
 	Source ztunnelMappingSource
 }
 
-func (z *ZTunnelLoadBalanceAddress) String() string {
+func (z *LoadBalanceAddress) String() string {
 	return fmt.Sprintf("%s:%d(%s)", z.IP, z.Port, z.From)
 }

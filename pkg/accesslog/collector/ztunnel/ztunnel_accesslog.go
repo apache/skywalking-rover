@@ -236,6 +236,57 @@ func newestMatch(glob string) string {
 	return newest
 }
 
+// ztunnelAccessLogFields is the subset of a ztunnel access-log line the collector consumes.
+type ztunnelAccessLogFields struct {
+	srcAddr, podAddr, direction, message             string
+	dstCluster, dstIdentity, srcCluster, srcIdentity string
+}
+
+// parseZTunnelAccessLogFields extracts those fields from either the JSON(LOG_FORMAT=json) or the
+// default plain "key=value" ztunnel payload. ok is false when the payload is not a usable access line.
+func parseZTunnelAccessLogFields(payload string) (ztunnelAccessLogFields, bool) {
+	var f ztunnelAccessLogFields
+	if strings.HasPrefix(strings.TrimSpace(payload), "{") {
+		// ztunnel is configured with LOG_FORMAT=json: the payload is a JSON object
+		var m map[string]interface{}
+		if json.Unmarshal([]byte(payload), &m) != nil {
+			return f, false
+		}
+		f.srcAddr, _ = m["src.addr"].(string)
+		f.podAddr, _ = m["dst.hbone_addr"].(string)
+		if f.podAddr == "" {
+			f.podAddr, _ = m["dst.addr"].(string)
+		}
+		f.direction, _ = m["direction"].(string)
+		f.message, _ = m["message"].(string)
+		f.dstCluster, _ = m["dst.cluster"].(string)
+		f.dstIdentity, _ = m["dst.identity"].(string)
+		f.srcCluster, _ = m["src.cluster"].(string)
+		f.srcIdentity, _ = m["src.identity"].(string)
+		return f, true
+	}
+	// default plain "key=value" istio format(tab separated header + space separated fields)
+	if !strings.Contains(payload, "\taccess\t") {
+		return f, false
+	}
+	f.srcAddr = extractLogField(payload, "src.addr=")
+	f.podAddr = extractLogField(payload, "dst.hbone_addr=")
+	if f.podAddr == "" {
+		f.podAddr = extractLogField(payload, "dst.addr=")
+	}
+	f.direction = strings.Trim(extractLogField(payload, "direction="), "\"")
+	f.dstCluster = strings.Trim(extractLogField(payload, "dst.cluster="), "\"")
+	f.dstIdentity = strings.Trim(extractLogField(payload, "dst.identity="), "\"")
+	f.srcCluster = strings.Trim(extractLogField(payload, "src.cluster="), "\"")
+	f.srcIdentity = strings.Trim(extractLogField(payload, "src.identity="), "\"")
+	if strings.Contains(payload, msgConnectionComplete) {
+		f.message = msgConnectionComplete
+	} else if strings.Contains(payload, msgConnectionOpened) {
+		f.message = msgConnectionOpened
+	}
+	return f, true
+}
+
 // handleAccessLogLine parses one CRI log line and, if it is an outbound ztunnel access log
 // event, feeds its (src -> real pod) mapping into the cache keyed by the source address.
 //
@@ -276,46 +327,13 @@ func (z *Collector) handleAccessLogLine(line string) {
 		}
 	}
 
-	var srcAddr, podAddr, direction, message string
-	var dstCluster, dstIdentity, srcCluster, srcIdentity string
-	if strings.HasPrefix(strings.TrimSpace(payload), "{") {
-		// ztunnel is configured with LOG_FORMAT=json: the payload is a JSON object
-		var m map[string]interface{}
-		if json.Unmarshal([]byte(payload), &m) != nil {
-			return
-		}
-		srcAddr, _ = m["src.addr"].(string)
-		podAddr, _ = m["dst.hbone_addr"].(string)
-		if podAddr == "" {
-			podAddr, _ = m["dst.addr"].(string)
-		}
-		direction, _ = m["direction"].(string)
-		message, _ = m["message"].(string)
-		dstCluster, _ = m["dst.cluster"].(string)
-		dstIdentity, _ = m["dst.identity"].(string)
-		srcCluster, _ = m["src.cluster"].(string)
-		srcIdentity, _ = m["src.identity"].(string)
-	} else {
-		// default plain "key=value" istio format(tab separated header + space separated fields)
-		if !strings.Contains(payload, "\taccess\t") {
-			return
-		}
-		srcAddr = extractLogField(payload, "src.addr=")
-		podAddr = extractLogField(payload, "dst.hbone_addr=")
-		if podAddr == "" {
-			podAddr = extractLogField(payload, "dst.addr=")
-		}
-		direction = strings.Trim(extractLogField(payload, "direction="), "\"")
-		dstCluster = strings.Trim(extractLogField(payload, "dst.cluster="), "\"")
-		dstIdentity = strings.Trim(extractLogField(payload, "dst.identity="), "\"")
-		srcCluster = strings.Trim(extractLogField(payload, "src.cluster="), "\"")
-		srcIdentity = strings.Trim(extractLogField(payload, "src.identity="), "\"")
-		if strings.Contains(payload, msgConnectionComplete) {
-			message = msgConnectionComplete
-		} else if strings.Contains(payload, msgConnectionOpened) {
-			message = msgConnectionOpened
-		}
+	fields, ok := parseZTunnelAccessLogFields(payload)
+	if !ok {
+		return
 	}
+	srcAddr, podAddr, direction, message := fields.srcAddr, fields.podAddr, fields.direction, fields.message
+	dstCluster, dstIdentity := fields.dstCluster, fields.dstIdentity
+	srcCluster, srcIdentity := fields.srcCluster, fields.srcIdentity
 
 	// one debug line for every successfully-parsed ztunnel access-log line(both directions), on the
 	// dedicated "accesslog.collector.ztunnel.accesslog" module so it can be enabled on its own. It
@@ -328,7 +346,7 @@ func (z *Collector) handleAccessLogLine(line string) {
 	// the INBOUND leg carries the ORIGINAL client identity(src.identity/src.cluster): cache it as the
 	// PEER_* source, keyed by the source IP(the L3 peer) for the best-effort by-IP join. The rest of
 	// this function handles the outbound leg(app src -> real target pod), so return after caching.
-	if direction == "inbound" {
+	if direction == directionInbound {
 		if srcIP, _, err := parseZTunnelAddress(srcAddr); err == nil && srcIP != "" {
 			z.cachePeerIdentityFromAccessLog(srcIP, srcCluster, srcIdentity)
 		}
@@ -336,7 +354,7 @@ func (z *Collector) handleAccessLogLine(line string) {
 	}
 
 	// only the outbound leg carries (app src -> real target pod)
-	if direction != "outbound" || srcAddr == "" || podAddr == "" {
+	if direction != directionOutbound || srcAddr == "" || podAddr == "" {
 		return
 	}
 	if message != msgConnectionComplete && message != msgConnectionOpened {
@@ -375,7 +393,7 @@ func (z *Collector) handleAccessLogLine(line string) {
 	if _, exist := z.ipMappingCache.Get(key); !exist {
 		z.mappingEventCount.Add(1)
 		ztunnelLog.Debugf("access-log fallback mapping resolved a gap: %s:%d -> %s:%d", srcIP, sp, podIP, pp)
-		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
+		z.ipMappingCache.Set(key, &LoadBalanceAddress{
 			IP:     podIP,
 			Port:   uint16(pp),
 			From:   v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC,
