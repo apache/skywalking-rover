@@ -58,8 +58,10 @@ const (
 	// in case the reading the data from BPF queue is disordered, so add a delay time to delete the
 	// connection information. It is also the upper bound the resolution-defer grace must stay under
 	// (see resolutionGraceFor): a connection has to survive in the manager for the whole time its
-	// access log may be held waiting for the ztunnel lb mapping.
-	connectionDeleteDelayTime = time.Second * 20
+	// access log may be held waiting for the ztunnel lb mapping. Raised to 25s so the resolution
+	// grace can reach the 20s the ztunnel identity(DST_*/PEER_*) addition waits for while the
+	// connection still survives a margin beyond the grace before being deleted.
+	connectionDeleteDelayTime = time.Second * 25
 
 	// the connection check exist time
 	connectionCheckExistTime = time.Second * 30
@@ -81,7 +83,13 @@ const (
 	// connection that still does not resolve emits its raw-IP log in a LATER minute-bucket, which
 	// then lingers in the topology query window longer. So the residual is minimized at the source
 	// (parallel readers + push), not by holding longer.
-	resolutionDeferMargin = time.Second * 10
+	//
+	// Raised from 10s to 15s(grace = defaultFlushPeriod 5s + 15s = 20s) so the ztunnel identity
+	// addition(DST_*/PEER_*) can wait the full 20s for its source(config_dump refresh / access-log
+	// tailer) before the connection flushes. This deliberately trades a small no-degenerate regression
+	// for the identity wait; the identity reuses this same resolution-defer rather than adding a
+	// separate deadline.
+	resolutionDeferMargin = time.Second * 15
 	// defaultFlushPeriod is used to derive the resolution grace period when the configured
 	// flush period cannot be parsed
 	defaultFlushPeriod = time.Second * 5
@@ -113,6 +121,11 @@ type FlusherListener interface {
 // the raw service IP, which would leave a degenerate "-|service|-" entity in the backend.
 type ResolutionAwareFlusher interface {
 	IsResolutionPending(connection *ConnectionInfo) bool
+	// FinalizeConnection is called EXACTLY ONCE per connection when it reaches its final state(just
+	// before deletion), so a flusher can record a resolution outcome from the connection's final,
+	// settled attachment instead of guessing at attach time(where a later-arriving identity would be
+	// mis-counted, needing a fragile decrement). It must be idempotent-safe: called once per connection.
+	FinalizeConnection(connection *ConnectionInfo)
 	// UnresolvedReason returns a short category for WHY a connection reached the end of its
 	// lifetime without its real destination being attached, so the periodic summary can attribute
 	// the raw-IP socket pairs to a likely cause(which resolution source / environment did not
@@ -661,6 +674,13 @@ func (c *ConnectionManager) recordConnectionResolveResult(connection *Connection
 	if connection == nil || connection.RPCConnection == nil {
 		return
 	}
+	// notify resolution-aware flushers of the final, settled state ONCE(before any early return
+	// below), so they record the identity outcome from the finalized attachment
+	for _, l := range c.flushListeners {
+		if r, ok := l.(ResolutionAwareFlusher); ok {
+			r.FinalizeConnection(connection)
+		}
+	}
 	remote := connection.RPCConnection.GetRemote()
 	if remote == nil || remote.GetIp() == nil {
 		// the remote address is resolved to a local monitored process, not a raw IP
@@ -804,7 +824,9 @@ func (c *ConnectionManager) RetroResolveBySrc(srcIP string, srcPort uint16) {
 		if !ok || connection.Socket == nil || connection.RPCConnection == nil {
 			return
 		}
-		// only an unresolved client(outbound) leg for this exact source is a candidate
+		// only an unresolved client(outbound) leg for this exact source is a candidate - it gets the
+		// mapping attached here; a DST identity that arrives after the attach is filled at flush time
+		// by isDstIdentityPending, so an already-attached connection needs no re-offer
 		if connection.RPCConnection.Attachment != nil ||
 			connection.Socket.Role != enums.ConnectionRoleClient ||
 			connection.Socket.SrcIP != srcIP || connection.Socket.SrcPort != srcPort {

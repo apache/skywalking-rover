@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package collector
+package ztunnel
 
 import (
 	"bufio"
@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -36,20 +35,21 @@ import (
 )
 
 var (
-	// ZTunnelNetnsPollInterval is the interval of polling the ztunnel admin config dump and metrics
+	// ZTunnelNetnsPollInterval is the interval of polling the ztunnel admin config dump
 	ZTunnelNetnsPollInterval = time.Second * 10
 	// ZTunnelAdminConfigDumpURL is the ztunnel admin address inside the ztunnel pod network namespace
 	ZTunnelAdminConfigDumpURL = "http://127.0.0.1:15000/config_dump"
-	// ZTunnelMetricsURL is the ztunnel prometheus metrics address inside the ztunnel pod network namespace
-	ZTunnelMetricsURL = "http://127.0.0.1:15020/metrics"
-	// ztunnelTCPOpenedMetricName is used to cross-check how many connections the ztunnel have proxied
-	ztunnelTCPOpenedMetricName = "istio_tcp_connections_opened_total"
 )
 
-// ztunnelConfigDump is the subset of the ztunnel admin /config_dump response,
-// the "workloadState" section is reported by the ztunnel in-pod admin handler
-// and contains the per-workload active connections tracked by the ConnectionManager
+// ztunnelConfigDump is the single parse of a ztunnel /config_dump. One body feeds three different
+// indexes(the workload identities, the split-horizon gateways and the active connection mappings),
+// so it is unmarshalled ONCE into this combined view and shared, instead of parsing the same body
+// three times. The "workloadState" section is the per-workload active connections tracked by the
+// ConnectionManager; "workloads"/"services"/"config" back the identity and split-horizon indexes.
 type ztunnelConfigDump struct {
+	Config        ztunnelDumpConfig               `json:"config"`
+	Workloads     []ztunnelWorkloadEntry          `json:"workloads"`
+	Services      []ztunnelServiceEntry           `json:"services"`
 	WorkloadState map[string]ztunnelWorkloadState `json:"workloadState"`
 }
 
@@ -69,7 +69,7 @@ type ztunnelConnection struct {
 	Protocol    string `json:"protocol"`
 }
 
-func (z *ZTunnelCollector) startNetnsPollers() {
+func (z *Collector) startNetnsPollers() {
 	if z.pollersStarted || z.collectingProcess.Load() == nil {
 		return
 	}
@@ -102,21 +102,18 @@ func (z *ZTunnelCollector) startNetnsPollers() {
 	}()
 }
 
-// runNetnsPollCycle runs one admin-dump + metrics poll inside the ztunnel network namespace and
+// runNetnsPollCycle runs one admin config-dump poll inside the ztunnel network namespace and
 // returns false if the collector is shutting down. The netns work runs in a throwaway goroutine:
 // RunInNetNS may fail to switch the OS thread back to the original namespace and then keep it
 // locked so the Go runtime discards it - but that only happens when the goroutine EXITS, so doing
 // each cycle in its own goroutine lets a poisoned thread be discarded instead of pinning this
 // long-lived poller in the ztunnel namespace.
-func (z *ZTunnelCollector) runNetnsPollCycle() bool {
+func (z *Collector) runNetnsPollCycle() bool {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := z.pollAdminConnectionDump(); err != nil {
-			ztunnelLog.Warnf("failed to poll the ztunnel admin connection dump: %v", err)
-		}
-		if err := z.pollZTunnelMetrics(); err != nil {
-			ztunnelLog.Warnf("failed to poll the ztunnel metrics: %v", err)
+		if err := z.pollAdminConfigDump(); err != nil {
+			ztunnelLog.Warnf("failed to poll the ztunnel admin config dump: %v", err)
 		}
 	}()
 	select {
@@ -127,20 +124,37 @@ func (z *ZTunnelCollector) runNetnsPollCycle() bool {
 	}
 }
 
-// pollAdminConnectionDump reads the active connections tracked by the ztunnel ConnectionManager
-// through the admin API, and feeds the outbound (src, originalDst) -> actualDst mappings into
-// the IP mapping cache, the same cache the uprobe based event fills. This works without any
-// dependency on the ztunnel binary symbols, but only contains the connections still alive.
-func (z *ZTunnelCollector) pollAdminConnectionDump() error {
+// pollAdminConfigDump fetches the ztunnel /config_dump ONCE and refreshes everything derived from
+// it: the IP -> identity index, the split-horizon gateway index, and the active outbound connection
+// mappings. Parsing the(potentially large) body a single time and fanning the parsed dump out to
+// the three consumers is why this is not three separate polls. It works without any dependency on
+// the ztunnel binary symbols, but only sees the connections still alive.
+func (z *Collector) pollAdminConfigDump() error {
 	body, err := z.httpGetInZTunnelNetNS(ZTunnelAdminConfigDumpURL)
 	if err != nil {
 		return err
 	}
 	dump := &ztunnelConfigDump{}
 	if err := json.Unmarshal(body, dump); err != nil {
-		return fmt.Errorf("unmarshal the config dump error: %w", err)
+		return fmt.Errorf("unmarshal the ztunnel config dump: %w", err)
 	}
+	// Refresh the IP -> identity index. It is not read for the DST_*/PEER_* additions(those come
+	// from the identity cache the uprobe/access-log fill), but it is the known-good data runtime
+	// calibration recognises the ConnectionResult field offsets by, so it is kept current on any
+	// node whose ztunnel is not covered by the pre-generated offset table.
+	z.refreshWorkloadIdentities(dump)
+	// the cross-network(east-west gateway) destination index: it decides whether an outbound DST_*
+	// addition describes the remote workload or the gateway it goes through.
+	z.refreshSplitHorizonGateways(dump)
+	// the outbound (src, originalDst) -> actualDst mappings, into the same IP mapping cache the
+	// uprobe based event fills.
+	z.applyAdminConnectionMappings(dump)
+	return nil
+}
 
+// applyAdminConnectionMappings feeds the config_dump's per-workload OUTBOUND connections into the
+// IP mapping cache and records the alive inbound count for stats.
+func (z *Collector) applyAdminConnectionMappings(dump *ztunnelConfigDump) {
 	var aliveInboundCount int64
 	for _, workload := range dump.WorkloadState {
 		if workload.Connections == nil {
@@ -181,25 +195,9 @@ func (z *ZTunnelCollector) pollAdminConnectionDump() error {
 	}
 	// gauge semantic: the count of alive inbound connections seen in the latest poll
 	z.adminInboundSeenCount.Store(aliveInboundCount)
-	return nil
 }
 
-// pollZTunnelMetrics reads the total proxied connection count from the ztunnel prometheus
-// metrics, used as a cross-check signal in the periodic stats log: when the ztunnel keeps
-// opening connections but the agent attaches no ztunnel mapping, the correlation is broken
-func (z *ZTunnelCollector) pollZTunnelMetrics() error {
-	body, err := z.httpGetInZTunnelNetNS(ZTunnelMetricsURL)
-	if err != nil {
-		return err
-	}
-	sum, found := sumPrometheusCounter(string(body), ztunnelTCPOpenedMetricName)
-	if found {
-		z.metricsOpenedConnections.Store(int64(sum))
-	}
-	return nil
-}
-
-func (z *ZTunnelCollector) httpGetInZTunnelNetNS(rawURL string) ([]byte, error) {
+func (z *Collector) httpGetInZTunnelNetNS(rawURL string) ([]byte, error) {
 	proc := z.collectingProcess.Load()
 	if proc == nil {
 		return nil, fmt.Errorf("no ztunnel process is collecting")
@@ -264,33 +262,4 @@ func parseZTunnelAddress(addr string) (ip string, port int, err error) {
 		return "", 0, err
 	}
 	return ip, port, nil
-}
-
-// sumPrometheusCounter sums all samples of the given counter family
-// from a prometheus text format payload
-func sumPrometheusCounter(body, metricName string) (float64, bool) {
-	var sum float64
-	var found bool
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.HasPrefix(line, metricName) {
-			continue
-		}
-		// require a metric-name boundary after the prefix so a sibling series that
-		// merely starts with the same name(e.g. <name>_created, <name>_bucket) is not
-		// summed in: the counter name is followed by '{'(labels) or whitespace
-		if rest := line[len(metricName):]; rest != "" && rest[0] != '{' && rest[0] != ' ' && rest[0] != '\t' {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		value, err := strconv.ParseFloat(fields[len(fields)-1], 64)
-		if err != nil {
-			continue
-		}
-		sum += value
-		found = true
-	}
-	return sum, found
 }

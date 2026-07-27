@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package collector
+package ztunnel
 
 import (
 	"encoding/json"
@@ -40,10 +40,10 @@ func TestExtractLogField(t *testing.T) {
 }
 
 func TestHandleAccessLogLine(t *testing.T) {
-	srcKey := func(z *ZTunnelCollector) string { return z.buildSrcOnlyCacheKey("10.0.0.5", 45000) }
+	srcKey := func(z *Collector) string { return z.buildSrcOnlyCacheKey("10.0.0.5", 45000) }
 
 	t.Run("json outbound connection complete fills the src-only mapping", func(t *testing.T) {
-		z := NewZTunnelCollector(time.Minute)
+		z := NewCollector(time.Minute)
 		z.handleAccessLogLine(`2024-01-01T00:00:00Z stdout F {"src.addr":"10.0.0.5:45000",` +
 			`"dst.hbone_addr":"10.244.0.20:9080","direction":"outbound","message":"connection complete"}` + "\n")
 		obj, ok := z.ipMappingCache.Get(srcKey(z))
@@ -60,7 +60,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 	})
 
 	t.Run("dst.hbone_addr is preferred but falls back to dst.addr", func(t *testing.T) {
-		z := NewZTunnelCollector(time.Minute)
+		z := NewCollector(time.Minute)
 		z.handleAccessLogLine(`2024-01-01T00:00:00Z stdout F {"src.addr":"10.0.0.5:45000",` +
 			`"dst.addr":"10.244.0.30:9080","direction":"outbound","message":"connection opened"}` + "\n")
 		obj, ok := z.ipMappingCache.Get(srcKey(z))
@@ -70,7 +70,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 	})
 
 	t.Run("plain istio key=value format is parsed", func(t *testing.T) {
-		z := NewZTunnelCollector(time.Minute)
+		z := NewCollector(time.Minute)
 		z.handleAccessLogLine("2024-01-01T00:00:00Z stdout F 2024-01-01\tinfo\taccess\tconnection complete " +
 			"src.addr=10.0.0.5:45000 dst.hbone_addr=10.244.0.20:9080 direction=\"outbound\"\n")
 		if _, ok := z.ipMappingCache.Get(srcKey(z)); !ok {
@@ -79,7 +79,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 	})
 
 	t.Run("docker json-file runtime format is parsed", func(t *testing.T) {
-		z := NewZTunnelCollector(time.Minute)
+		z := NewCollector(time.Minute)
 		// the legacy docker json-file runtime wraps each line as {"log":"<payload>\n","stream":..,"time":..}
 		inner := `{"src.addr":"10.0.0.5:45000","dst.hbone_addr":"10.244.0.20:9080",` +
 			`"direction":"outbound","message":"connection complete"}`
@@ -107,7 +107,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 	}
 	for _, c := range reject {
 		t.Run("reject "+c.name, func(t *testing.T) {
-			z := NewZTunnelCollector(time.Minute)
+			z := NewCollector(time.Minute)
 			z.handleAccessLogLine(c.line + "\n")
 			if z.ipMappingCache.Len() != 0 {
 				t.Fatalf("expected no cache entry for a rejected line: %q", c.line)
@@ -116,7 +116,7 @@ func TestHandleAccessLogLine(t *testing.T) {
 	}
 
 	t.Run("does not overwrite a live uprobe mapping", func(t *testing.T) {
-		z := NewZTunnelCollector(time.Minute)
+		z := NewCollector(time.Minute)
 		key := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
 		z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{IP: "10.244.0.99", Port: 9080, Source: sourceConnectionResult}, time.Minute)
 		z.handleAccessLogLine(`2024-01-01T00:00:00Z stdout F {"src.addr":"10.0.0.5:45000",` +
@@ -127,4 +127,23 @@ func TestHandleAccessLogLine(t *testing.T) {
 			t.Fatalf("the access-log fallback must not overwrite a live uprobe mapping, got %+v", addr)
 		}
 	})
+}
+
+func TestScopedGlobForNewest(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"ztunnel pod log(uuid uid)",
+			"/host/var/log/pods/istio-system_ztunnel-qsd94_c84842f6-0216-4812-a51a-053d4ca3e646/istio-proxy/0.log",
+			"/host/var/log/pods/istio-system_ztunnel-qsd94_c84842f6-0216-4812-a51a-053d4ca3e646/*/*.log"},
+		{"rotated file(1.log)",
+			"/var/log/pods/istio-system_ztunnel-a-b-c_deadbeef/ztunnel/3.log",
+			"/var/log/pods/istio-system_ztunnel-a-b-c_deadbeef/*/*.log"},
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := scopedGlobForNewest(c.in); got != c.want {
+				t.Fatalf("scopedGlobForNewest(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
 }

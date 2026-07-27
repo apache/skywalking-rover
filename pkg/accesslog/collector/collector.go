@@ -18,6 +18,7 @@
 package collector
 
 import (
+	"github.com/apache/skywalking-rover/pkg/accesslog/collector/ztunnel"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/module"
 )
@@ -28,12 +29,15 @@ type Collector interface {
 }
 
 func Collectors() []Collector {
+	// One ztunnel collector serves as both a connection filter(OnConnectEvent) and a collector,
+	// so it is built once and used in both slots.
+	ztunnelCollector := ztunnel.NewCollector(ztunnel.ZTunnelIPMappingExpireDuration)
 	return []Collector{
 		l24CollectorsInstance,
 		transferCollectInstance,
-		NewConnectionCollector([]CollectFilter{zTunnelCollectInstance}),
+		NewConnectionCollector([]CollectFilter{ztunnelCollector}),
 		tlsCollectInstance,
 		processCollectInstance,
-		zTunnelCollectInstance,
+		ztunnelCollector,
 	}
 }

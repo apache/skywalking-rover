@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package collector
+package ztunnel
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -86,10 +88,8 @@ var (
 // without turning on the high volume accesslog.collector.* debug logs.
 var ztunnelLog = logger.GetLogger("accesslog", "collector", "ztunnel")
 
-var zTunnelCollectInstance = NewZTunnelCollector(ZTunnelIPMappingExpireDuration)
-
-// ZTunnelCollector is a collector for ztunnel process in the Ambient Istio scenario
-type ZTunnelCollector struct {
+// Collector is a collector for ztunnel process in the Ambient Istio scenario
+type Collector struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	alc    *common.AccessLogContext
@@ -100,6 +100,17 @@ type ZTunnelCollector struct {
 	collectingProcess       atomic.Pointer[process.Process]
 	ipMappingCache          *cache.Expiring
 	ipMappingExpireDuration time.Duration
+
+	// seenEventSrcs is a DIAGNOSTIC(5min TTL) of the source addresses for which ANY ztunnel mapping
+	// event(track_outbound or ConnectionResult) was received, so UnresolvedReason can split a miss
+	// into "an event WAS seen for this src but did not resolve the connection"(key mismatch /
+	// lifecycle race - the fixable case) vs "NO event was ever seen for this src"(a capture gap).
+	seenEventSrcs *cache.Expiring
+
+	// accessLogSeenSrcs is the src keys for which an outbound access-log line was parsed(WITH OR
+	// WITHOUT a usable identity), so isDstIdentityPending stops deferring once the line has arrived:
+	// a connection whose line carried no identity should not wait out the whole grace for nothing.
+	accessLogSeenSrcs *cache.Expiring
 
 	// counters for observability of the ztunnel correlation pipeline
 	mappingEventCount   atomic.Int64
@@ -120,9 +131,17 @@ type ZTunnelCollector struct {
 	// everything and it therefore never wins a resolution
 	accessLogParsedCount atomic.Int64
 
+	// identitySource is the uprobe path that reads connection identities straight out of
+	// ztunnel's ConnectionResult. It is the PRIMARY source; the access-log tailer below only
+	// runs when this path cannot cover a build(see ztunnelIdentitySource).
+	identitySource *ztunnelIdentitySource
+
 	// admin/metrics pollers inside the ztunnel network namespace
 	pollersStarted bool
-	// accessLogTailerStarted guards the one-time start of the ztunnel access-log fallback tailer
+	// accessLogTailerStarted guards the one-time start of the ztunnel access-log fallback tailer.
+	// It is now reachable from the identity-probe event goroutines(which start the tailer when
+	// they give up on the uprobe path), so it is guarded rather than a bare bool.
+	accessLogTailerMutex   sync.Mutex
 	accessLogTailerStarted bool
 	// accessLogBacklogCutoff is set at tailer start; ztunnel access-log lines timestamped before it
 	// are the pre-agent backlog(connections proxied before this agent and its uprobes existed, which
@@ -134,29 +153,72 @@ type ZTunnelCollector struct {
 	accessLogBacklogSkipped   atomic.Int64
 	adminOutboundMappingCount atomic.Int64
 	adminInboundSeenCount     atomic.Int64
-	metricsOpenedConnections  atomic.Int64
 
 	// count of connect events observed from the ztunnel process itself, used to
 	// diagnose whether the BPF `tgid_is_ztunnel` gate is actually capturing the
 	// ztunnel's connect() to the local workload(the inbound correlation source)
 	ztunnelConnectEventSeen  atomic.Int64
 	ztunnelInboundTaggedSeen atomic.Int64
+
+	// workloadIdentities is the IP -> identity index built from the ztunnel admin /config_dump
+	// "workloads" section, refreshed on every admin poll. It is the known-good truth runtime
+	// calibration recognises the ConnectionResult field offsets by(see calibrationTruth).
+	workloadIdentities atomic.Pointer[map[string]*WorkloadIdentity]
+	// splitHorizonGateways is the network-scoped VIP -> east-west gateway namespace index built from
+	// the config_dump "services" section, refreshed on every admin poll. A destination found here is
+	// only reachable through a REMOTE network's gateway, so the DST_* addition describes that gateway
+	// instead of the remote workload(see eastWestGatewayServiceAccount).
+	splitHorizonGateways atomic.Pointer[splitHorizonIndex]
+	// dstIdentityCache is the outbound DST_* source: the destination identity parsed from an
+	// access-log line's dst.identity/dst.cluster, keyed by the downstream source(same src-only key
+	// as the lb mapping) - a reliable join since the app's ephemeral source is unique per connection.
+	dstIdentityCache *cache.Expiring
+	// peerIdentityCache is the inbound PEER_* source: the ORIGINAL client identity parsed from an
+	// inbound access-log line's src.identity/src.cluster, keyed by the source IP(the L3 peer). This
+	// is a BEST-EFFORT join: connections from the same source IP share it, which is correct when that
+	// IP is a single workload but can mis-attribute when many identities sit behind one IP(a
+	// cross-cluster east-west gateway) - accepted deliberately in place of the config_dump lookup.
+	peerIdentityCache *cache.Expiring
+	// accessLogFollowing reports that the tailer currently has a ztunnel access log open and is
+	// following it, i.e. an access-log line can still arrive for any connection on this node. This -
+	// NOT "a line was parsed recently" - is what gates the DST identity deferral: on a quiet node the
+	// only line that would prove logging is on is the connection's OWN line, which arrives after the
+	// flush decision, so a recency test would leave every first-after-idle connection unprotected.
+	accessLogFollowing atomic.Bool
+
+	// identity-addition observability: resolved(from the identity cache the uprobe/access-log fill)
+	// vs missed, for the outbound DST_* and inbound PEER_* legs
+	dstIdentityByAccessLog  atomic.Int64
+	dstIdentityMissed       atomic.Int64
+	peerIdentityByAccessLog atomic.Int64
+	peerIdentityMissed      atomic.Int64
 }
 
-func NewZTunnelCollector(expireTime time.Duration) *ZTunnelCollector {
-	return &ZTunnelCollector{
+func NewCollector(expireTime time.Duration) *Collector {
+	collector := newZTunnelCollector(expireTime)
+	collector.identitySource = newZTunnelIdentitySource(collector)
+	return collector
+}
+
+func newZTunnelCollector(expireTime time.Duration) *Collector {
+	return &Collector{
 		ipMappingCache:          cache.NewExpiring(),
+		dstIdentityCache:        cache.NewExpiring(),
+		peerIdentityCache:       cache.NewExpiring(),
 		ipMappingExpireDuration: expireTime,
+		seenEventSrcs:           cache.NewExpiring(),
+		accessLogSeenSrcs:       cache.NewExpiring(),
 		resolvedBySource: map[ztunnelMappingSource]*atomic.Int64{
 			sourceTrackOutbound:    new(atomic.Int64),
 			sourceConnectionResult: new(atomic.Int64),
+			sourceRecordInternal:   new(atomic.Int64),
 			sourceAccessLog:        new(atomic.Int64),
 			sourceAdminDump:        new(atomic.Int64),
 		},
 	}
 }
 
-func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
+func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
 	z.ctx, z.cancel = context.WithCancel(ctx.RuntimeContext)
 	z.alc = ctx
 	ctx.ConnectionMgr.RegisterNewFlushListener(z)
@@ -180,6 +242,10 @@ func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 		localPort := event.OriginalSrcPort
 		lbIP := z.convertBPFIPToString(event.LoadBalancedDestIP)
 		z.mappingEventCount.Add(1)
+		// diagnostic: mark that a ztunnel mapping event(any type) was seen for this source
+		if event.OriginalSrcIP != 0 && event.OriginalSrcPort != 0 {
+			z.seenEventSrcs.Set(z.buildSrcOnlyCacheKey(localIP, int(localPort)), struct{}{}, 5*time.Minute)
+		}
 
 		// A ConnectionResult::new event has no original service ClusterIP(OriginalDestIP == 0):
 		// it carries only the (downstream src -> real pod) pair and is keyed by the source
@@ -235,7 +301,7 @@ func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 	})
 	go func() {
 		ticker := time.NewTicker(ZTunnelProcessFinderInterval)
-		var lastMissCount, lastEmptyCacheMissCount int64
+		var lastMissCount, lastEmptyCacheMissCount, lastIdentityMissed, lastIdentityResolved int64
 		for {
 			select {
 			case <-ticker.C:
@@ -244,21 +310,26 @@ func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 					ztunnelLog.Error("failed to find and collect ztunnel process: ", err)
 				}
 				missCount, emptyCacheMissCount := z.mappingMissCount.Load(), z.emptyCacheMissCount.Load()
+				identityMissed := z.dstIdentityMissed.Load() + z.peerIdentityMissed.Load()
+				identityResolved := z.dstIdentityByAccessLog.Load() + z.peerIdentityByAccessLog.Load()
 				logFunc := ztunnelLog.Debugf
-				// promote to info level when new un-correlated connections appeared in this interval,
-				// so the resolve failures are visible without enabling the debug level
-				if missCount > lastMissCount || emptyCacheMissCount > lastEmptyCacheMissCount {
+				// promote to info level when new un-correlated connections, or newly resolved/unresolved
+				// peer identities, appeared in this interval, so both the correlation failures AND the
+				// identity(DST_*/PEER_*) bindings are visible at INFO without enabling the per-event debug
+				if missCount > lastMissCount || emptyCacheMissCount > lastEmptyCacheMissCount ||
+					identityMissed > lastIdentityMissed || identityResolved > lastIdentityResolved {
 					logFunc = ztunnelLog.Infof
 				}
 				logFunc("ztunnel correlation stats: uprobe mapping events received: %d, invalid mappings dropped: %d, "+
 					"admin dump outbound mappings: %d, admin dump inbound connections seen: %d, ztunnel-pid connect events seen: %d, "+
 					"inbound legs tagged: %d, attach hits: %d, attach misses: %d, empty cache misses: %d, "+
-					"ztunnel reported opened connections(metrics): %d, resolution by source: {%s}",
+					"resolution by source: {%s}, identity additions: {%s}, identity uprobe: {%s}",
 					z.mappingEventCount.Load(), z.invalidMappingCount.Load(), z.adminOutboundMappingCount.Load(),
 					z.adminInboundSeenCount.Load(), z.ztunnelConnectEventSeen.Load(), z.ztunnelInboundTaggedSeen.Load(),
-					z.mappingHitCount.Load(), missCount, emptyCacheMissCount, z.metricsOpenedConnections.Load(),
-					z.resolutionSourceStats())
+					z.mappingHitCount.Load(), missCount, emptyCacheMissCount,
+					z.resolutionSourceStats(), z.identityStats(), z.identitySource.stats())
 				lastMissCount, lastEmptyCacheMissCount = missCount, emptyCacheMissCount
+				lastIdentityMissed, lastIdentityResolved = identityMissed, identityResolved
 			case <-z.ctx.Done():
 				ticker.Stop()
 				return
@@ -266,14 +337,27 @@ func (z *ZTunnelCollector) Start(_ *module.Manager, ctx *common.AccessLogContext
 		}
 	}()
 
-	// start the symbol-independent access-log fallback tailer(best-effort: idles if the log
-	// file is not mounted / access logging is off), so a ztunnel build where both uprobes
-	// fail to attach still resolves the ClusterIP hops
-	z.startAccessLogTailer()
+	// The identity uprobe emits a raw ConnectionResult snapshot per completed connection. These
+	// events replace what the access-log tailer used to read - both the identities and the
+	// (source -> real pod) mapping - so the tailer is NOT started here any more: it is started
+	// only when this path cannot cover the ztunnel build on this node(see ztunnelIdentitySource).
+	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelConnectionResultEventQueue, func(data interface{}) {
+		z.identitySource.HandleEvent(data.(*events.ZTunnelConnectionResultEvent))
+	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+		return &events.ZTunnelConnectionResultEvent{}
+	})
+	// the COMPACT queue carries the lean event the probe ships once user space has pushed the
+	// resolved offsets(see ztunnelIdentitySource.pushOffsetsConfig): same identities, ~88 bytes
+	// instead of ~520, so a busy ztunnel loses far fewer samples under perf-buffer pressure
+	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelConnectionResultCompactEventQueue, func(data interface{}) {
+		z.identitySource.HandleCompactEvent(data.(*events.ZTunnelConnectionResultCompactEvent))
+	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+		return &events.ZTunnelConnectionResultCompactEvent{}
+	})
 	return nil
 }
 
-func (z *ZTunnelCollector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.SocketPair) bool {
+func (z *Collector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.SocketPair) bool {
 	proc := z.collectingProcess.Load()
 	if proc == nil || e == nil || s == nil || uint32(proc.Pid) != e.PID {
 		return true
@@ -299,8 +383,13 @@ func (z *ZTunnelCollector) OnConnectEvent(e *events.SocketConnectEvent, s *ip.So
 	return false
 }
 
-func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ events.Event) {
-	if connection == nil || connection.Socket == nil || connection.RPCConnection == nil || connection.RPCConnection.Attachment != nil {
+func (z *Collector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ events.Event) {
+	if connection == nil || connection.Socket == nil || connection.RPCConnection == nil {
+		return
+	}
+	// already attached: nothing to do here. A DST identity that arrives after the attachment is filled
+	// lazily at flush time by isDstIdentityPending(which holds the flush until the Addition is present).
+	if connection.RPCConnection.Attachment != nil {
 		return
 	}
 	if z.ipMappingCache.Len() == 0 {
@@ -337,17 +426,18 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 	}
 	ztunnelLog.Debugf("found the ztunnel load balanced IP for the connection: %s(source: %s), connectionID: %d, randomID: %d",
 		address.String(), address.Source, connection.ConnectionID, connection.RandomID)
-	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_NONE
-	// if the target port is 15008, this mean ztunnel have use mTLS
-	if address.From == v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC && address.Port == 15008 {
-		securityPolicy = v3.ZTunnelAttachmentSecurityPolicy_MTLS
-	}
+	// if the connection with ztunnel, then the security policy should be mTLS
+	securityPolicy := v3.ZTunnelAttachmentSecurityPolicy_MTLS
+	// resolve the peer identity(DST_* for outbound, PEER_* for inbound) and carry it in the
+	// attachment Addition alongside the real destination; a nil addition simply attaches none
+	addition := z.buildConnectionAddition(connection, address)
 	connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
 		Environment: &v3.ConnectionAttachment_ZTunnel{
 			ZTunnel: &v3.ZTunnelAttachmentEnvironment{
 				RealDestinationIp: address.IP,
 				By:                address.From,
 				SecurityPolicy:    securityPolicy,
+				Addition:          addition,
 			},
 		},
 	}
@@ -374,7 +464,7 @@ func (z *ZTunnelCollector) ReadyToFlushConnection(connection *common.ConnectionI
 // not-yet-attached, not-conntrack-resolved remote qualifies - and is bounded by the
 // per-connection grace deadline in ShouldDeferForResolution so a genuinely external
 // destination is delayed at most one grace period.
-func (z *ZTunnelCollector) IsResolutionPending(connection *common.ConnectionInfo) bool {
+func (z *Collector) IsResolutionPending(connection *common.ConnectionInfo) bool {
 	// only meaningful while a ztunnel is actually being collected on this node, otherwise
 	// no mapping will ever arrive and deferring would only add latency
 	if z.collectingProcess.Load() == nil {
@@ -383,9 +473,10 @@ func (z *ZTunnelCollector) IsResolutionPending(connection *common.ConnectionInfo
 	if connection == nil || connection.RPCConnection == nil || connection.Socket == nil {
 		return false
 	}
-	// already correlated to the real destination
+	// the ztunnel lb mapping(real destination) is attached, but the access-log DST identity Addition
+	// may still be catching up - hold the flush until it is present(see isDstIdentityPending)
 	if connection.RPCConnection.Attachment != nil {
-		return false
+		return z.isDstIdentityPending(connection)
 	}
 	// only the client(outbound) leg goes through the ztunnel outbound lb mapping
 	if connection.Socket.Role != enums.ConnectionRoleClient {
@@ -404,10 +495,93 @@ func (z *ZTunnelCollector) IsResolutionPending(connection *common.ConnectionInfo
 	return true
 }
 
+// isDstIdentityPending reports whether an attached OUTBOUND connection must be held because its DST
+// identity Addition is not yet on the attachment. The identity lags the fast uprobe mapping(it comes
+// from the 1s-poll access-log tailer), and the connection proto - with the Addition - is sent to OAP
+// only once, with the connection's first log; so the flush must wait until the Addition is present or
+// OAP never gets it. When the identity is already cached this FILLS the Addition right here(in the
+// flush goroutine, immediately before the log is built) so the send carries it with no cross-goroutine
+// race. Gated on accessLogEnabled(): with no access log there is nothing to wait for.
+func (z *Collector) isDstIdentityPending(connection *common.ConnectionInfo) bool {
+	if !z.accessLogEnabled() || connection.Socket == nil {
+		return false
+	}
+	ztun := connection.RPCConnection.GetAttachment().GetZTunnel()
+	if ztun == nil || ztun.GetBy() != v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC {
+		return false
+	}
+	// DST_CLUSTER - not "the Addition is non-empty" - is what proves the identity has settled: for a
+	// cross-network destination the gateway namespace/account are filled from the config_dump at
+	// attach time, so a non-empty test would release the connection to OAP before the cluster(which
+	// only ever arrives on the access log) has landed.
+	if additionHasKey(ztun.GetAddition(), "DST_CLUSTER") {
+		return false
+	}
+	key := z.buildSrcOnlyCacheKey(connection.Socket.SrcIP, int(connection.Socket.SrcPort))
+	id := z.resolveDstIdentity(connection)
+	// settle once the cluster is known, or once the outbound line was already parsed(with or without
+	// a cluster) so nothing more is coming; otherwise defer, bounded by the resolution grace
+	_, lineSeen := z.accessLogSeenSrcs.Get(key)
+	if (id != nil && id.Cluster != "") || lineSeen {
+		if id != nil {
+			// REBUILD the attachment with the identity filled instead of mutating the shared Addition
+			// slice in place: the sender goroutine may be marshaling this same
+			// *ZTunnelAttachmentEnvironment from an already-dispatched batch, and an in-place
+			// slice-header write would be a torn read for it. A whole-pointer swap(the same pattern as
+			// rebuildRPCConnectionWithTLSModeAndProtocol) is safe.
+			connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
+				Environment: &v3.ConnectionAttachment_ZTunnel{
+					ZTunnel: &v3.ZTunnelAttachmentEnvironment{
+						RealDestinationIp: ztun.GetRealDestinationIp(),
+						By:                ztun.GetBy(),
+						SecurityPolicy:    ztun.GetSecurityPolicy(),
+						Addition:          identityToKVs("DST", id),
+					},
+				},
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// FinalizeConnection implements common.ResolutionAwareFlusher: it records the DST/PEER identity
+// outcome ONCE, from the connection's settled attachment at end of life. Counting here(not at attach)
+// is what lets an access-log identity that arrives AFTER the fast uprobe attachment count as a hit
+// without a decrement: a filled addition is a hit, an addition still empty at finalize is a miss.
+// A connection with no ztunnel attachment is a mapping miss(counted separately), not an identity one.
+func (z *Collector) FinalizeConnection(connection *common.ConnectionInfo) {
+	if connection == nil || connection.RPCConnection == nil {
+		return
+	}
+	ztun := connection.RPCConnection.GetAttachment().GetZTunnel()
+	if ztun == nil {
+		return
+	}
+	resolved := len(ztun.GetAddition()) > 0
+	switch ztun.GetBy() {
+	case v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_OUTBOUND_FUNC:
+		// the outbound leg is only a hit once DST_CLUSTER is there: a cross-network destination
+		// carries the gateway namespace/account from the config_dump regardless of whether the access
+		// log ever landed, so counting "non-empty" would silently report those misses as hits
+		if additionHasKey(ztun.GetAddition(), "DST_CLUSTER") {
+			z.dstIdentityByAccessLog.Add(1)
+		} else {
+			z.dstIdentityMissed.Add(1)
+		}
+	case v3.ZTunnelAttachmentEnvironmentDetectBy_ZTUNNEL_INBOUND_FUNC:
+		if resolved {
+			z.peerIdentityByAccessLog.Add(1)
+		} else {
+			z.peerIdentityMissed.Add(1)
+		}
+	}
+}
+
 // UnresolvedReason implements common.ResolutionAwareFlusher: it categorizes WHY a connection that
 // reached the end of its lifetime without a ztunnel attachment is still unresolved, so the periodic
 // resolve summary can point at the environment/source that did not provide the mapping.
-func (z *ZTunnelCollector) UnresolvedReason(connection *common.ConnectionInfo) string {
+func (z *Collector) UnresolvedReason(connection *common.ConnectionInfo) string {
 	if z.collectingProcess.Load() == nil {
 		// no ztunnel process was discovered on this node, so the ambient outbound mapping can never
 		// exist here - from this agent's point of view the remote is genuinely just a raw IP
@@ -425,10 +599,16 @@ func (z *ZTunnelCollector) UnresolvedReason(connection *common.ConnectionInfo) s
 	}
 	// ztunnel is collecting and mappings exist, but none matched this socket(neither the src+dst
 	// track_outbound key nor the src-only ConnectionResult / access-log key) before the connection
-	// reached the end of its lifetime: the correlation gap is on the event-capture side - ztunnel
-	// emitted no usable event for this source(a track_outbound early-return AND no ConnectionResult,
-	// or a BPF miss).
-	return "no-ztunnel-mapping-for-socket"
+	// reached the end of its lifetime. Split by whether ANY mapping event was ever seen for this
+	// source: an event WAS seen but did not apply(key mismatch / lifecycle race - the fixable case)
+	// vs NO event was ever seen(a track_outbound early-return AND no ConnectionResult, or a BPF miss).
+	if connection.Socket != nil {
+		diagKey := z.buildSrcOnlyCacheKey(connection.Socket.SrcIP, int(connection.Socket.SrcPort))
+		if _, seen := z.seenEventSrcs.Get(diagKey); seen {
+			return "ztunnel-event-seen-but-unapplied"
+		}
+	}
+	return "no-ztunnel-event-for-src"
 }
 
 // retroResolve pushes a just-cached source mapping to any connection still held in the manager for
@@ -443,18 +623,18 @@ func ztunnelMappingQueueParallels() int {
 	return ztunnelMappingQueueMinParallels
 }
 
-func (z *ZTunnelCollector) retroResolve(srcIP string, srcPort uint16) {
+func (z *Collector) retroResolve(srcIP string, srcPort uint16) {
 	if z.alc == nil || z.alc.ConnectionMgr == nil {
 		return
 	}
 	z.alc.ConnectionMgr.RetroResolveBySrc(srcIP, srcPort)
 }
 
-func (z *ZTunnelCollector) convertBPFIPToString(ipAddr uint32) string {
+func (z *Collector) convertBPFIPToString(ipAddr uint32) string {
 	return fmt.Sprintf("%d.%d.%d.%d", ipAddr>>24, ipAddr>>16&0xff, ipAddr>>8&0xff, ipAddr&0xff)
 }
 
-func (z *ZTunnelCollector) buildIPMappingCacheKey(localIP string, localPort int, remoteIP string, remotePort int) string {
+func (z *Collector) buildIPMappingCacheKey(localIP string, localPort int, remoteIP string, remotePort int) string {
 	return fmt.Sprintf("%s:%d-%s:%d", localIP, localPort, remoteIP, remotePort)
 }
 
@@ -462,19 +642,19 @@ func (z *ZTunnelCollector) buildIPMappingCacheKey(localIP string, localPort int,
 // ConnectionResult::new source(which carries the real pod but no original service ClusterIP,
 // so it cannot be keyed by src+dst like track_outbound). The "src:" prefix keeps it in a
 // distinct namespace from the src+dst keys.
-func (z *ZTunnelCollector) buildSrcOnlyCacheKey(localIP string, localPort int) string {
+func (z *Collector) buildSrcOnlyCacheKey(localIP string, localPort int) string {
 	return fmt.Sprintf("src:%s:%d", localIP, localPort)
 }
 
 // resolutionSourceOrder fixes the print order of the per-source shares in the stats line.
 var resolutionSourceOrder = []ztunnelMappingSource{
-	sourceTrackOutbound, sourceConnectionResult, sourceAccessLog, sourceAdminDump,
+	sourceTrackOutbound, sourceConnectionResult, sourceRecordInternal, sourceAccessLog, sourceAdminDump,
 }
 
 // resolutionSourceStats reports the share each redundant source contributed to the resolved
 // connections, plus how many mappings the access-log fallback tailer parsed(its liveness even
 // when the uprobes win every resolution).
-func (z *ZTunnelCollector) resolutionSourceStats() string {
+func (z *Collector) resolutionSourceStats() string {
 	var total int64
 	for _, s := range resolutionSourceOrder {
 		total += z.resolvedBySource[s].Load()
@@ -520,13 +700,13 @@ func isPlausibleSrcOnlyMapping(e *events.ZTunnelSocketMappingEvent) bool {
 	return e.LoadBalancedDestIP>>24 != 127
 }
 
-func (z *ZTunnelCollector) Stop() {
+func (z *Collector) Stop() {
 	if z.cancel != nil {
 		z.cancel()
 	}
 }
 
-func (z *ZTunnelCollector) findZTunnelProcessAndCollect() error {
+func (z *Collector) findZTunnelProcessAndCollect() error {
 	if current := z.collectingProcess.Load(); current != nil {
 		running, err := current.IsRunning()
 		if err == nil && running {
@@ -576,7 +756,7 @@ func (z *ZTunnelCollector) findZTunnelProcessAndCollect() error {
 	return nil
 }
 
-func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
+func (z *Collector) collectZTunnelProcess(p *process.Process) error {
 	pidExeFile := host.GetHostProcInHost(fmt.Sprintf("%d/exe", p.Pid))
 	elfFile, err := elf.NewFile(pidExeFile)
 	if err != nil {
@@ -626,6 +806,49 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 	attach(ZTunnelTrackBoundSymbolPrefix, "track outbound", z.alc.BPF.ConnectionManagerTrackOutbound)
 	attach(ZTunnelConnectionResultNewSymbolPrefix, "ConnectionResult::new", z.alc.BPF.ConnectionResultNew)
 
+	// source 3: ConnectionResult::record_internal - the identity probe. Attaching it is only
+	// worth anything once the field offsets for THIS binary are known, so resolve them first and
+	// leave the probe off(and the access-log tailer on) when nothing could be resolved and
+	// calibration is not possible either.
+	identityAttached := 0
+	if !identityUprobeEnabled() {
+		// ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED=false: skip the identity uprobe entirely and read every
+		// connection identity from the ztunnel access log instead. The mapping uprobes above(source 1/2)
+		// still run - only the identity path is forced onto the file tailer - so this exercises the pure
+		// access-log fallback end to end(the e2e uprobe/file matrix uses it).
+		ztunnelLog.Infof("ztunnel identity uprobe disabled by configuration " +
+			"(ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED=false); connection identities will be read from the " +
+			"ztunnel access log")
+		z.startAccessLogTailer()
+	} else if z.prepareIdentityProbe(pidExeFile, p.Pid) {
+		// attach record_internal with links this collector OWNS(not folded into the shared loader
+		// closers), so the identity path can DETACH the probe entirely if it later proves it cannot
+		// decode this ztunnel - removing the interception from ztunnel's hot path, not just dropping
+		// the events. Same "17h" function-only filter the shared attach uses(see its comment).
+		var identityLinks []io.Closer
+		for _, symbol := range elfFile.FilterSymbol(func(name string) bool {
+			return strings.HasPrefix(name, ZTunnelRecordInternalSymbolPrefix+"17h")
+		}, false) {
+			ztunnelLog.Infof("attaching ztunnel ConnectionResult::record_internal symbol: %s", symbol.Name)
+			lk, err := uprobeFile.AddEnterLinkReturningCloser(symbol.Name, z.alc.BPF.ConnectionResultRecordInternal)
+			if err != nil {
+				ztunnelLog.Warnf("failed to attach the ztunnel identity uprobe to %s: %v", symbol.Name, err)
+				continue
+			}
+			if lk != nil {
+				identityLinks = append(identityLinks, lk)
+				identityAttached++
+				attached++
+			}
+		}
+		z.identitySource.setProbeLinks(identityLinks)
+		if identityAttached == 0 {
+			ztunnelLog.Warnf("the ztunnel identity symbol %s was not found in this binary, "+
+				"falling back to reading the ztunnel access log", ZTunnelRecordInternalSymbolPrefix)
+			z.startAccessLogTailer()
+		}
+	}
+
 	if attached == 0 {
 		return fmt.Errorf("failed to find any ztunnel outbound mapping symbol" +
 			"(track_outbound / ConnectionResult::new) in ztunnel process")
@@ -646,10 +869,30 @@ func (z *ZTunnelCollector) collectZTunnelProcess(p *process.Process) error {
 	var armedPid uint32
 	if err = z.alc.BPF.ZtunnelProcessPid.Get(&armedPid); err != nil {
 		ztunnelLog.Warnf("cannot read back the ztunnel process pid from the BPF: %v", err)
+	} else if armedPid != uint32(p.Pid) {
+		// the Set reported success but the gate holds a different pid: the inbound-leg capture
+		// (ztunnel's own connect() to the local workload) would silently target the wrong process.
+		// Surface it loudly instead of leaving "no ztunnel connect captured" to be puzzled over later.
+		ztunnelLog.Warnf("the ztunnel BPF pid gate did not arm with the expected pid: set %d but read "+
+			"back %d; the inbound leg may not be captured", p.Pid, armedPid)
 	} else {
 		ztunnelLog.Infof("armed the ztunnel BPF pid gate, expected pid: %d, read back: %d", p.Pid, armedPid)
 	}
 	return nil
+}
+
+// identityUprobeEnabled reports whether the ztunnel identity uprobe(ConnectionResult::record_internal)
+// should be attached. It is ON by default and turned off only when ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED
+// is explicitly set to a falsey value, in which case every connection identity is read from the ztunnel
+// access log instead. It is an env(not a config-file field) to match the ROVER_* runtime toggles and to
+// stay a single, dependency-free switch the e2e uprobe/file matrix can flip.
+func identityUprobeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED"))) {
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 // ztunnelMappingSource identifies WHICH of the redundant sources produced a cached mapping,

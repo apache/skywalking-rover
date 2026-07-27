@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package collector
+package ztunnel
 
 import (
 	"testing"
@@ -43,7 +43,7 @@ func clientConn(srcIP string, srcPort uint16, dstIP string, dstPort uint16) *com
 }
 
 func TestReadyToFlushConnectionSrcDstHitRetained(t *testing.T) {
-	z := NewZTunnelCollector(time.Minute)
+	z := NewCollector(time.Minute)
 	key := z.buildIPMappingCacheKey("10.0.0.5", 45000, "10.96.0.10", 9080)
 	z.ipMappingCache.Set(key, &ZTunnelLoadBalanceAddress{
 		IP: "10.244.0.20", Port: 9080,
@@ -64,7 +64,7 @@ func TestReadyToFlushConnectionSrcDstHitRetained(t *testing.T) {
 }
 
 func TestReadyToFlushConnectionSrcOnlyFallbackRetainsEntry(t *testing.T) {
-	z := NewZTunnelCollector(time.Minute)
+	z := NewCollector(time.Minute)
 	srcKey := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
 	z.ipMappingCache.Set(srcKey, &ZTunnelLoadBalanceAddress{
 		IP: "10.244.0.21", Port: 15008,
@@ -91,7 +91,7 @@ func TestReadyToFlushConnectionSrcOnlyFallbackRetainsEntry(t *testing.T) {
 }
 
 func TestReadyToFlushConnectionNoMappingLeavesUnattached(t *testing.T) {
-	z := NewZTunnelCollector(time.Minute)
+	z := NewCollector(time.Minute)
 	// a non-empty cache(so the empty-cache short circuit does not fire) with no matching key
 	z.ipMappingCache.Set("src:9.9.9.9:1", &ZTunnelLoadBalanceAddress{IP: "10.244.0.99"}, time.Minute)
 
@@ -103,7 +103,7 @@ func TestReadyToFlushConnectionNoMappingLeavesUnattached(t *testing.T) {
 }
 
 func TestReadyToFlushConnectionAlreadyAttachedIsNoop(t *testing.T) {
-	z := NewZTunnelCollector(time.Minute)
+	z := NewCollector(time.Minute)
 	srcKey := z.buildSrcOnlyCacheKey("10.0.0.5", 45000)
 	z.ipMappingCache.Set(srcKey, &ZTunnelLoadBalanceAddress{IP: "10.244.0.21", Source: sourceConnectionResult}, time.Minute)
 
@@ -159,7 +159,7 @@ func TestIsPlausibleMapping(t *testing.T) {
 }
 
 func TestBuildSrcOnlyCacheKey(t *testing.T) {
-	z := NewZTunnelCollector(time.Minute)
+	z := NewCollector(time.Minute)
 	if got := z.buildSrcOnlyCacheKey("10.0.0.5", 45000); got != "src:10.0.0.5:45000" {
 		t.Fatalf("buildSrcOnlyCacheKey = %q, want src:10.0.0.5:45000", got)
 	}

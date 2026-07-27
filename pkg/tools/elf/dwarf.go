@@ -28,10 +28,15 @@ var ReaderLanguageGolang = 22
 type DwarfReader struct {
 	elfByteOrder binary.ByteOrder
 
-	producer   string
-	language   int
-	functions  map[string]*FunctionInfo
-	structures map[string]*StructureInfo
+	producer  string
+	language  int
+	functions map[string]*FunctionInfo
+	// structures holds EVERY definition seen under a name, in the order they were read. A DWARF
+	// name does not identify a type on its own - Rust records types under their short name, so
+	// one binary can carry several distinct structs called `Spiffe` - so callers that care which
+	// one they get select by member set(see FindStructure), and GetStructure keeps returning the
+	// first definition for those that do not.
+	structures map[string][]*StructureInfo
 	classes    map[string]*ClassInfo
 }
 
@@ -51,8 +56,34 @@ func (r *DwarfReader) GetFunction(name string) *FunctionInfo {
 	return r.functions[name]
 }
 
+// GetStructure returns the first definition read under a name. Prefer FindStructure whenever
+// the name could be ambiguous.
 func (r *DwarfReader) GetStructure(name string) *StructureInfo {
+	if defined := r.structures[name]; len(defined) > 0 {
+		return defined[0]
+	}
+	return nil
+}
+
+// GetStructures returns every definition read under a name.
+func (r *DwarfReader) GetStructures(name string) []*StructureInfo {
 	return r.structures[name]
+}
+
+// FindStructure returns the definition of name that declares every member in requiredMembers.
+//
+// This is the lookup to use for any type whose name is ambiguous, which for Rust binaries is
+// most of them: rustc records types under their short name, so a single binary holds several
+// unrelated structs called `Spiffe` or `Inner`. Selecting on the member set picks the intended
+// one, and makes a type whose members were RENAMED fail the lookup rather than quietly match a
+// different type's offsets.
+func (r *DwarfReader) FindStructure(name string, requiredMembers ...string) *StructureInfo {
+	for _, structure := range r.structures[name] {
+		if structure.HasFields(requiredMembers...) {
+			return structure
+		}
+	}
+	return nil
 }
 
 func (r *DwarfReader) GetStructMemberOffset(structName, memberName string) (uint64, error) {
@@ -97,7 +128,7 @@ func (r *DwarfReader) GetClass(name string) *ClassInfo {
 
 func (r *DwarfReader) init(data *dwarf.Data, readAttrNames []string) error {
 	r.functions = make(map[string]*FunctionInfo)
-	r.structures = make(map[string]*StructureInfo)
+	r.structures = make(map[string][]*StructureInfo)
 	r.classes = make(map[string]*ClassInfo)
 
 	reader := data.Reader()

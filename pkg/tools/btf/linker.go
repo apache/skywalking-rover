@@ -288,6 +288,26 @@ func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 	}
 }
 
+// AddEnterLinkReturningCloser attaches the ENTER uprobe like AddLinkWithType but RETURNS the
+// created link instead of only accumulating it into the linker's shared closers, so the caller
+// owns its lifetime and can detach THIS uprobe on its own(e.g. the ztunnel identity probe when it
+// proves the offsets are unavailable) without tearing down the whole loader. Because the link is
+// not in the shared closers, the caller is responsible for closing it. Returns (nil, nil) when the
+// executable was not opened or the program is nil.
+func (u *UProbeExeFile) AddEnterLinkReturningCloser(symbol string, p *ebpf.Program) (io.Closer, error) {
+	if !u.found || p == nil {
+		return nil, nil
+	}
+	lk, err := u.addLinkWithType0(symbol, true, p, 0)
+	if err != nil {
+		return nil, err
+	}
+	if lk == nil {
+		return nil, nil
+	}
+	return lk, nil
+}
+
 func (u *UProbeExeFile) addLinkWithType0(symbol string, enter bool, p *ebpf.Program, customizeAddress uint64) (link.Link, error) {
 	u.linker.linkMutex.Lock()
 	defer u.linker.linkMutex.Unlock()

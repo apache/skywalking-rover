@@ -1,0 +1,512 @@
+{
+  "version": 2,
+  "entries": [
+    {
+      "builds": [
+        {
+          "buildId": "012a750d4beb72ab11199806f5f04228631d30a2",
+          "version": "6fb0ce72daf624bfda04dbe6f9585ad24cc54820",
+          "gitRevision": "6fb0ce72daf624bfda04dbe6f9585ad24cc54820",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "04f66572e625767c639d31efb7276a460cdd81e3",
+          "version": "fb2a7be8e49c82a8a0c722c19206a1199531984e",
+          "gitRevision": "fb2a7be8e49c82a8a0c722c19206a1199531984e",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.1",
+          "release": "1.25.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "13f54acadf67863195d75e44c57c94266c121c41",
+          "version": "094175fed8d24011bb7dd1b7e57b97d0de79b9e8",
+          "gitRevision": "094175fed8d24011bb7dd1b7e57b97d0de79b9e8",
+          "buildStatus": "Clean",
+          "rustVersion": "1.94.0",
+          "release": "1.30.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "2236c2bc2f11630565cfb2e46505aca0182faf0e",
+          "version": "7c3bc5b7d33ddf57ccfe47a3c8bc331f6a4a0f11",
+          "gitRevision": "7c3bc5b7d33ddf57ccfe47a3c8bc331f6a4a0f11",
+          "buildStatus": "Clean",
+          "rustVersion": "1.87.0",
+          "release": "1.27.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "2900b2cf9650d92515625ce4d48df61bb2f9a5cb",
+          "version": "d4e543a299d5e1fb199449ed285758c090687452",
+          "gitRevision": "d4e543a299d5e1fb199449ed285758c090687452",
+          "buildStatus": "Clean",
+          "rustVersion": "1.85.1",
+          "release": "1.26.3",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "2ab3af5ab45682428638a24cff36749d3f024539",
+          "version": "b8527fc5f2a27c0cdc463420f87db67373eac2d8",
+          "gitRevision": "b8527fc5f2a27c0cdc463420f87db67373eac2d8",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.0",
+          "release": "1.25.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "2ed5f721e6fef1896b88ef2a70562e96be039e44",
+          "version": "f8367dd2ecf5d901817893261c5500f95d744e23",
+          "gitRevision": "f8367dd2ecf5d901817893261c5500f95d744e23",
+          "buildStatus": "Clean",
+          "rustVersion": "1.94.0",
+          "release": "1.30.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "33cf05af190fae07d66bd8f7fd239bd464da92c2",
+          "version": "8bda303b0cfac76d3ab99b7e1ed3def71082fc9f",
+          "gitRevision": "8bda303b0cfac76d3ab99b7e1ed3def71082fc9f",
+          "release": "1.28.3",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "3e70dbd7f6924737a826a2f0dcf7f7a096a60297",
+          "version": "7bc76782fdf9fc30fc73bd0df4742dab7aa172cd",
+          "gitRevision": "7bc76782fdf9fc30fc73bd0df4742dab7aa172cd",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.10",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "4732e488420e1096c3e6748995c7a635f78a511f",
+          "version": "61888401e717c9d853eb04bfd002e2808e8af8e4",
+          "gitRevision": "61888401e717c9d853eb04bfd002e2808e8af8e4",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "48283444b5fb6b15dd12584e6645c0bf05b49b09",
+          "version": "20aa5e285bb59200de0d7d61e177ab199538a7b5",
+          "gitRevision": "20aa5e285bb59200de0d7d61e177ab199538a7b5",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.6",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "4846782623f11c692e283f05649e4a585dad14fa",
+          "version": "9263b88677bab2d68ef7cd99040e8cb03584c957",
+          "gitRevision": "9263b88677bab2d68ef7cd99040e8cb03584c957",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "49eff64f7c1b37114fdc4f09fa6f968329024d46",
+          "version": "0f1f8c1ab27dbb5810654c6cf14e7d51f931ba8f",
+          "gitRevision": "0f1f8c1ab27dbb5810654c6cf14e7d51f931ba8f",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.0",
+          "release": "1.25.3",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "510ac3cb03b05ec4442a511754b344c337cc3ef2",
+          "version": "31902c7512acadf3a93e148c74b24a5683360f5d",
+          "gitRevision": "31902c7512acadf3a93e148c74b24a5683360f5d",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.0",
+          "release": "1.25.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "5bd0e91adda81a260f52399441541ce75d4381f9",
+          "version": "9eb11e2cf39ddd78b55cac12c905cf2656de5fe2",
+          "gitRevision": "9eb11e2cf39ddd78b55cac12c905cf2656de5fe2",
+          "buildStatus": "Clean",
+          "rustVersion": "1.85.1",
+          "release": "1.26.4",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "67b86091e36b49da8144210b68bf1577d2123973",
+          "version": "67cd1e1958ac4ce7e1233e7f0cb7ab1c706176c0",
+          "gitRevision": "67cd1e1958ac4ce7e1233e7f0cb7ab1c706176c0",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.5",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "6c4423dccbe5309e5fbbee873edff2026459ec95",
+          "version": "677550952930983651c3d1711bd0b894eaf62582",
+          "gitRevision": "677550952930983651c3d1711bd0b894eaf62582",
+          "buildStatus": "Clean",
+          "rustVersion": "1.87.0",
+          "release": "1.27.6",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "701e854053b28912fe1a8f0d19d4e440bde14bbe",
+          "version": "fb22485fa8bc1c017cc61f382f142d5511e317b6",
+          "gitRevision": "fb22485fa8bc1c017cc61f382f142d5511e317b6",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.8",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "72b6504512185e1bf75ce7d41953ccb9ce1593ad",
+          "version": "a2e6168409470b71f5dc82e61e29279ea0810b32",
+          "gitRevision": "a2e6168409470b71f5dc82e61e29279ea0810b32",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.0",
+          "release": "1.25.5",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "75b3c8f6f7ab3b8fe7fc81935dc1592549de2131",
+          "version": "055baef94d1d1ec90859196ce015ac0bba587503",
+          "gitRevision": "055baef94d1d1ec90859196ce015ac0bba587503",
+          "buildStatus": "Clean",
+          "rustVersion": "1.87.0",
+          "release": "1.27.5",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "811c26cfd6299f8d4238a286698f6e6c531d7126",
+          "version": "b1b3c00ef35c1e51b81cdac0203c23f2c012d059",
+          "gitRevision": "b1b3c00ef35c1e51b81cdac0203c23f2c012d059",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.6",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "8b593d1f250227e2465d557cfe56fc616c8c51b3",
+          "version": "75376478762decb918ea884603b2852b1568b015",
+          "gitRevision": "75376478762decb918ea884603b2852b1568b015",
+          "buildStatus": "Clean",
+          "rustVersion": "1.87.0",
+          "release": "1.27.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "8d713f5f146cc4fb17f6d0cbfb239951d9da3119",
+          "version": "a76ca8afb81ec56a1367016b8daaef3a283ad406",
+          "gitRevision": "a76ca8afb81ec56a1367016b8daaef3a283ad406",
+          "buildStatus": "Clean",
+          "rustVersion": "1.87.0",
+          "release": "1.27.9",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "909a53e99acb6ef3524438f7ecb1d4ab43bb23cd",
+          "version": "03e224f8ac2bd0ad993cc68d61142a3a3a63d7af",
+          "gitRevision": "03e224f8ac2bd0ad993cc68d61142a3a3a63d7af",
+          "buildStatus": "Clean",
+          "rustVersion": "1.85.1",
+          "release": "1.26.8",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "90b4ef913a502003bf70f6f1265305a2131b03aa",
+          "version": "4225e92aa753b1bdba800fe975f03e131f8cc257",
+          "gitRevision": "4225e92aa753b1bdba800fe975f03e131f8cc257",
+          "release": "1.29.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "a368b02222274145568e10a4846c53ab0b9a76c4",
+          "version": "99b000df4d0f48fc75309aae894cc609ef96fa09",
+          "gitRevision": "99b000df4d0f48fc75309aae894cc609ef96fa09",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "b279bc643689c7de1e8da9f2a0c0ebc791e75241",
+          "version": "e8c9d72b806abf2e72bdefc87e013e70adf2165a",
+          "gitRevision": "e8c9d72b806abf2e72bdefc87e013e70adf2165a",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.4",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "c66f2da111e6752019d5cc18dafd39a58510ef00",
+          "version": "2f601957bd172b34990612f4d8f847cadf4e880d",
+          "gitRevision": "2f601957bd172b34990612f4d8f847cadf4e880d",
+          "release": "1.26.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "ca69504fcee0fb9c96e0fd02f8a2bc0cff173e2e",
+          "version": "ac16b17ec6d7732fb215343eb2dd582101cc0e9c",
+          "gitRevision": "ac16b17ec6d7732fb215343eb2dd582101cc0e9c",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.4",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "d8d2fe49de0bd17f35e625444a141c3bc877dca1",
+          "version": "ec8f99c9065818d206c983ee953993a5f931a4c3",
+          "gitRevision": "ec8f99c9065818d206c983ee953993a5f931a4c3",
+          "buildStatus": "Clean",
+          "rustVersion": "1.92.0",
+          "release": "1.29.3",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "db36af558a74e04050259c0f05be89f56b32996a",
+          "version": "1a20260154032cffc123aabd9e6fba91c3b63513",
+          "gitRevision": "1a20260154032cffc123aabd9e6fba91c3b63513",
+          "buildStatus": "Clean",
+          "rustVersion": "1.94.0",
+          "release": "1.30.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "dc622cf27e7423198b910399c2ac7d2c23548b7e",
+          "version": "ffa3bc17ea677b84a88749f578aa2a7f2cbb29e3",
+          "gitRevision": "ffa3bc17ea677b84a88749f578aa2a7f2cbb29e3",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.7",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "df6643efaf0ef6eeac69d29cf6dae0f117bbe98c",
+          "version": "a45c62f8d09a78eaa5228afcea6c7d3a06269b2c",
+          "gitRevision": "a45c62f8d09a78eaa5228afcea6c7d3a06269b2c",
+          "buildStatus": "Clean",
+          "rustVersion": "1.94.0",
+          "release": "1.30.3",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "e4fc9cb1f27cac9f2a50b58ade0b42d88b792182",
+          "version": "71eda78487f9251faf4e55bb31067c50c5887df8",
+          "gitRevision": "71eda78487f9251faf4e55bb31067c50c5887df8",
+          "buildStatus": "Clean",
+          "rustVersion": "1.90.0",
+          "release": "1.28.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "f7ecdd233ba44593052e79e250b645f3020138c6",
+          "version": "c5c31102fd1ddefe95bf3c40dbbe36652dcd7889",
+          "gitRevision": "c5c31102fd1ddefe95bf3c40dbbe36652dcd7889",
+          "buildStatus": "Clean",
+          "rustVersion": "1.85.1",
+          "release": "1.26.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "f899683b66ab84f17807faf29fb4b502283a68c5",
+          "version": "248d945e5b948fd5cf9a82e19a44aa090012c05a",
+          "gitRevision": "248d945e5b948fd5cf9a82e19a44aa090012c05a",
+          "buildStatus": "Clean",
+          "rustVersion": "1.84.0",
+          "release": "1.25.4",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "fe2c3229c35f3c4ce38d853ab55b61eb7f83ce25",
+          "version": "bc9da5e9cd1027f4dc01d5a57b0c196a6d8a39d1",
+          "gitRevision": "bc9da5e9cd1027f4dc01d5a57b0c196a6d8a39d1",
+          "buildStatus": "Clean",
+          "rustVersion": "1.85.1",
+          "release": "1.26.5",
+          "platform": "linux/amd64"
+        }
+      ],
+      "layouts": {
+        "CommonTrafficLabels": {
+          "size": 232,
+          "fields": {
+            "connection_security_policy": 226,
+            "destination_app": 200,
+            "destination_canonical_revision": 160,
+            "destination_canonical_service": 152,
+            "destination_cluster": 216,
+            "destination_principal": 176,
+            "destination_service": 120,
+            "destination_service_name": 136,
+            "destination_service_namespace": 128,
+            "destination_version": 208,
+            "destination_workload": 144,
+            "destination_workload_namespace": 168,
+            "locality": 0,
+            "reporter": 224,
+            "request_protocol": 225,
+            "response_flags": 227,
+            "source_app": 96,
+            "source_canonical_revision": 56,
+            "source_canonical_service": 48,
+            "source_cluster": 112,
+            "source_principal": 72,
+            "source_version": 104,
+            "source_workload": 40,
+            "source_workload_namespace": 64
+          }
+        },
+        "ConnectionResult": {
+          "size": 408,
+          "fields": {
+            "dst": 288,
+            "hbone_target": 328,
+            "metrics": 360,
+            "recorded": 400,
+            "recv": 392,
+            "recv_metric": 376,
+            "sent": 384,
+            "sent_metric": 368,
+            "src": 248,
+            "start": 232,
+            "tl": 0
+          }
+        },
+        "Identity::Spiffe": {
+          "size": 24,
+          "fields": {
+            "namespace": 8,
+            "service_account": 16,
+            "trust_domain": 0
+          }
+        }
+      }
+    },
+    {
+      "builds": [
+        {
+          "buildId": "16cd039afd7494909a88b7bc6ce543c83acd054f",
+          "version": "2b351810add39b8a05f878460ad8b6d36c4694b9",
+          "gitRevision": "2b351810add39b8a05f878460ad8b6d36c4694b9",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.6",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "3336504d44b7e26065861747ed405cc33fb58b90",
+          "version": "70c638ecb14a7b4e161af6a3d275f774e87630ef",
+          "gitRevision": "70c638ecb14a7b4e161af6a3d275f774e87630ef",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.5",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "398ca69474b7ada272c5a67dcb3001a50804ae33",
+          "version": "1226c1b35f50938f428c71f7dcad3602ea991675",
+          "gitRevision": "1226c1b35f50938f428c71f7dcad3602ea991675",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.0",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "47114639ac2ffab5ae139e3175ce06bfcc461e7f",
+          "version": "9d2fe78f022f4616e43feb006f077310ef21b932",
+          "gitRevision": "9d2fe78f022f4616e43feb006f077310ef21b932",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.4",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "6e743398cb2b1914ba8b65e1de7df72c19a1defc",
+          "version": "1a299847ed4fb99a099a081589dce93119df3ce0",
+          "gitRevision": "1a299847ed4fb99a099a081589dce93119df3ce0",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.2",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "c50d7604fdcfb12732af8e372bda7d16c6f87e15",
+          "version": "4c7cdf1b62ddcc786402499c03eff0d5172c95ef",
+          "gitRevision": "4c7cdf1b62ddcc786402499c03eff0d5172c95ef",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.1",
+          "platform": "linux/amd64"
+        },
+        {
+          "buildId": "cdea1a0faf12cb6bccab64e2c313a07f8cc1d958",
+          "version": "1ddf2f33fbbe75688a54c60fab2b805b2405f861",
+          "gitRevision": "1ddf2f33fbbe75688a54c60fab2b805b2405f861",
+          "buildStatus": "Clean",
+          "rustVersion": "1.81.0",
+          "release": "1.24.3",
+          "platform": "linux/amd64"
+        }
+      ],
+      "layouts": {
+        "CommonTrafficLabels": {
+          "size": 192,
+          "fields": {
+            "connection_security_policy": 187,
+            "destination_app": 160,
+            "destination_canonical_revision": 120,
+            "destination_canonical_service": 112,
+            "destination_cluster": 176,
+            "destination_principal": 136,
+            "destination_service": 80,
+            "destination_service_name": 96,
+            "destination_service_namespace": 88,
+            "destination_version": 168,
+            "destination_workload": 104,
+            "destination_workload_namespace": 128,
+            "reporter": 185,
+            "request_protocol": 186,
+            "response_flags": 184,
+            "source_app": 56,
+            "source_canonical_revision": 16,
+            "source_canonical_service": 8,
+            "source_cluster": 72,
+            "source_principal": 32,
+            "source_version": 64,
+            "source_workload": 0,
+            "source_workload_namespace": 24
+          }
+        },
+        "ConnectionResult": {
+          "size": 368,
+          "fields": {
+            "dst": 56,
+            "hbone_target": 96,
+            "metrics": 320,
+            "recorded": 360,
+            "recv": 352,
+            "recv_metric": 336,
+            "sent": 344,
+            "sent_metric": 328,
+            "src": 16,
+            "start": 0,
+            "tl": 128
+          }
+        },
+        "Identity::Spiffe": {
+          "size": 24,
+          "fields": {
+            "namespace": 8,
+            "service_account": 16,
+            "trust_domain": 0
+          }
+        }
+      }
+    }
+  ]
+}

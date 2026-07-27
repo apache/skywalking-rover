@@ -38,6 +38,7 @@ Release Notes.
 * Attach all matched ztunnel `track_outbound` symbol copies when attaching the uprobe in the access log module.
 * Add success/failure counters to the conntrack real peer address queries.
 * Support monitoring short-lived processes in the access log module.
+* Read ztunnel connection peer identities via an eBPF uprobe on `ConnectionResult::record_internal`, with a build-id offset table and access-log fallback.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.

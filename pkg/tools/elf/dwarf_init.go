@@ -99,10 +99,17 @@ func (r *DwarfReader) processStructure(names []string, data *dwarf.Data, entry *
 		return err
 	}
 
-	r.structures[name] = &StructureInfo{
+	size, _ := entry.Val(dwarf.AttrByteSize).(int64)
+	structure := &StructureInfo{
 		name:   name,
+		size:   int(size),
 		fields: fields,
 	}
+	// Keep every definition, not just the first: a DWARF name does not identify a type on its
+	// own - Rust emits types under their short name, so one binary can carry several distinct
+	// structs with the same one - and a caller may need to select by member set(FindStructure).
+	// GetStructure still returns the first, preserving the behaviour callers had before.
+	r.structures[name] = append(r.structures[name], structure)
 	return nil
 }
 

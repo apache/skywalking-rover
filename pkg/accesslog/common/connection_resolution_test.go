@@ -33,6 +33,7 @@ type fakeResolutionFlusher struct {
 func (f *fakeResolutionFlusher) ReadyToFlushConnection(*ConnectionInfo, events.Event) {}
 func (f *fakeResolutionFlusher) IsResolutionPending(*ConnectionInfo) bool             { return f.pending }
 func (f *fakeResolutionFlusher) UnresolvedReason(*ConnectionInfo) string              { return "test-unresolved" }
+func (f *fakeResolutionFlusher) FinalizeConnection(*ConnectionInfo)                   {}
 
 // plainFlusher only implements FlusherListener(not ResolutionAwareFlusher), it must never
 // cause a defer
@@ -102,4 +103,17 @@ func TestShouldDeferForResolution(t *testing.T) {
 			t.Fatal("a connection past its deadline must be flushed even if still pending")
 		}
 	})
+}
+
+func TestResolutionGraceForIs20s(t *testing.T) {
+	// defaultFlushPeriod(5s) + resolutionDeferMargin(15s) = 20s, and the cap
+	// connectionDeleteDelayTime(25s) - flushPeriod(5s) = 20s does not clip it
+	if got := resolutionGraceFor(defaultFlushPeriod); got != 20*time.Second {
+		t.Fatalf("resolutionGraceFor(defaultFlushPeriod) = %v, want 20s", got)
+	}
+	// grace must always stay strictly under the connection delete delay so a deferred
+	// connection survives its whole grace window
+	if got := resolutionGraceFor(defaultFlushPeriod); got >= connectionDeleteDelayTime {
+		t.Fatalf("grace %v must stay under connectionDeleteDelayTime %v", got, connectionDeleteDelayTime)
+	}
 }

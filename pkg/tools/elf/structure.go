@@ -18,8 +18,27 @@
 package elf
 
 type StructureInfo struct {
-	name   string
+	name string
+	// size is DW_AT_byte_size: needed by callers that must copy or bounds check a whole
+	// struct(a uprobe copying a fixed window out of a monitored process, say), not just read
+	// one member out of it.
+	size   int
 	fields []*StructureFieldInfo
+}
+
+func (s *StructureInfo) Name() string {
+	return s.name
+}
+
+// Size is the total byte size of the structure.
+func (s *StructureInfo) Size() int {
+	return s.size
+}
+
+// Fields returns every member of the structure, in the order the debug info declared them.
+// Callers that transcribe a whole type - rather than reading one known member - need this.
+func (s *StructureInfo) Fields() []*StructureFieldInfo {
+	return s.fields
 }
 
 func (s *StructureInfo) GetField(name string) *StructureFieldInfo {
@@ -29,6 +48,21 @@ func (s *StructureInfo) GetField(name string) *StructureFieldInfo {
 		}
 	}
 	return nil
+}
+
+// HasFields reports whether the structure declares every named member.
+//
+// A DWARF type name is not unique: Rust in particular emits types under their SHORT name, so one
+// binary can hold several different structs called `Spiffe`. The member set is what actually
+// identifies the type, so callers that care which one they got select on this rather than on the
+// name alone - and a type that RENAMED a member fails the test instead of silently matching.
+func (s *StructureInfo) HasFields(names ...string) bool {
+	for _, n := range names {
+		if s.GetField(n) == nil {
+			return false
+		}
+	}
+	return true
 }
 
 type StructureFieldInfo struct {

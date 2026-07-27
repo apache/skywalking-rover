@@ -34,6 +34,18 @@ static __inline bool get_socket_addr_ip_in_ztunnel(bool success, void * arg, __u
     return true;
 }
 
+// read_ztunnel_compact_ptr reads the 8-byte ArcStr pointer value at self+off. A negative off marks
+// an absent field(OffsetAbsent in user space) and yields a zero pointer, which user space decodes
+// as "field not present". A failed read also yields zero, so a garbage offset degrades to a miss.
+static __inline __u64 read_ztunnel_compact_ptr(void *self, __s32 off) {
+    __u64 ptr = 0;
+    if (off < 0) {
+        return 0;
+    }
+    bpf_probe_read_user(&ptr, sizeof(ptr), (void *)((char *)self + off));
+    return ptr;
+}
+
 SEC("uprobe/connection_manager_track_outbound")
 int connection_manager_track_outbound(struct pt_regs* ctx) {
     struct ztunnel_socket_mapping_t *event = create_ztunnel_socket_mapping_event();
@@ -100,5 +112,82 @@ int connection_result_new(struct pt_regs* ctx) {
     event->original_dst_ip = 0;
     event->dst_port = 0;
     bpf_perf_event_output(ctx, &ztunnel_lb_socket_mapping_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
+    return 0;
+}
+
+// ConnectionResult::record_internal(&mut self, res) is the function that WRITES the ztunnel
+// access log line, so &self holds exactly what that line carries: the peer addresses, the
+// HBONE target(the real backend pod), and the whole CommonTrafficLabels - which includes the
+// source/destination principals and clusters. Reading it here replaces tailing the access log
+// file entirely, and does so a poll interval earlier(no kubelet write + tailer read in between).
+//
+// It is the most stable probe point available: present in every ztunnel from 1.24 through
+// master and in the vendor rebuilds, and - unlike the ConnectionResult constructors, which
+// return a large struct through a hidden sret pointer that shifts the argument registers on
+// x86-64 but not on AArch64 - it returns unit, so &self is in PARM1 on BOTH architectures with
+// no arch-conditional register juggling.
+//
+// record_internal is generic over the error type, so Rust may emit several monomorphized
+// copies; user space attaches to every matching symbol(see the attach helper in ztunnel.go).
+SEC("uprobe/connection_result_record_internal")
+int connection_result_record_internal(struct pt_regs* ctx) {
+    void *self = (void *)PT_REGS_PARM1(ctx);
+    if (self == NULL) {
+        return 0;
+    }
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct ztunnel_offsets_config_t *cfg = bpf_map_lookup_elem(&ztunnel_offsets_config_map, &pid);
+
+    // FAST PATH: once user space has resolved the offsets and written them here, extract only the
+    // named fields and ship the ~88 byte compact event instead of the 520 byte window. The identity
+    // strings live behind pointers in refcounted heap buffers the probe cannot copy, so their raw
+    // addresses are shipped for user space to follow via /proc/<pid>/mem, exactly as it does today.
+    if (cfg != NULL && cfg->valid) {
+        struct ztunnel_connection_result_compact_t *ev = create_ztunnel_connection_result_compact_event();
+        if (ev == NULL) {
+            return 0;
+        }
+        // clear the reused per-CPU slot so no stale field from a previous event leaks through
+        __builtin_memset(ev, 0, sizeof(*ev));
+        ev->pid = pid;
+        // reuse the same SocketAddr decoder the mapping probes use; the event slot is memset to 0
+        // so a failed read leaves ip/port zero, and user space treats a zero src as "not a usable
+        // peer"(decodeCompact), so no separate BPF-side zero check is needed here
+        get_socket_addr_ip_in_ztunnel(true, (void *)((char *)self + cfg->src), &ev->src_ip, &ev->src_port);
+        get_socket_addr_ip_in_ztunnel(true, (void *)((char *)self + cfg->dst), &ev->dst_ip, &ev->dst_port);
+        ev->has_direction = cfg->has_direction ? 1 : 0;
+        if (cfg->has_direction) {
+            bpf_probe_read_user(&ev->reporter, sizeof(ev->reporter), (void *)((char *)self + cfg->reporter));
+            bpf_probe_read_user(&ev->security_policy, sizeof(ev->security_policy), (void *)((char *)self + cfg->security_policy));
+        }
+        // identity string pointers: the two principal members are read at principal_base + member,
+        // the namespace/cluster labels at their own offsets; an absent base(-1) yields a null pointer
+        __s32 src_p = cfg->source_principal, dst_p = cfg->destination_principal;
+        ev->src_principal_ns_ptr = read_ztunnel_compact_ptr(self, src_p < 0 ? -1 : src_p + cfg->identity_namespace);
+        ev->src_principal_sa_ptr = read_ztunnel_compact_ptr(self, src_p < 0 ? -1 : src_p + cfg->identity_service_account);
+        ev->dst_principal_ns_ptr = read_ztunnel_compact_ptr(self, dst_p < 0 ? -1 : dst_p + cfg->identity_namespace);
+        ev->dst_principal_sa_ptr = read_ztunnel_compact_ptr(self, dst_p < 0 ? -1 : dst_p + cfg->identity_service_account);
+        ev->src_namespace_ptr = read_ztunnel_compact_ptr(self, cfg->source_namespace);
+        ev->dst_namespace_ptr = read_ztunnel_compact_ptr(self, cfg->destination_namespace);
+        ev->src_cluster_ptr = read_ztunnel_compact_ptr(self, cfg->source_cluster);
+        ev->dst_cluster_ptr = read_ztunnel_compact_ptr(self, cfg->destination_cluster);
+        bpf_perf_event_output(ctx, &ztunnel_connection_result_compact_event_queue, BPF_F_CURRENT_CPU, ev, sizeof(*ev));
+        return 0;
+    }
+
+    // SLOW PATH: offsets not resolved yet(user space is still calibrating), so ship the full window
+    // and let it scan. A partial read leaves stale bytes from the previous event in the per-CPU
+    // slot, which user space could decode as a plausible-looking identity belonging to another
+    // connection, so a failed copy drops the event instead of forwarding it.
+    struct ztunnel_connection_result_t *event = create_ztunnel_connection_result_event();
+    if (event == NULL) {
+        return 0;
+    }
+    event->pid = pid;
+    event->window = ZTUNNEL_CONNECTION_RESULT_WINDOW;
+    if (bpf_probe_read_user(&event->data, sizeof(event->data), self) != 0) {
+        return 0;
+    }
+    bpf_perf_event_output(ctx, &ztunnel_connection_result_event_queue, BPF_F_CURRENT_CPU, event, sizeof(*event));
     return 0;
 }
