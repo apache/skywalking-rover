@@ -899,7 +899,7 @@ func (z *Collector) armPidGate(pid int32) error {
 // stay a single, dependency-free switch the e2e uprobe/file matrix can flip.
 func identityUprobeEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROVER_ZTUNNEL_IDENTITY_UPROBE_ENABLED"))) {
-	case envValueFalse, "0", "no", "off":
+	case envValueFalse, envValueZero, envValueNo, envValueOff:
 		return false
 	default:
 		return true
@@ -910,8 +910,14 @@ func identityUprobeEnabled() bool {
 const (
 	directionOutbound = "outbound"
 	directionInbound  = "inbound"
-	// envValueFalse is the canonical falsey env value the identity-uprobe switch checks for.
+)
+
+// the falsey values the identity-uprobe switch(identityUprobeEnabled) accepts to disable the uprobe.
+const (
 	envValueFalse = "false"
+	envValueZero  = "0"
+	envValueNo    = "no"
+	envValueOff   = "off"
 )
 
 // ztunnelMappingSource identifies WHICH of the redundant sources produced a cached mapping,
