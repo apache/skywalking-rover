@@ -78,7 +78,7 @@ setup:
 trigger:
   action: http
   interval: 3s
-  times: 10
+  times: 0
   url: https://${service_service_host}:${service_service_10443}/consumer
   method: GET
 
