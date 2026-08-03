@@ -13,6 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The bookinfo call graph as detected from the ambient(ztunnel) data path.
+#
+# What makes this an AMBIENT assertion rather than a generic topology one is the component
+# list on each edge: `ztunnel` marks the hop as observed on the ambient data path and `mtls`
+# marks the ztunnel to ztunnel leg as encrypted(the backend derives both from the ZTunnel
+# attachment rover puts on the connection). If rover stopped correlating the ztunnel path the
+# edges would either vanish or come back without those components.
+#
+# Each node carries BOTH layers, unlike the sidecar access_log case where a service sits on
+# K8S_SERVICE alone: the backend's prepareDispatchForZtunnelMesh() additionally registers the
+# service on MESH whenever the connection has a ZTunnel attachment. Both are asserted -
+# `contains` is used here only so they match regardless of the order they come back in.
+#
+# `contains` on the outer lists ignores the infra nodes/edges(kube-dns lookups, the traffic
+# generator's own Unknown -> productpage edge), and `contains` on the components ignores the
+# extra tcp entry alongside the http/ztunnel/mtls being asserted.
 nodes:
 {{- contains .nodes }}
 - id: {{ b64enc "productpage.default"}}.1
@@ -20,37 +36,53 @@ nodes:
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "details.default"}}.1
   name: details.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "ratings.default" }}.1
   name: ratings.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "reviews.default" }}.1
   name: reviews.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 {{- end }}
 calls:
 {{- contains .calls }}
 - source: {{ b64enc "productpage.default"}}.1
   sourcecomponents:
   {{- contains .sourcecomponents }}
-  - http
+    - http
+    - ztunnel
+    - mtls
   {{- end }}
   target: {{ b64enc "details.default"}}.1
   targetcomponents:
   {{- contains .targetcomponents }}
     - http
+    - ztunnel
+    - mtls
   {{- end }}
   id: {{ b64enc "productpage.default"}}.1-{{ b64enc "details.default"}}.1
   detectpoints:
@@ -59,12 +91,16 @@ calls:
 - source: {{ b64enc "productpage.default"}}.1
   sourcecomponents:
   {{- contains .sourcecomponents }}
-  - http
+    - http
+    - ztunnel
+    - mtls
   {{- end }}
   target: {{ b64enc "reviews.default"}}.1
   targetcomponents:
   {{- contains .targetcomponents }}
-  - http
+    - http
+    - ztunnel
+    - mtls
   {{- end }}
   id: {{ b64enc "productpage.default"}}.1-{{ b64enc "reviews.default"}}.1
   detectpoints:
@@ -72,13 +108,17 @@ calls:
     - SERVER
 - source: {{ b64enc "reviews.default" }}.1
   sourcecomponents:
-    {{- contains .sourcecomponents }}
+  {{- contains .sourcecomponents }}
     - http
-    {{- end }}
+    - ztunnel
+    - mtls
+  {{- end }}
   target: {{ b64enc "ratings.default"}}.1
   targetcomponents:
   {{- contains .targetcomponents }}
     - http
+    - ztunnel
+    - mtls
   {{- end }}
   id: {{ b64enc "reviews.default" }}.1-{{ b64enc "ratings.default"}}.1
   detectpoints:

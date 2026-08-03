@@ -13,6 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Helm values for the ambient cases, mirroring the ones the SkyWalking ambient e2e uses
+# (test/e2e-v2/cases/istio/values.yaml).
+oap:
+  config:
+    # raise the eBPF access log handler to DEBUG: when an ambient assertion fails, the
+    # reason is almost always in how a connection was resolved, and that is where the
+    # backend logs it
+    log4j2.xml: |
+      <Configuration status="INFO">
+        <Appenders>
+          <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout>
+              <LevelPatternSelector defaultPattern="%d %c %L [%t] %-5p %x - %m%n">
+                <PatternMatch key="ERROR" pattern="%d %c %L [%t] %-5p %x - [%swversion] %m%n" />
+              </LevelPatternSelector>
+            </PatternLayout>
+          </Console>
+        </Appenders>
+        <Loggers>
+          <logger name="org.apache.skywalking.oap.server.receiver.ebpf.provider.handler" level="DEBUG"/>
+          <Root level="INFO">
+            <AppenderRef ref="Console"/>
+          </Root>
+        </Loggers>
+      </Configuration>
 elasticsearch:
   esConfig:
     elasticsearch.yml: |

@@ -19,11 +19,25 @@
 # under the License.
 # ----------------------------------------------------------------------------
 
+set -ex
+
 BASE_DIR=$1
 BIN_DIR=$2
 
-if ! command -v istioctl &> /dev/null; then
-  mkdir -p $BASE_DIR/istioctl && cd $BASE_DIR/istioctl
-  curl -L https://istio.io/downloadIstio | sh -
-  cp istio-$ISTIO_VERSION/bin/istioctl $BIN_DIR/istioctl
-fi
+# Always fetch the pinned ${ISTIO_VERSION} rather than keeping a pre-existing istioctl that
+# happens to be on PATH. The cases are parameterized by istio version, so a leftover binary
+# of a different version silently installs the wrong control plane - and a pre-1.24 istioctl
+# does not even ship the ambient profile, failing with
+# "Asset profiles/ambient.yaml not found".
+mkdir -p "$BASE_DIR/istioctl" && cd "$BASE_DIR/istioctl"
+curl -sL https://istio.io/downloadIstio | ISTIO_VERSION="$ISTIO_VERSION" sh -
+cp "istio-$ISTIO_VERSION/bin/istioctl" "$BIN_DIR/istioctl"
+
+# The cases prepend ${BASE_DIR}/bin to PATH, so an istioctl sitting THERE shadows the one
+# just installed into ${BIN_DIR} - a leftover from an earlier run would silently defeat the
+# version pin and install a different istio than the case asked for. Write the pinned binary
+# to that directory too, so the first match on PATH is always the right version.
+mkdir -p "$BASE_DIR/bin"
+cp "istio-$ISTIO_VERSION/bin/istioctl" "$BASE_DIR/bin/istioctl"
+
+"$BIN_DIR/istioctl" version --remote=false || true
