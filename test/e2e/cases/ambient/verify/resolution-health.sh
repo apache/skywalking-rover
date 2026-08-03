@@ -31,7 +31,7 @@ line=$(kubectl logs "${pod}" --tail=-1 2>/dev/null | grep -a 'remote address res
 
 printf '%s\n' "${line}" >&2
 
-# both numbers are read as CUMULATIVE totals so the comparison below comparses like with
+# both numbers are read as CUMULATIVE totals so the comparison below compares like with
 # like: the summary reports the unresolved count twice, "since last report" and
 # "(cumulative total: N)", and pairing an interval count against a cumulative one would
 # make the majority check pass trivially.

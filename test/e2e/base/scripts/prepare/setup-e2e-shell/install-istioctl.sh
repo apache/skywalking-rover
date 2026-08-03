@@ -24,6 +24,18 @@ set -ex
 BASE_DIR=$1
 BIN_DIR=$2
 
+# Fail loudly on a missing argument or version instead of silently deriving a path from an
+# empty variable - an unset BASE_DIR would otherwise turn the mkdir below into "/istioctl",
+# and an unset ISTIO_VERSION would make the downloader pick whatever it considers latest.
+if [ -z "$BASE_DIR" ] || [ -z "$BIN_DIR" ]; then
+  echo "usage: $0 <base-dir> <bin-dir>  (got BASE_DIR='$BASE_DIR' BIN_DIR='$BIN_DIR')" >&2
+  exit 1
+fi
+if [ -z "$ISTIO_VERSION" ]; then
+  echo "ISTIO_VERSION must be set: the cases are parameterized by istio version" >&2
+  exit 1
+fi
+
 # Always fetch the pinned ${ISTIO_VERSION} rather than keeping a pre-existing istioctl that
 # happens to be on PATH. The cases are parameterized by istio version, so a leftover binary
 # of a different version silently installs the wrong control plane - and a pre-1.24 istioctl
