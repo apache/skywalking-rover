@@ -191,7 +191,7 @@ jobs:
         if: matrix.test.docker != null
         run: docker build -t ${{ matrix.test.docker.name }} -f ${{ matrix.test.base }}/${{ matrix.test.docker.file }} ${{ matrix.test.base }}
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@cf589b4a0b9f8e6f436f78e9cfd94a1ee5494180
+        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
         with:
           e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.base }}/${{ matrix.test.config }}
       - uses: actions/upload-artifact@v4
@@ -294,7 +294,7 @@ jobs:
           bash test/e2e/base/scripts/update-signed-ssl.sh service /tmp/ssl_data
           bash test/e2e/base/scripts/update-signed-ssl.sh proxy /tmp/ssl_data
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@cf589b4a0b9f8e6f436f78e9cfd94a1ee5494180
+        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
         with:
           e2e-file: $GITHUB_WORKSPACE/test/e2e/cases/profiling/task/network/${{ matrix.test.config }}
       - uses: actions/upload-artifact@v4
@@ -356,7 +356,7 @@ jobs:
         if: matrix.test.docker != null
         run: docker build -t ${{ matrix.test.docker.name }} -f test/e2e/cases/profiling/continuous/${{ matrix.test.docker.file }} test/e2e/cases/profiling/continuous
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@cf589b4a0b9f8e6f436f78e9cfd94a1ee5494180
+        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
         with:
           e2e-file: $GITHUB_WORKSPACE/test/e2e/cases/profiling/continuous/${{ matrix.test.config }}
       - uses: actions/upload-artifact@v4
