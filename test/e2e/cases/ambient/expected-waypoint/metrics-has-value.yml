@@ -13,6 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# A metric that carries at least one real data point. The query window starts before the
+# traffic did and its last bucket is still being aggregated, so the value list always mixes
+# populated entries with empty ones - hence the two alternatives below.
+#
+# Every field of an entry has to be spelled out, `owner` included: the `contains` action
+# matches an expected entry against an actual one by exact equality, so an omitted key is a
+# mismatch and not a wildcard.
 type: TIME_SERIES_VALUES
 results:
   {{- contains .results }}

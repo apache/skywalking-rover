@@ -13,6 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The call graph when a waypoint fronts the `details` service.
+#
+# Two things are asserted. First, the waypoint appears as its OWN node: its legs must be
+# attributed to it rather than collapsed into productpage or details, which is what would
+# happen if rover mis-resolved the ClusterIP hop that now terminates on the waypoint.
+# Second, the hops that do NOT go through the waypoint(productpage -> reviews -> ratings)
+# are unchanged - still ztunnel proxied and mTLS - proving a waypoint in the mesh does not
+# disturb the plain L4 ambient path.
+#
+# The productpage -> details edge itself is intentionally NOT pinned: whether the backend
+# renders it as one edge or as the productpage -> waypoint -> details pair depends on the
+# backend's waypoint handling, not on rover, and pinning it here would make this case fail
+# on a backend change that is not a rover regression.
 nodes:
 {{- contains .nodes }}
 - id: {{ b64enc "productpage.default"}}.1
@@ -20,51 +33,62 @@ nodes:
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "details.default"}}.1
   name: details.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "ratings.default" }}.1
   name: ratings.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
 - id: {{ b64enc "reviews.default" }}.1
   name: reviews.default
   type: http
   isreal: true
   layers:
+  {{- contains .layers }}
     - K8S_SERVICE
+    - MESH
+  {{- end }}
+- id: {{ b64enc "bookinfo-waypoint.default" }}.1
+  name: bookinfo-waypoint.default
+  type: mtls
+  isreal: true
+  layers:
+  {{- contains .layers }}
+    - K8S_SERVICE
+    - MESH
+  {{- end }}
 {{- end }}
 calls:
 {{- contains .calls }}
 - source: {{ b64enc "productpage.default"}}.1
   sourcecomponents:
   {{- contains .sourcecomponents }}
-  - http
-  {{- end }}
-  target: {{ b64enc "details.default"}}.1
-  targetcomponents:
-  {{- contains .targetcomponents }}
     - http
-  {{- end }}
-  id: {{ b64enc "productpage.default"}}.1-{{ b64enc "details.default"}}.1
-  detectpoints:
-    - CLIENT
-    - SERVER
-- source: {{ b64enc "productpage.default"}}.1
-  sourcecomponents:
-  {{- contains .sourcecomponents }}
-  - http
+    - ztunnel
+    - mtls
   {{- end }}
   target: {{ b64enc "reviews.default"}}.1
   targetcomponents:
   {{- contains .targetcomponents }}
-  - http
+    - http
+    - ztunnel
+    - mtls
   {{- end }}
   id: {{ b64enc "productpage.default"}}.1-{{ b64enc "reviews.default"}}.1
   detectpoints:
@@ -72,13 +96,17 @@ calls:
     - SERVER
 - source: {{ b64enc "reviews.default" }}.1
   sourcecomponents:
-    {{- contains .sourcecomponents }}
+  {{- contains .sourcecomponents }}
     - http
-    {{- end }}
+    - ztunnel
+    - mtls
+  {{- end }}
   target: {{ b64enc "ratings.default"}}.1
   targetcomponents:
   {{- contains .targetcomponents }}
     - http
+    - ztunnel
+    - mtls
   {{- end }}
   id: {{ b64enc "reviews.default" }}.1-{{ b64enc "ratings.default"}}.1
   detectpoints:

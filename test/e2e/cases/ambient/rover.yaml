@@ -1,0 +1,141 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Rover DaemonSet for the istio ambient scenarios. It differs from the plain
+# access_log case in two ambient specific ways:
+#
+#   1. the kubelet pod-log directory(/var/log/pods) is mounted read only and
+#      pointed at by ROVER_HOST_VAR_LOG_PODS_MAPPING, so the ztunnel access-log
+#      tailer - the symbol independent fallback for the (downstream src -> real
+#      pod) mapping - can locate and parse ztunnel's own container log.
+#   2. the log level stays at INFO. The ztunnel correlation stats(the counters the
+#      verify scripts read) are emitted at INFO; turning the whole agent to DEBUG
+#      floods the event hot path and rotates those lines out of the retained window.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: skywalking-rover
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: skywalking-rover
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: skywalking-rover
+subjects:
+  - kind: ServiceAccount
+    name: skywalking-rover
+    namespace: default
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: skywalking-rover
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services"]
+    verbs: ["get", "watch", "list"]
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: skywalking-rover
+spec:
+  selector:
+    matchLabels:
+      name: skywalking-rover
+  template:
+    metadata:
+      labels:
+        name: skywalking-rover
+        # rover runs in the ambient enrolled namespace, so opt its own pod OUT of the
+        # data plane explicitly. A hostNetwork pod is skipped by ztunnel anyway, but
+        # stating it keeps the agent off the path it is meant to observe.
+        istio.io/dataplane-mode: none
+    spec:
+      serviceAccountName: skywalking-rover
+      serviceAccount: skywalking-rover
+      containers:
+        - name: skywalking-rover
+          # SkyWalking Rover image path
+          image: apache/skywalking-rover:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+                - SYS_ADMIN
+            privileged: true
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host-proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /sys
+              readOnly: true
+            # read only access to the node's container logs so the ztunnel
+            # access-log fallback tailer can recover the (src -> real pod) mapping
+            - name: host-var-log-pods
+              mountPath: /host-var-log-pods
+              readOnly: true
+          env:
+            - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ACTIVE
+              value: "true"
+            - name: ROVER_LOGGER_LEVEL
+              value: "INFO"
+            - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: ROVER_BACKEND_ADDR
+              # backend OAP address
+              value: skywalking-oap.istio-system:11800
+            - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_ENVOY_ACTIVE
+              value: "false"
+            - name: ROVER_PROCESS_DISCOVERY_KUBERNETES_ANALYZER_ISTIO_APPLICATION_ACTIVE
+              value: "false"
+            - name: ROVER_HOST_PROC_MAPPING
+              value: /host-proc
+            # where the kubelet pod-log dir(/var/log/pods) is mounted into rover; the
+            # ztunnel access-log tailer resolves its glob through this instead of a
+            # hard coded host path
+            - name: ROVER_HOST_VAR_LOG_PODS_MAPPING
+              value: /host-var-log-pods
+            - name: ROVER_ACCESS_LOG_ACTIVE
+              value: "true"
+            - name: ROVER_ACCESS_LOG_FLUSH_PERIOD
+              value: 1s
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /host/proc
+            type: Directory
+        - name: host-sys
+          hostPath:
+            path: /host/sys
+            type: Directory
+        # the node's kubelet container-log dir; in kind this is the node container's
+        # own /var/log/pods, in a real cluster it is the host path - both hold the
+        # ztunnel DaemonSet's logs
+        - name: host-var-log-pods
+          hostPath:
+            path: /var/log/pods
+            type: DirectoryOrCreate

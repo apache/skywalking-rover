@@ -24,8 +24,8 @@ setup:
       - test/continuous-process_cpu:test
     expose-ports:
       - namespace: istio-system
-        resource: service/skywalking-ui
-        port: 80
+        resource: service/skywalking-oap
+        port: 12800
   steps:
     - name: set PATH
       command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
@@ -33,18 +33,24 @@ setup:
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
     - name: install swctl
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh swctl
+    - name: Install ECK operator CRDs
+      command: |
+        rm -rf skywalking-helm
+        helm pull oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" --untar
+        helm dep up skywalking-helm
+        tar xzf skywalking-helm/charts/eck-operator-3.3.1.tgz -C /tmp eck-operator/charts/eck-operator-crds
+        helm -n istio-system install eck-crds /tmp/eck-operator/charts/eck-operator-crds \
+          --create-namespace
     - name: Install SkyWalking
       command: |
-        kubectl create namespace istio-system
         helm -n istio-system install skywalking \
           oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
           --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
           --set fullnameOverride=skywalking \
-          --set elasticsearch.replicas=1 \
-          --set elasticsearch.minimumMasterNodes=1 \
+          --set eck-operator.installCRDs=false \
           --set oap.replicas=1 \
-          --set ui.image.repository=ghcr.io/apache/skywalking/ui \
-          --set ui.image.tag=${SW_OAP_COMMIT} \
+          --set ui.enabled=false \
           --set oap.image.tag=${SW_OAP_COMMIT} \
           --set oap.image.repository=ghcr.io/apache/skywalking/oap \
           --set oap.storageType=elasticsearch \
@@ -72,27 +78,27 @@ verify:
     interval: 10s
   cases:
     # metadata
-    - query: swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml service ls
+    - query: swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml service ls
       expected: expected/service.yml
-    - query: swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml instance ls --service-name test-continuous
+    - query: swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml instance ls --service-name test-continuous
       expected: expected/instance.yml
-    - query: swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml process ls --service-name test-continuous --instance-name test-instance
+    - query: swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml process ls --service-name test-continuous --instance-name test-instance
       expected: expected/process.yml
 
     # policy setting
     - query: |
-        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling continuous set --service-name test-continuous --config test/e2e/cases/profiling/continuous/process_cpu/policy.yaml
+        swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml profiling continuous set --service-name test-continuous --config test/e2e/cases/profiling/continuous/process_cpu/policy.yaml
       expected: expected/policy-set.yml
-    - query: swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling continuous ls --service-name test-continuous
+    - query: swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml profiling continuous ls --service-name test-continuous
       expected: expected/query-policy.yml
 
     # check profiling metrics
     - query: |
-        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml metrics linear \
+        swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml metrics linear \
           --service-name test-continuous --instance-name test-instance --process-name sqrt --name continuous_profiling_process_cpu |yq e 'to_entries' -
       expected: expected/metrics-has-value.yml
 
     # check triggered profiling task
     - query: |
-        swctl --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql --display yaml profiling ebpf list --service-name test-continuous --trigger CONTINUOUS_PROFILING
+        swctl --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql --display yaml profiling ebpf list --service-name test-continuous --trigger CONTINUOUS_PROFILING
       expected: expected/trigger-task.yml

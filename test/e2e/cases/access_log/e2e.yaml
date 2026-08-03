@@ -24,8 +24,8 @@ setup:
       - apache/skywalking-rover:latest
     expose-ports:
       - namespace: istio-system
-        resource: service/skywalking-ui
-        port: 80
+        resource: service/skywalking-oap
+        port: 12800
   steps:
     - name: set PATH
       command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
@@ -35,17 +35,24 @@ setup:
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh kubectl
     - name: Install helm
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh helm
+    - name: Install ECK operator CRDs
+      command: |
+        rm -rf skywalking-helm
+        helm pull oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" --untar
+        helm dep up skywalking-helm
+        tar xzf skywalking-helm/charts/eck-operator-3.3.1.tgz -C /tmp eck-operator/charts/eck-operator-crds
+        helm -n istio-system install eck-crds /tmp/eck-operator/charts/eck-operator-crds \
+          --create-namespace
     - name: Install SkyWalking
       command: |
         helm -n istio-system install skywalking --create-namespace \
           oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
           --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
           --set fullnameOverride=skywalking \
-          --set elasticsearch.replicas=1 \
-          --set elasticsearch.minimumMasterNodes=1 \
+          --set eck-operator.installCRDs=false \
           --set oap.replicas=1 \
-          --set ui.image.repository=ghcr.io/apache/skywalking/ui \
-          --set ui.image.tag=${SW_OAP_COMMIT} \
+          --set ui.enabled=false \
           --set oap.image.tag=${SW_OAP_COMMIT} \
           --set oap.image.repository=ghcr.io/apache/skywalking/oap \
           --set oap.storageType=elasticsearch \
@@ -82,150 +89,151 @@ verify:
     interval: 10s
   cases:
     # service list
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql service ls
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql service ls
       expected: expected/service.yml
     # service instance list
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance list --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance list --service-name=productpage.default
       expected: expected/service-instance.yml
 
     # service topology
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql dependency global --layer=K8S_SERVICE
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql dependency global --layer=K8S_SERVICE
       expected: expected/dependency-services.yml
     # service instance topology
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql dependency instance --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql dependency instance --service-name=productpage.default --dest-service-name=details.default
       expected: expected/dependency-instance.yml
-    # service endpoints
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql endpoint list --service-name=details.default
+    # service endpoints. Only the inventory is asserted: the backend stopped deriving endpoint
+    # relations from eBPF access logs in apache/skywalking@3320bf91ee(#12539), which removed
+    # K8SEndpointRelation and its toEndpointRelation() builder from AccessLogServiceHandler,
+    # so `dependency endpoint` has nothing left to return. Rover's endpoint output is covered
+    # by this inventory and by the kubernetes_service_endpoint_* metrics further down.
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql endpoint list --service-name=details.default
       expected: expected/service-endpoint-reviews.yml
-    # endpoints topology
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql dependency endpoint --service-name=details.default --endpoint-name=/details/0
-      expected: expected/dependency-endpoint-reviews.yml
 
     # service level metrics
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_connect_cpm --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_connect_cpm --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_accept_cpm --service-name=reviews.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_accept_cpm --service-name=reviews.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_write_cpm --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_write_cpm --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_read_cpm --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_read_cpm --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_write_l4_duration --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_write_l4_time --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_read_l4_duration --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_read_l4_time --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_write_package_cpm --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_write_package_cpm --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_read_package_cpm --service-name=productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_read_package_cpm --service-name=productpage.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_http_call_cpm --service-name=reviews.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_cpm --service-name=reviews.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_http_call_duration --service-name=reviews.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_time --service-name=reviews.default
       expected: expected/metrics-has-value.yml
 
     # service instance level metrics
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_connect_cpm --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_connect_cpm --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_write_cpm --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_write_cpm --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_write_l4_duration --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_write_l4_time --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_write_package_cpm --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_write_package_cpm --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_read_cpm --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_read_cpm --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_read_l4_duration --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_read_l4_time --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_read_package_cpm --service-name=productpage.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_read_package_cpm --service-name=productpage.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name reviews.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_http_call_cpm --service-name=reviews.default --instance-name=$instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name reviews.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_http_call_cpm --service-name=reviews.default --instance-name=$instance_name
       expected: expected/metrics-has-value.yml
 
     # service endpoint level metrics
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_endpoint_call_cpm --service-name=details.default --endpoint-name=/details/0
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_call_cpm --service-name=details.default --endpoint-name=GET:/details/0
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=details.default --endpoint-name=/details/0
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=details.default --endpoint-name=GET:/details/0
       expected: expected/metrics-has-value.yml
 
     # service relation metrics
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_connect_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_connect_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_server_write_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_write_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_server_write_package_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_write_package_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_server_read_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_read_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_server_read_package_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_read_package_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_client_write_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_write_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_client_write_package_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_write_package_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_client_read_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_read_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_relation_client_read_package_cpm --service-name=productpage.default --dest-service-name=details.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_read_package_cpm --service-name=productpage.default --dest-service-name=details.default
       expected: expected/metrics-has-value.yml
 
     # service instance relation metrics
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_connect_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_connect_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_write_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_write_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_write_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_write_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_read_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_read_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_read_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_server_read_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_write_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_write_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_write_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_write_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_read_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_read_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml
     - query: |
-        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
-        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance ls --service-name details.default | yq '.[0].name' -)
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_read_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        dest_instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name details.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_relation_client_read_package_cpm --service-name=productpage.default --instance-name=$instance_name --dest-service-name=details.default --dest-instance-name=$dest_instance_name
       expected: expected/metrics-has-value.yml

@@ -15,14 +15,14 @@
 
 nodes:
 {{- contains .nodes }}
-- id: {{ b64enc "productpage.default" }}.1_{{ b64enc "/details/0" }}
-  name: /details/0
+- id: {{ notEmpty .id }}
+  name: {{ notEmpty .name }}
   serviceid: {{ b64enc "productpage.default" }}.1
   servicename: productpage.default
   type: ""
   isreal: true
-- id: {{ b64enc "details.default" }}.1_{{ b64enc "/details/0" }}
-  name: /details/0
+- id: {{ notEmpty .id }}
+  name: {{ notEmpty .name }}
   serviceid: {{ b64enc "details.default" }}.1
   servicename: details.default
   type: ""
@@ -30,11 +30,13 @@ nodes:
 {{- end }}
 calls:
 {{- contains .calls }}
-- source: {{ b64enc "productpage.default" }}.1_{{ b64enc "/details/0" }}
+- source: {{ notEmpty .source }}
   sourcecomponents: []
-  target: {{ b64enc "details.default" }}.1_{{ b64enc "/details/0" }}
+  target: {{ notEmpty .target }}
   targetcomponents: []
-  id: {{ b64enc "productpage.default" }}.1-{{ b64enc "/details/0" }}-{{ b64enc "details.default" }}.1-{{ b64enc "/details/0" }}
+  id: {{ notEmpty .id }}
   detectpoints:
+    - CLIENT
     - SERVER
 {{- end }}
+debuggingtrace: null

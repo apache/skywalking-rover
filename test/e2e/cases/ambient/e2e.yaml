@@ -1,0 +1,204 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Pure istio ambient scenario: bookinfo runs entirely on the ambient data plane, so
+# there is NO envoy sidecar anywhere and every hop is proxied by the node local
+# ztunnel. This asserts rover still produces the complete K8S_SERVICE topology and
+# metrics from that path, which it can only do by correlating the ztunnel data path
+# (the inbound leg tagging plus the outbound load balanced socket mappings).
+#
+# The setup mirrors the ambient e2e in the SkyWalking repository
+# (test/e2e-v2/cases/istio/ambient-als): same ambient profile install, same Gateway API
+# install, same ECK based helm chart with the UI disabled and the graphql port exposed
+# straight off the OAP Service. Only what this case is actually about differs - it deploys
+# rover instead of relying on envoy access logs, and asserts the K8S_SERVICE topology rover
+# builds rather than the MESH one.
+#
+# Parameterized by env:
+#   ISTIO_VERSION              istio version to install, set by the CI matrix
+#   SW_KUBERNETES_COMMIT_SHA   helm chart version, from test/e2e/base/env
+#   SW_OAP_COMMIT              OAP image tag, from test/e2e/base/env
+setup:
+  env: kind
+  file: kind.yaml
+  init-system-environment: ../../base/env
+  kind:
+    import-images:
+      - apache/skywalking-rover:latest
+    expose-ports:
+      - namespace: istio-system
+        resource: service/skywalking-oap
+        port: 12800
+  steps:
+    - name: set PATH
+      command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
+    - name: install yq
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
+    - name: install swctl
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh swctl
+    - name: install kubectl
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh kubectl
+    - name: install istio
+      command: |
+        bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh istioctl
+        istioctl install -y --set profile=ambient --skip-confirmation
+        kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null || \
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+        kubectl label namespace default istio.io/dataplane-mode=ambient
+        kubectl -n istio-system rollout status daemonset/ztunnel --timeout=600s
+        kubectl -n istio-system rollout status daemonset/istio-cni-node --timeout=600s
+    - name: Install helm
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh helm
+    - name: Install ECK operator CRDs
+      command: |
+        rm -rf skywalking-helm
+        helm pull oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" --untar
+        helm dep up skywalking-helm
+        tar xzf skywalking-helm/charts/eck-operator-3.3.1.tgz -C /tmp eck-operator/charts/eck-operator-crds
+        helm -n istio-system install eck-crds /tmp/eck-operator/charts/eck-operator-crds \
+          --create-namespace
+    - name: Install SkyWalking
+      command: |
+        helm -n istio-system install skywalking \
+          oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
+          --set fullnameOverride=skywalking \
+          --set eck-operator.installCRDs=false \
+          --set oap.env.SW_HEALTH_CHECKER=default \
+          --set oap.replicas=1 \
+          --set ui.enabled=false \
+          --set oap.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.repository=ghcr.io/apache/skywalking/oap \
+          --set oap.storageType=elasticsearch \
+          -f test/e2e/base/kubernetes-values.yaml \
+          -f test/e2e/cases/ambient/values.yaml
+      wait:
+        - namespace: istio-system
+          resource: deployments/skywalking-oap
+          for: condition=available
+    - name: Deploy demo services
+      command: |
+        kubectl apply -f https://raw.githubusercontent.com/istio/istio/${ISTIO_VERSION}/samples/bookinfo/platform/kube/bookinfo.yaml
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
+    - name: Install SkyWalking Rover
+      command: |
+        envsubst < test/e2e/cases/ambient/rover.yaml | kubectl apply -f -
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
+    - name: Status of istio mesh
+      command: istioctl zc all && sleep 15 # sleep for waiting the rover ready to monitoring all services
+    - name: Generate traffic
+      path: traffic-gen.yaml
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
+  timeout: 40m
+
+verify:
+  retry:
+    # the K8S_SERVICE inventory and the call metrics are only built after the access
+    # logs are aggregated into minute buckets and persisted, so on a cold start the
+    # first entities show up a few minutes after the traffic begins
+    count: 60
+    interval: 10s
+  cases:
+    # ---- the topology and metrics built by the UPSTREAM OAP from rover's access logs ----
+    # service list
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql service ls
+      expected: expected/service.yml
+    # service instance list
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance list --service-name=productpage.default
+      expected: expected/service-instance.yml
+    # service topology: the call edges must carry the ztunnel + mTLS components, which is
+    # what proves the graph was built from the ambient data path and not from something else
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql dependency global --layer=K8S_SERVICE
+      expected: expected/dependency-services.yml
+    # service instance topology
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql dependency instance --service-name=productpage.default --dest-service-name=details.default
+      expected: expected/dependency-instance.yml
+    # service endpoints. Only the inventory is asserted: the backend stopped deriving endpoint
+    # relations from eBPF access logs in apache/skywalking@3320bf91ee(#12539), so
+    # `dependency endpoint` has nothing left to return. Rover's endpoint output is covered by
+    # this inventory and by the kubernetes_service_endpoint_* metrics further down.
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql endpoint list --service-name=details.default
+      expected: expected/service-endpoint-details.yml
+
+    # service level metrics
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_connect_cpm --service-name=productpage.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_accept_cpm --service-name=reviews.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_write_cpm --service-name=productpage.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_read_cpm --service-name=productpage.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_write_l4_time --service-name=productpage.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_read_l4_time --service-name=productpage.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_cpm --service-name=reviews.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_time --service-name=reviews.default
+      expected: expected/metrics-has-value.yml
+
+    # service instance level metrics
+    - query: |
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_connect_cpm --service-name=productpage.default --instance-name=$instance_name
+      expected: expected/metrics-has-value.yml
+    - query: |
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_write_cpm --service-name=productpage.default --instance-name=$instance_name
+      expected: expected/metrics-has-value.yml
+    - query: |
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name productpage.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_read_cpm --service-name=productpage.default --instance-name=$instance_name
+      expected: expected/metrics-has-value.yml
+
+    # service endpoint level metrics
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_call_cpm --service-name=details.default --endpoint-name=GET:/details/0
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=details.default --endpoint-name=GET:/details/0
+      expected: expected/metrics-has-value.yml
+
+    # service relation metrics
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_connect_cpm --service-name=productpage.default --dest-service-name=details.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_write_cpm --service-name=productpage.default --dest-service-name=details.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_read_cpm --service-name=productpage.default --dest-service-name=details.default
+      expected: expected/metrics-has-value.yml
+
+    # ---- rover side health of the ambient(ztunnel) correlation, read from its own logs ----
+    # rover binds both legs of the ambient path: the ztunnel inbound leg is tagged and the
+    # uprobe delivers the outbound load balanced socket mappings
+    - query: bash test/e2e/cases/ambient/verify/ztunnel-binding.sh
+      expected: verify/expected/ztunnel-binding.yml
+    # in ambient the conntrack path is essentially empty, so the ztunnel correlation MUST
+    # carry the remote address resolution; this guards the "service IP cannot be resolved"
+    # regression that would otherwise silently degrade the topology into raw IP nodes
+    - query: bash test/e2e/cases/ambient/verify/resolution-health.sh
+      expected: verify/expected/resolution-health.yml
+    # a connection's ambient identity is being produced by one of rover's redundant sources
+    # (the ztunnel identity uprobe by default, the access log tailer where it cannot attach)
+    - query: bash test/e2e/cases/ambient/verify/identity-source.sh
+      expected: verify/expected/identity-source.yml

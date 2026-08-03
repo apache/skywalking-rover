@@ -13,30 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# kind cluster for the ambient e2e. A newer node image than the other cases is
+# required: istio ambient(1.24+) needs a recent Kubernetes, and the waypoint
+# scenario additionally needs the Gateway API to be servable. The whole host
+# filesystem is mounted into the node so the rover eBPF programs reach the REAL
+# host /proc and /sys - in kind the node is itself a container, so the eBPF
+# programs see the real host PID namespace and reading the node's own /proc
+# would make the captured PIDs not match the monitored ones.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
-{{- contains .nodes }}
-- id: {{ notEmpty .id }}
-  name: {{ notEmpty .name }}
-  serviceid: {{ b64enc "productpage.default" }}.1
-  servicename: productpage.default
-  type: ""
-  isreal: true
-- id: {{ notEmpty .id }}
-  name: {{ notEmpty .name }}
-  serviceid: {{ b64enc "details.default" }}.1
-  servicename: details.default
-  type: ""
-  isreal: true
-{{- end }}
-calls:
-{{- contains .calls }}
-- source: {{ notEmpty .source }}
-  sourcecomponents: []
-  target: {{ notEmpty .target }}
-  targetcomponents: []
-  id: {{ notEmpty .id }}
-  detectpoints:
-    - CLIENT
-    - SERVER
-{{- end }}
-debuggingtrace: null
+  - role: control-plane
+    image: kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e
+    extraMounts:
+      - hostPath: /
+        containerPath: /host

@@ -63,3 +63,4 @@ calls:
   detectpoints:
     - SERVER
 {{- end }}
+debuggingtrace: null

@@ -24,8 +24,8 @@ setup:
       - apache/skywalking-rover:latest
     expose-ports:
       - namespace: istio-system
-        resource: service/skywalking-ui
-        port: 80
+        resource: service/skywalking-oap
+        port: 12800
   steps:
     - name: set PATH
       command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
@@ -40,17 +40,24 @@ setup:
         kubectl label namespace default istio-injection=enabled
     - name: Install helm
       command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh helm
+    - name: Install ECK operator CRDs
+      command: |
+        rm -rf skywalking-helm
+        helm pull oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" --untar
+        helm dep up skywalking-helm
+        tar xzf skywalking-helm/charts/eck-operator-3.3.1.tgz -C /tmp eck-operator/charts/eck-operator-crds
+        helm -n istio-system install eck-crds /tmp/eck-operator/charts/eck-operator-crds \
+          --create-namespace
     - name: Install SkyWalking
       command: |
         helm -n istio-system install skywalking \
           oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
           --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
           --set fullnameOverride=skywalking \
-          --set elasticsearch.replicas=1 \
-          --set elasticsearch.minimumMasterNodes=1 \
+          --set eck-operator.installCRDs=false \
           --set oap.replicas=1 \
-          --set ui.image.repository=ghcr.io/apache/skywalking/ui \
-          --set ui.image.tag=${SW_OAP_COMMIT} \
+          --set ui.enabled=false \
           --set oap.image.tag=${SW_OAP_COMMIT} \
           --set oap.image.repository=ghcr.io/apache/skywalking/oap \
           --set oap.storageType=elasticsearch \
@@ -84,14 +91,14 @@ verify:
     interval: 10s
   cases:
     # service list
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql service ls
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql service ls
       expected: expected/service.yml
     # service instance list
-    - query: swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance list --service-name=e2e::productpage.default
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance list --service-name=e2e::productpage.default
       expected: expected/service-instance.yml
     # process list
     - query: |
-        swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql process list --service-name=e2e::productpage.default --instance-name=$( \
-          swctl --display yaml --base-url=http://${service_skywalking_ui_host}:${service_skywalking_ui_80}/graphql instance list --service-name=e2e::productpage.default |yq e '.[0].name' - \
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql process list --service-name=e2e::productpage.default --instance-name=$( \
+          swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance list --service-name=e2e::productpage.default |yq e '.[0].name' - \
         )
       expected: expected/process.yml
