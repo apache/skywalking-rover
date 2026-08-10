@@ -140,7 +140,7 @@ func chooseServiceName(a, b string) string {
 	return b
 }
 
-func (r *StaticNamespaceRegistry) OnAdd(_ interface{}) {
+func (r *StaticNamespaceRegistry) OnAdd(_ interface{}, _ bool) {
 	r.recomposePodServiceName()
 }
 
