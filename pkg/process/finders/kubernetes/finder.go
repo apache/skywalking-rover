@@ -125,7 +125,7 @@ type ProcessFinder struct {
 }
 
 func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager) error {
-	return f.InitWithRegistry(ctx, conf, manager, func(clientset *kubernetes.Clientset) Registry {
+	return f.InitWithRegistry(ctx, conf, manager, func(clientset *kubernetes.Clientset) (Registry, error) {
 		config := conf.(*Config)
 		var namespaces []string
 		// namespace update
@@ -139,7 +139,7 @@ func (f *ProcessFinder) Init(ctx context.Context, conf base.FinderBaseConfig, ma
 }
 
 func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBaseConfig, manager base.ProcessManager,
-	registrySupplier func(*kubernetes.Clientset) Registry) error {
+	registrySupplier func(*kubernetes.Clientset) (Registry, error)) error {
 	f.clusterName = manager.GetModuleManager().FindModule(core.ModuleName).(core.Operator).ClusterName()
 	k8sConf, cli, err := f.validateConfig(ctx, conf.(*Config))
 	if err != nil {
@@ -151,7 +151,10 @@ func (f *ProcessFinder) InitWithRegistry(ctx context.Context, conf base.FinderBa
 
 	f.ctx, f.cancelCtx = context.WithCancel(ctx)
 	f.stopChan = make(chan struct{}, 1)
-	f.registry = registrySupplier(cli)
+	f.registry, err = registrySupplier(cli)
+	if err != nil {
+		return err
+	}
 	f.manager = manager
 	f.podIPChecker = cache.NewExpiring()
 	f.podIPMutexes = make(map[int]*sync.Mutex)
