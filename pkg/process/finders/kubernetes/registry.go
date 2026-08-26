@@ -18,6 +18,7 @@
 package kubernetes
 
 import (
+	"fmt"
 	"reflect"
 	"time"
 
@@ -44,7 +45,7 @@ type StaticNamespaceRegistry struct {
 	podServiceNameCache map[string]string
 }
 
-func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) Registry {
+func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, nodeName string) (Registry, error) {
 	r := &StaticNamespaceRegistry{
 		podInformers:        make([]cache.SharedInformer, 0),
 		serviceInformers:    make([]cache.SharedInformer, 0),
@@ -53,16 +54,20 @@ func NewStaticNamespaceRegistry(cli *kubernetes.Clientset, namespaces []string, 
 	for _, ns := range namespaces {
 		podListWatch := cache.NewListWatchFromClient(cli.CoreV1().RESTClient(), "pods", ns, fields.OneTermEqualSelector("spec.nodeName", nodeName))
 		podInformer := cache.NewSharedInformer(podListWatch, &v1.Pod{}, rsyncPeriod)
-		podInformer.AddEventHandler(r)
+		if _, err := podInformer.AddEventHandler(r); err != nil {
+			return nil, fmt.Errorf("adding the pod event handler for namespace %s: %w", ns, err)
+		}
 		r.podInformers = append(r.podInformers, podInformer)
 
 		serviceListWatch := cache.NewListWatchFromClient(cli.CoreV1().RESTClient(), "services", ns, fields.Everything())
 		serviceInformer := cache.NewSharedInformer(serviceListWatch, &v1.Service{}, rsyncPeriod)
-		serviceInformer.AddEventHandler(r)
+		if _, err := serviceInformer.AddEventHandler(r); err != nil {
+			return nil, fmt.Errorf("adding the service event handler for namespace %s: %w", ns, err)
+		}
 		r.serviceInformers = append(r.serviceInformers, serviceInformer)
 	}
 
-	return r
+	return r, nil
 }
 
 func (r *StaticNamespaceRegistry) Start(stopChan chan struct{}) {
@@ -140,7 +145,7 @@ func chooseServiceName(a, b string) string {
 	return b
 }
 
-func (r *StaticNamespaceRegistry) OnAdd(_ interface{}) {
+func (r *StaticNamespaceRegistry) OnAdd(_ interface{}, _ bool) {
 	r.recomposePodServiceName()
 }
 

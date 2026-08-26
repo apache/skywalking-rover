@@ -50,6 +50,7 @@ Release Notes.
 
 #### Documentation
 * Add a dead link checker in the CI.
+* Bump up Kubernetes libraries to `0.29.15`.
 
 #### Issues and PR
 - All issues are [here](https://github.com/apache/skywalking/milestone/228?closed=1)
