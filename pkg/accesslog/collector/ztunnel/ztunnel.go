@@ -753,6 +753,47 @@ func processOnThisNode(hostPid int32) bool {
 	return false
 }
 
+// selectNodeZTunnelProcess picks the ztunnel belonging to THIS node out of every ztunnel visible
+// in the host proc. ROVER_HOST_PROC_MAPPING points at the real host's /proc, so on a nested setup
+// (kind, or any other multi-node-on-one-host lab) that listing contains the ztunnel of every node.
+// Arming the pid gate with another node's ztunnel fails SILENTLY - its uprobes still fire, because
+// they attach by binary inode and the nodes share the image - while no local connection ever
+// matches the gate, so no inbound leg is tagged and every PEER_* identity is lost.
+func selectNodeZTunnelProcess(processes []*process.Process) *process.Process {
+	var candidates []*process.Process
+	for _, p := range processes {
+		name, err := p.Exe()
+		if err != nil {
+			continue
+		}
+		if strings.HasSuffix(name, "/ztunnel") {
+			candidates = append(candidates, p)
+		}
+	}
+	for _, p := range candidates {
+		if processOnThisNode(p.Pid) {
+			return p
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	// none could be attributed to this node: keep the previous behavior(first match) rather than
+	// losing the collector altogether, but never do it quietly - with more than one candidate this
+	// is a coin flip, and the losing side is the silent failure described above.
+	if len(candidates) > 1 {
+		pids := make([]int32, 0, len(candidates))
+		for _, c := range candidates {
+			pids = append(pids, c.Pid)
+		}
+		ztunnelLog.Warnf("found %d ztunnel processes in the host proc %v but none could be "+
+			"attributed to this node; falling back to pid %d. If this node's inbound legs stay "+
+			"untagged(\"ztunnel-pid connect events seen: 0\" in the correlation stats), the gate "+
+			"armed on another node's ztunnel", len(candidates), pids, candidates[0].Pid)
+	}
+	return candidates[0]
+}
+
 func (z *Collector) findZTunnelProcessAndCollect() error {
 	if current := z.collectingProcess.Load(); current != nil {
 		running, err := current.IsRunning()
@@ -768,45 +809,7 @@ func (z *Collector) findZTunnelProcessAndCollect() error {
 	if err != nil {
 		return err
 	}
-	// Collect EVERY ztunnel and then pick this node's, instead of taking the first match:
-	// ROVER_HOST_PROC_MAPPING points at the real host's /proc, so on a nested setup(kind, or any
-	// other multi-node-on-one-host lab) that listing contains the ztunnel of every node. Arming
-	// the pid gate with another node's ztunnel fails SILENTLY - its uprobes still fire, because
-	// they attach by binary inode and the nodes share the image - while no local connection ever
-	// matches the gate, so no inbound leg is tagged and every PEER_* identity is lost.
-	var candidates []*process.Process
-	for _, p := range processes {
-		name, err := p.Exe()
-		if err != nil {
-			continue
-		}
-		if strings.HasSuffix(name, "/ztunnel") {
-			candidates = append(candidates, p)
-		}
-	}
-	var zTunnelProcess *process.Process
-	for _, p := range candidates {
-		if processOnThisNode(p.Pid) {
-			zTunnelProcess = p
-			break
-		}
-	}
-	if zTunnelProcess == nil && len(candidates) > 0 {
-		// none of them could be attributed to this node: keep the previous behaviour(first match)
-		// rather than losing the collector altogether, but never do it quietly - with more than one
-		// candidate this is a coin flip, and the losing side is the silent failure described above.
-		zTunnelProcess = candidates[0]
-		if len(candidates) > 1 {
-			pids := make([]int32, 0, len(candidates))
-			for _, c := range candidates {
-				pids = append(pids, c.Pid)
-			}
-			ztunnelLog.Warnf("found %d ztunnel processes in the host proc %v but none could be "+
-				"attributed to this node; falling back to pid %d. If this node's inbound legs stay "+
-				"untagged(\"ztunnel-pid connect events seen: 0\" in the correlation stats), the gate "+
-				"armed on another node's ztunnel", len(candidates), pids, zTunnelProcess.Pid)
-		}
-	}
+	zTunnelProcess := selectNodeZTunnelProcess(processes)
 
 	if zTunnelProcess == nil {
 		// clear a now-dead process so the netns pollers stop entering the dead
