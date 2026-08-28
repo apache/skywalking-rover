@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -712,6 +713,87 @@ func (z *Collector) Stop() {
 	}
 }
 
+// processOnThisNode reports whether a process found in the HOST proc actually runs on this node.
+//
+// It is needed because ROVER_HOST_PROC_MAPPING deliberately points at the real host's /proc: on a
+// single-machine node that is the same thing, but on a nested setup(kind, or any multi-node-on-one-
+// host lab) it lists every node's processes. The agent's OWN pid namespace is the discriminator -
+// with hostPID it holds exactly this node's processes - so a process on this node has, somewhere in
+// its NSpid chain, a pid that resolves in our own /proc back to the same executable.
+//
+// Returns false when the answer cannot be established(no NSpid line, unreadable status). Callers
+// treat that as "unknown" and fall back with a warning rather than dropping the process.
+func processOnThisNode(hostPid int32) bool {
+	status, err := os.ReadFile(host.GetHostProcInHost(fmt.Sprintf("%d/status", hostPid)))
+	if err != nil {
+		return false
+	}
+	exe, err := os.Readlink(host.GetHostProcInHost(fmt.Sprintf("%d/exe", hostPid)))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if !strings.HasPrefix(line, "NSpid:") {
+			continue
+		}
+		// "NSpid: <host pid> <pid in the next namespace> ... <pid in the innermost namespace>"
+		for _, field := range strings.Fields(strings.TrimPrefix(line, "NSpid:")) {
+			nsPid, convErr := strconv.Atoi(field)
+			if convErr != nil || nsPid <= 0 {
+				continue
+			}
+			// read OUR /proc, not the host mapping: this is the namespace scoped to our node
+			local, linkErr := os.Readlink(fmt.Sprintf("/proc/%d/exe", nsPid))
+			if linkErr == nil && local == exe {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// selectNodeZTunnelProcess picks the ztunnel belonging to THIS node out of every ztunnel visible
+// in the host proc. ROVER_HOST_PROC_MAPPING points at the real host's /proc, so on a nested setup
+// (kind, or any other multi-node-on-one-host lab) that listing contains the ztunnel of every node.
+// Arming the pid gate with another node's ztunnel fails SILENTLY - its uprobes still fire, because
+// they attach by binary inode and the nodes share the image - while no local connection ever
+// matches the gate, so no inbound leg is tagged and every PEER_* identity is lost.
+func selectNodeZTunnelProcess(processes []*process.Process) *process.Process {
+	var candidates []*process.Process
+	for _, p := range processes {
+		name, err := p.Exe()
+		if err != nil {
+			continue
+		}
+		if strings.HasSuffix(name, "/ztunnel") {
+			candidates = append(candidates, p)
+		}
+	}
+	for _, p := range candidates {
+		if processOnThisNode(p.Pid) {
+			return p
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	// none could be attributed to this node: keep the previous behavior(first match) rather than
+	// losing the collector altogether, but never do it quietly - with more than one candidate this
+	// is a coin flip, and the losing side is the silent failure described above.
+	if len(candidates) > 1 {
+		pids := make([]int32, 0, len(candidates))
+		for _, c := range candidates {
+			pids = append(pids, c.Pid)
+		}
+		ztunnelLog.Warnf("found %d ztunnel processes in the host proc %v but none could be "+
+			"attributed to this node; falling back to pid %d. If this node's inbound legs stay "+
+			"untagged(\"ztunnel-pid connect events seen: 0\" in the correlation stats), the gate "+
+			"armed on another node's ztunnel", len(candidates), pids, candidates[0].Pid)
+	}
+	return candidates[0]
+}
+
 func (z *Collector) findZTunnelProcessAndCollect() error {
 	if current := z.collectingProcess.Load(); current != nil {
 		running, err := current.IsRunning()
@@ -727,17 +809,7 @@ func (z *Collector) findZTunnelProcessAndCollect() error {
 	if err != nil {
 		return err
 	}
-	var zTunnelProcess *process.Process
-	for _, p := range processes {
-		name, err := p.Exe()
-		if err != nil {
-			continue
-		}
-		if strings.HasSuffix(name, "/ztunnel") {
-			zTunnelProcess = p
-			break
-		}
-	}
+	zTunnelProcess := selectNodeZTunnelProcess(processes)
 
 	if zTunnelProcess == nil {
 		// clear a now-dead process so the netns pollers stop entering the dead
