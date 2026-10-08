@@ -47,6 +47,7 @@ Release Notes.
 * Fix the ztunnel event reader and process finder not being registered when the ztunnel process starts after the rover.
 * Fix ghost connections created by failed accept syscalls with a negative socket fd in the access log module.
 * Remove the ineffective `ctnetlink_fill_info` kprobe and fix an always-true condition in the conntrack BPF program.
+* Bump up `google.golang.org/grpc` to `1.84.0` to fix CVE-2026-33186 (authorization bypass via malformed `:path` header), and replace the deprecated `golang.org/x/net/context` with the standard library `context`.
 
 #### Documentation
 * Add a dead link checker in the CI.
