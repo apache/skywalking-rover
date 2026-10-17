@@ -39,12 +39,13 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+      # Plain `docker login` instead of docker/login-action: the ASF allow-list
+      # expires third-party SHA pins, which breaks this job at startup.
       - name: Log in to the Container registry
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
-        with:
-          registry: ${{ env.HUB }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$REGISTRY_TOKEN" | docker login "$HUB" --username "$REGISTRY_USER" --password-stdin
       - name: Clean spaces for docker images and show disk usage
         run: |
           sudo rm -rf /usr/share/dotnet
