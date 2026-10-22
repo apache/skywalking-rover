@@ -18,6 +18,8 @@
 package protocols
 
 import (
+	"context"
+
 	"github.com/apache/skywalking-rover/pkg/logger"
 	profiling "github.com/apache/skywalking-rover/pkg/profiling/task/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/base"
@@ -25,8 +27,6 @@ import (
 	protocol "github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/base"
 	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/layer7/protocols/http1"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-
-	"golang.org/x/net/context"
 )
 
 var log = logger.GetLogger("profiling", "task", "network", "layer7", "protocols")
