@@ -59,6 +59,10 @@ type Queue struct {
 	// the counters above are reset when they are logged; these are the totals the metrics report
 	droppedKernelLogs   int64
 	droppedProtocolLogs int64
+	// what the analysis actually produced, which tells whether a side is completing messages at the
+	// rate the traffic implies or is falling behind on them
+	builtKernelLogs   int64
+	builtProtocolLogs int64
 }
 
 type QueueConsumer interface {
@@ -77,6 +81,7 @@ func NewQueue(maxFlushCount int, period time.Duration, consumer QueueConsumer) *
 }
 
 func (q *Queue) AppendKernelLog(log KernelLog) {
+	atomic.AddInt64(&q.builtKernelLogs, 1)
 	select {
 	case q.kernelLogs <- log:
 	default:
@@ -88,6 +93,7 @@ func (q *Queue) AppendKernelLog(log KernelLog) {
 }
 
 func (q *Queue) AppendProtocolLog(log ProtocolLog) {
+	atomic.AddInt64(&q.builtProtocolLogs, 1)
 	select {
 	case q.protocolLogs <- log:
 	default:
@@ -112,6 +118,12 @@ func (q *Queue) RegisterMetrics() {
 	telemetry.Register("rover_access_log_protocol_logs_pending",
 		"Protocol logs waiting for the next flush", telemetry.Gauge,
 		func() float64 { return float64(len(q.protocolLogs)) })
+	telemetry.Register("rover_access_log_kernel_logs_total",
+		"Kernel logs the analysis produced", telemetry.Counter,
+		func() float64 { return float64(atomic.LoadInt64(&q.builtKernelLogs)) })
+	telemetry.Register("rover_access_log_protocol_logs_total",
+		"Protocol logs the analysis produced, one per message", telemetry.Counter,
+		func() float64 { return float64(atomic.LoadInt64(&q.builtProtocolLogs)) })
 	telemetry.Register("rover_access_log_kernel_logs_dropped_total",
 		"Kernel logs dropped because the flush queue was full", telemetry.Counter,
 		func() float64 { return float64(atomic.LoadInt64(&q.droppedKernelLogs)) })

@@ -39,8 +39,8 @@ import (
 
 	"github.com/docker/go-units"
 
-	cmap "github.com/orcaman/concurrent-map"
 	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
+	cmap "github.com/orcaman/concurrent-map"
 )
 
 var maxBufferExpireDuration = time.Minute

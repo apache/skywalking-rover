@@ -309,7 +309,7 @@ func applyMemorySample(usage int64) bool {
 	if active {
 		log.Warnf("memory protection active: usage %d MB reached the threshold %d MB, new socket data events "+
 			"are dropped; %d events are still held by the analysis (%d MB)",
-			usage>>20, threshold>>20, eventsInUse.Load(), eventsInUse.Load()*20480>>20)
+			usage>>20, threshold>>20, eventsInUse.Load(), bytesInUse.Load()>>20)
 		return true
 	}
 	log.Infof("memory protection released: usage %d MB is below the threshold %d MB, %d events held by the analysis",
@@ -323,6 +323,19 @@ func init() {
 	telemetry.Register("rover_socket_data_events_in_use",
 		"Socket data events held by the analysis, each holding a buffer of the upload chunk size",
 		telemetry.Gauge, func() float64 { return float64(eventsInUse.Load()) })
+	telemetry.Register("rover_socket_data_bytes_in_use",
+		"Bytes the socket data events held by the analysis occupy, which the variable length upload "+
+			"makes different from the event count times the chunk size",
+		telemetry.Gauge, func() float64 { return float64(bytesInUse.Load()) })
+	telemetry.Register("rover_socket_data_events_accepted_total",
+		"Socket data events taken from the kernel: the analysis cost follows this, not the bytes",
+		telemetry.Counter, func() float64 { return float64(acceptedEvents.Load()) })
+	telemetry.Register("rover_socket_data_bytes_total",
+		"Bytes of socket data appended to a connection buffer, which against the event count is the average event",
+		telemetry.Counter, func() float64 { return float64(acceptedBytes.Load()) })
+	telemetry.Register("rover_socket_data_events_expired_total",
+		"Socket data events released by the expiry rather than by an analyzer, so their message never completed",
+		telemetry.Counter, func() float64 { return float64(expiredEvents.Load()) })
 	telemetry.Register("rover_socket_data_events_dropped_total",
 		"Socket data events refused because the memory protection was active",
 		telemetry.Counter, func() float64 { return float64(droppedByLimit.Load()) })

@@ -49,7 +49,7 @@ func (e *testEvent) IsFinished() bool                     { return !e.notFinishe
 func (e *testEvent) HaveReduceDataAfterChunk() bool       { return false }
 func (e *testEvent) StartTime() uint64                    { return e.start }
 func (e *testEvent) EndTime() uint64                      { return 2 }
-func (e *testEvent) ReleaseBuffer() *[20480]byte          { return nil }
+func (e *testEvent) ReleaseBuffer() []byte                { return nil }
 
 // TestRemoveCurrentElementThenAppend: after the last element is removed, appending a new event must
 // not dereference the (now empty) current position, and reading must continue with the new event.

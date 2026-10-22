@@ -54,12 +54,13 @@ struct socket_data_upload_event {
     __u64 total_size;
     char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
 };
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, __u32);
-    __type(value, struct socket_data_upload_event);
-    __uint(max_entries, 1);
-} socket_data_upload_event_per_cpu_map SEC(".maps");
+
+// A perf record is framed by an 8 byte perf_event_header whose size field is a __u16, plus a 4 byte
+// raw length, and the whole record is padded to 8 bytes: it can never reach 65536. Measured on 6.1,
+// a payload of 65508 bytes is delivered and 65520 is dropped without a trace, which is the arithmetic
+// above. The bound is the perf ABI, so it is the same on every supported kernel.
+_Static_assert(sizeof(struct socket_data_upload_event) + 12 <= 65500,
+               "the socket data event does not fit in a perf record");
 DATA_QUEUE(socket_data_upload_queue);
 
 struct socket_data_sequence_t {
@@ -153,7 +154,7 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     socket_data_event->finished = is_finished;
     socket_data_event->have_reduce_after_chunk = have_reduce_after_chunk;
     // The probe-read size has to be bounded for the verifier. The mask alone cannot do it: it must
-    // leave every chunk size unchanged, so it has to be an all-ones value, and 0x3fff would cap the
+    // leave every chunk size unchanged, so it has to be an all-ones value, and 0x7fff would cap the
     // chunk at 16383 bytes while 0x7fff would let the verifier assume a read of 32767 bytes into a
     // 20480 byte buffer. Masking first and then clamping to the buffer gives it the exact range.
     asm volatile("%[size] &= 0x7fff;\n" ::[size] "+r"(size) :);
@@ -161,7 +162,11 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
         size = MAX_TRANSMIT_SOCKET_READ_LENGTH;
     }
     bpf_probe_read(&socket_data_event->buffer, size, buf);
-    rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event, sizeof(*socket_data_event));
+    // only the bytes that were read are sent: the event is fixed size in the scratch map, but a perf
+    // record that always carries the whole buffer costs 20568 bytes for a 100 byte message, which is
+    // what the per CPU ring buffer fills up with. The reader takes data_len bytes, see the Go side.
+    rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event,
+                     __builtin_offsetof(struct socket_data_upload_event, buffer) + size);
 }
 
 static __noinline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct upload_data_args *args, __u8 force_unfinished) {

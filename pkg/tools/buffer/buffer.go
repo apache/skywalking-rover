@@ -43,15 +43,36 @@ var (
 
 	log = logger.GetLogger("tools", "buffer")
 
-	// pooledBuffer recycles the data arrays of socket data events that hold them through a pointer.
-	// Events that embed the array instead (rover's own) never touch it: handing out an interior pointer
-	// of a live event would keep that event alive and could alias memory a borrower writes into.
-	pooledBuffer = sync.Pool{
-		New: func() any {
-			return &[20480]byte{}
-		},
-	}
+	// pooledBuffers recycles the data of socket data events that hold it through a slice. The BPF side
+	// sends only the bytes it read, and most socket calls are far smaller than a full chunk, so one
+	// pool of full sized arrays would spend 20KB on a 200 byte message. The classes are few on purpose:
+	// every class is a separate pool with its own recycling, and a class that is rarely hit only costs
+	// collections. A buffer always comes back to the class its capacity belongs to.
+	bufferClasses = []int{2048, 8192, MaxEventBufferSize}
+	pooledBuffers = buildBufferPools()
 )
+
+// MaxEventBufferSize is the largest socket data event, the BPF upload chunk size
+const MaxEventBufferSize = 20480
+
+func buildBufferPools() []*sync.Pool {
+	pools := make([]*sync.Pool, len(bufferClasses))
+	for i := range bufferClasses {
+		size := bufferClasses[i]
+		pools[i] = &sync.Pool{New: func() any { return make([]byte, size) }}
+	}
+	return pools
+}
+
+// bufferClassOf returns the index of the smallest class that holds size bytes
+func bufferClassOf(size int) int {
+	for i, class := range bufferClasses {
+		if size <= class {
+			return i
+		}
+	}
+	return len(bufferClasses) - 1
+}
 
 // Socket data events and the memory they hold.
 //
@@ -62,14 +83,26 @@ var (
 //   - admission: when the memory usage of the process reaches the configured share of its limit (see
 //     memory.go, the same pair the OOM killer looks at), new events are refused and counted, and
 //     accepted again once the usage falls back below it;
-//   - accounting: eventsInUse counts the events that currently hold an array, so the analysis can be
-//     told how much it is still holding.
+//   - accounting: eventsInUse counts the events that currently hold data and bytesInUse the memory
+//     they occupy, so the analysis can be told how much it is still holding. Since the upload is
+//     variable length the two are no longer proportional.
 //
 // An event either embeds its array (AcquireEvent) or points at a pooled one (AcquireEventBuffer);
 // ReleaseEvent takes both shapes, driven by what the event's ReleaseBuffer returns.
 var (
 	eventsInUse    atomic.Int64
 	droppedByLimit atomic.Int64
+	// acceptedEvents and acceptedBytes describe what the kernel actually delivers: the two sides of a
+	// connection can carry the same bytes in a very different number of socket calls, and the cost of
+	// the analysis follows the number of events, not the bytes
+	acceptedEvents atomic.Int64
+	acceptedBytes  atomic.Int64
+	// expiredEvents counts the events released by the expiry rather than by an analyzer: an event
+	// that leaves this way belongs to a message that never completed
+	expiredEvents atomic.Int64
+	// bytesInUse is what the events actually hold, which is no longer the event count times the chunk
+	// size now that the upload is variable length
+	bytesInUse atomic.Int64
 )
 
 // MemoryStats returns the socket data events holding an array, the events dropped by the memory
@@ -85,24 +118,61 @@ func AcquireEvent() bool {
 		return false
 	}
 	eventsInUse.Add(1)
+	acceptedEvents.Add(1)
 	return true
 }
 
-// AcquireEventBuffer returns a pooled data array for an event that holds it through a pointer; nil
-// means the memory protection is active and the event must be dropped
-func AcquireEventBuffer() *[20480]byte {
+// AcquireEventBuffer reserves the data of an event that holds it through a slice, for a payload of
+// size bytes; nil means the memory protection is active and the event must be dropped. The slice is
+// as long as the payload and its capacity is the class it came from, which is what returns it.
+func AcquireEventBuffer(size int) []byte {
 	if !AcquireEvent() {
 		return nil
 	}
-	return pooledBuffer.Get().(*[20480]byte)
+	return takeBuffer(size)
+}
+
+// TakeBuffer is AcquireEventBuffer without the admission check, for an event that has already been
+// admitted and only now knows how much data it carries
+func TakeBuffer(size int) []byte {
+	return takeBuffer(size)
+}
+
+func takeBuffer(size int) []byte {
+	if size < 0 {
+		size = 0
+	}
+	if size > MaxEventBufferSize {
+		size = MaxEventBufferSize
+	}
+	class := bufferClassOf(size)
+	data := pooledBuffers[class].Get().([]byte)
+	bytesInUse.Add(int64(cap(data)))
+	return data[:size]
 }
 
 // ReleaseEvent releases one socket data event: `b` is what its ReleaseBuffer returned, so a pooled
-// array goes back to the pool and nil (an embedded array) only clears the accounting
-func ReleaseEvent(b *[20480]byte) {
+// slice goes back to the pool of its class and nil (an event that owns no buffer) only clears the
+// accounting
+func ReleaseEvent(b []byte) {
 	eventsInUse.Add(-1)
-	if b != nil {
-		pooledBuffer.Put(b)
+	ReleaseBufferOnly(b)
+}
+
+// ReleaseBufferOnly returns the data of an event without counting the event itself, for a buffer that
+// was taken after the event was admitted
+func ReleaseBufferOnly(b []byte) {
+	if b == nil {
+		return
+	}
+	capacity := cap(b)
+	bytesInUse.Add(-int64(capacity))
+	for i, class := range bufferClasses {
+		if capacity == class {
+			//nolint:staticcheck // the slice is the pooled object, its header allocation is the price of the class
+			pooledBuffers[i].Put(b[:capacity])
+			return
+		}
 	}
 }
 
@@ -139,7 +209,7 @@ type SocketDataBuffer interface {
 	// EndTime the data end timestamp
 	EndTime() uint64
 
-	ReleaseBuffer() *[20480]byte
+	ReleaseBuffer() []byte
 }
 
 type SocketDataDetail interface {
@@ -1149,6 +1219,7 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 		r.uploadedBytes = make(map[uint64]int64)
 	}
 	r.uploadedBytes[event.DataID()] += int64(event.BufferLen())
+	acceptedBytes.Add(int64(event.BufferLen()))
 
 	defer func() {
 		// if the current position is not nil and the current reading data id is bigger than the event data id
@@ -1210,6 +1281,7 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 			r.latestExpiredDataID = buffer.DataID()
 			delete(r.uploadedBytes, buffer.DataID())
 			ReleaseEvent(buffer.ReleaseBuffer())
+			expiredEvents.Add(1)
 			return true
 		}
 		return false

@@ -361,7 +361,7 @@ func (r *HTTP2Protocol) analyzeDirection(connection *PartitionConnection, connBu
 			}
 			if pos.DataID() == last.dataID && pos.Seq() == last.seq && pos.StartTime() == last.startTime && pos.Offset() < last.offset {
 				// the position was reset to the beginning of an element that is partially consumed, skip the consumed part
-				if err := http2DiscardBytes(db, last.offset-pos.Offset()); err != nil {
+				if _, err := http2DiscardBytes(db, last.offset-pos.Offset()); err != nil {
 					if errors.Is(err, io.EOF) {
 						return progress
 					}
@@ -478,7 +478,7 @@ func (r *HTTP2Protocol) parseFrame(connection *PartitionConnection, connBuf *buf
 		r.handleSettings(m, d, &header, payload)
 		return http2FrameConsumed
 	case http2.FrameRSTStream:
-		if err := http2DiscardBytes(db, int(header.Length)); err != nil {
+		if _, err := http2DiscardBytes(db, int(header.Length)); err != nil {
 			return http2ErrorResult(db, err)
 		}
 		delete(m.Streams, header.StreamID)
@@ -486,7 +486,7 @@ func (r *HTTP2Protocol) parseFrame(connection *PartitionConnection, connBuf *buf
 		return http2FrameConsumed
 	default:
 		// PRIORITY, PUSH_PROMISE, PING, GOAWAY, WINDOW_UPDATE: nothing to analyze
-		if err := http2DiscardBytes(db, int(header.Length)); err != nil {
+		if _, err := http2DiscardBytes(db, int(header.Length)); err != nil {
 			return http2ErrorResult(db, err)
 		}
 		return http2FrameConsumed
@@ -613,7 +613,7 @@ func (r *HTTP2Protocol) handleData(connection *PartitionConnection, connBuf *buf
 	bodyStart := db.Position()
 	if streaming == nil {
 		// unknown stream (reset, or not captured from the beginning), the data is not interesting
-		if err := http2DiscardBytes(db, int(header.Length)); err != nil {
+		if _, err := http2DiscardBytes(db, int(header.Length)); err != nil {
 			return http2ErrorResult(db, err)
 		}
 		return http2FrameConsumed
@@ -627,24 +627,64 @@ func (r *HTTP2Protocol) handleData(connection *PartitionConnection, connBuf *buf
 			return http2FrameSkipElement
 		}
 		bodyStart = db.Position()
-		if err := http2DiscardBytes(db, int(header.Length)-1-int(padLen[0])); err != nil {
-			return http2ErrorResult(db, err)
+		if consumed, err := http2DiscardBytes(db, int(header.Length)-1-int(padLen[0])); err != nil {
+			return r.truncatedData(connection, connBuf, m, d, db, header, streaming, bodyStart,
+				int(header.Length)-1-int(padLen[0])-consumed, err)
 		}
 		bodyEnd := db.Position()
-		if err := http2DiscardBytes(db, int(padLen[0])); err != nil {
+		if _, err := http2DiscardBytes(db, int(padLen[0])); err != nil {
 			return http2ErrorResult(db, err)
 		}
 		return r.appendData(connection, connBuf, m, d, db, header, streaming, bodyStart, bodyEnd)
 	}
-	if err := http2DiscardBytes(db, int(header.Length)); err != nil {
-		return http2ErrorResult(db, err)
+	consumed, err := http2DiscardBytes(db, int(header.Length))
+	if err != nil {
+		return r.truncatedData(connection, connBuf, m, d, db, header, streaming, bodyStart,
+			int(header.Length)-consumed, err)
 	}
 	return r.appendData(connection, connBuf, m, d, db, header, streaming, bodyStart, db.Position())
 }
 
+// truncatedData handles a DATA frame whose payload stops at a socket call BPF did not upload in full.
+// The kernel did transfer those bytes, so the frame is complete as far as the connection is concerned
+// and only the agent is missing them: the body keeps the real length through virtual bytes and the
+// stream is finished, instead of waiting for a remainder that will never arrive and leaking the stream
+// until the idle timeout. This is what the HTTP/1 reader already does with a truncated message.
+func (r *HTTP2Protocol) truncatedData(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
+	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming,
+	bodyStart *buffer.Position, missing int, err error) http2FrameResult {
+	if missing <= 0 {
+		return http2ErrorResult(db, err)
+	}
+	bodyEnd := db.Position()
+	reduced := db.ReducedBytesBetween(bodyStart, bodyEnd)
+	if reduced < int64(missing) {
+		// the bytes are missing for another reason than the upload limit: do not invent them
+		return http2ErrorResult(db, err)
+	}
+	http2Log.Debugf("DATA frame of stream %d truncated by the upload limit, %d bytes were not uploaded, "+
+		"the body keeps its real length", header.StreamID, missing)
+	result := r.appendDataWithVirtual(connection, connBuf, m, d, db, header, streaming, bodyStart, bodyEnd, int64(missing))
+	if result != http2FrameConsumed {
+		return result
+	}
+	// the remainder of this socket call is not readable, so resynchronize at the next one
+	return http2FrameSkipElement
+}
+
 func (r *HTTP2Protocol) appendData(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming, bodyStart, bodyEnd *buffer.Position) http2FrameResult {
+	return r.appendDataWithVirtual(connection, connBuf, m, d, db, header, streaming, bodyStart, bodyEnd, 0)
+}
+
+func (r *HTTP2Protocol) appendDataWithVirtual(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
+	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming,
+	bodyStart, bodyEnd *buffer.Position, virtual int64) http2FrameResult {
 	slice := db.Slice(true, bodyStart, bodyEnd)
+	if slice != nil && virtual > 0 {
+		// the bytes the kernel transferred but BPF did not upload still count towards the body size
+		slice.AddVirtualBytes(virtual)
+	}
 	endStream := header.Flags.Has(http2.FlagDataEndStream)
 	if r.isRequestDirection(m, d, streaming) {
 		streaming.ReqBodyBuffer = buffer.CombineSlices(true, connBuf, streaming.ReqBodyBuffer, slice)
@@ -917,19 +957,28 @@ func http2ReadPayload(db *buffer.Buffer, length uint32) ([]byte, http2FrameResul
 // http2DiscardBytes moves the read position forward by n bytes without keeping the content. The
 // scratch buffer is local: Analyze runs on every partition goroutine in parallel, a package level
 // one would be written by all of them at the same time.
-func http2DiscardBytes(db *buffer.Buffer, n int) error {
+// http2DiscardBytes consumes n bytes of a frame payload and reports how many it got through, so a
+// caller can tell a frame that ended early from one that was never started
+func http2DiscardBytes(db *buffer.Buffer, n int) (consumed int, err error) {
+	// the buffer is read directly rather than through ReadUntilBufferFull, which keeps the bytes it
+	// managed to read but does not report how many: the count is what tells a caller how much of the
+	// payload is really missing when the read stops early
 	var scratch [4096]byte
-	for n > 0 {
-		chunk := n
+	for consumed < n {
+		chunk := n - consumed
 		if chunk > len(scratch) {
 			chunk = len(scratch)
 		}
-		if err := db.ReadUntilBufferFull(scratch[:chunk]); err != nil {
-			return err
+		read, readErr := db.Read(scratch[:chunk])
+		consumed += read
+		if readErr != nil {
+			return consumed, readErr
 		}
-		n -= chunk
+		if read == 0 {
+			return consumed, io.EOF
+		}
 	}
-	return nil
+	return consumed, nil
 }
 
 // http2ErrorResult maps a buffer read error to a frame result: EOF means the rest of the frame has

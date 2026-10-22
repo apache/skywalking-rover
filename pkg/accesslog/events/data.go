@@ -43,7 +43,7 @@ type SocketDataUploadEvent struct {
 }
 
 // ReleaseBuffer: the array is embedded in the event, there is no pooled buffer to give back
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
+func (s *SocketDataUploadEvent) ReleaseBuffer() []byte {
 	return nil
 }
 
@@ -94,7 +94,7 @@ func (s *SocketDataMetadata) IsFinished() bool                     { return s.fi
 func (s *SocketDataMetadata) HaveReduceDataAfterChunk() bool       { return s.haveReduce == 1 }
 func (s *SocketDataMetadata) StartTime() uint64                    { return s.startTime }
 func (s *SocketDataMetadata) EndTime() uint64                      { return s.endTime }
-func (s *SocketDataMetadata) ReleaseBuffer() *[20480]byte          { return nil }
+func (s *SocketDataMetadata) ReleaseBuffer() []byte                { return nil }
 
 func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
@@ -110,7 +110,12 @@ func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.DataID0 = r.ReadUint64()
 	s.PrevDataID0 = r.ReadUint64()
 	s.TotalSize0 = r.ReadUint64()
-	r.ReadUint8Array(s.Buffer[:], 20480)
+	// the BPF side only sends the bytes it read, so the record ends after data_len bytes of buffer
+	dataLen := int(s.DataLen)
+	if dataLen > len(s.Buffer) {
+		dataLen = len(s.Buffer)
+	}
+	r.ReadUint8Array(s.Buffer[:], dataLen)
 }
 
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {

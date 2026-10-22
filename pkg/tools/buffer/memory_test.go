@@ -23,12 +23,12 @@ func TestEventAdmission(t *testing.T) {
 	defer memoryProtectionActive.Store(false)
 	memoryProtectionActive.Store(false)
 	base, dropped0, _, _ := MemoryStats()
-	a := AcquireEventBuffer()
+	a := AcquireEventBuffer(MaxEventBufferSize)
 	if a == nil {
 		t.Fatal("below the threshold the buffer must be granted")
 	}
 	memoryProtectionActive.Store(true)
-	if AcquireEventBuffer() != nil || AcquireEvent() {
+	if AcquireEventBuffer(MaxEventBufferSize) != nil || AcquireEvent() {
 		t.Fatal("while the protection is active events must be refused")
 	}
 	inUse, dropped, _, _ := MemoryStats()
@@ -36,7 +36,7 @@ func TestEventAdmission(t *testing.T) {
 		t.Fatalf("accounting: inUse=%d base=%d dropped=%d base=%d", inUse, base, dropped, dropped0)
 	}
 	memoryProtectionActive.Store(false)
-	b := AcquireEventBuffer()
+	b := AcquireEventBuffer(MaxEventBufferSize)
 	if b == nil {
 		t.Fatal("after the protection is released events must be accepted again")
 	}

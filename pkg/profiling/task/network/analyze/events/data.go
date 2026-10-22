@@ -42,7 +42,7 @@ type SocketDataUploadEvent struct {
 
 // ReleaseBuffer: the array is embedded in the event, there is no separately pooled buffer to give back
 // (handing out an interior pointer would put memory of a live event into the pool)
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
+func (s *SocketDataUploadEvent) ReleaseBuffer() []byte {
 	return nil
 }
 

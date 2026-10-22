@@ -1374,6 +1374,17 @@ fa 0d 8d 69 a3 e6 6d a5 29 98 d7 20 6f a3 13 ea
 			create: func() btf.EventReader {
 				return &SocketDataUploadEvent{}
 			},
+			binaryTarget: func() any { return &socketDataUploadWire{} },
+			narrow: func(read btf.EventReader) any {
+				event := read.(*SocketDataUploadEvent)
+				return &socketDataUploadWire{
+					Protocol0: event.Protocol0, HaveReduce: event.HaveReduce, Direction0: event.Direction0,
+					Finished: event.Finished, Sequence0: event.Sequence0, DataLen: event.DataLen,
+					StartTime0: event.StartTime0, EndTime0: event.EndTime0, ConnectionID: event.ConnectionID,
+					RandomID: event.RandomID, DataID0: event.DataID0, PrevDataID0: event.PrevDataID0,
+					TotalSize0: event.TotalSize0,
+				}
+			},
 		},
 	}
 
@@ -1465,4 +1476,23 @@ func narrowSocketDetail(d *SocketDetailEvent) *socketDetailWire {
 		Protocol:                      d.Protocol,
 		SSL:                           d.SSL,
 	}
+}
+
+// socketDataUploadWire is the header of the upload event, which is all a record carries beyond the
+// bytes that were actually read: the BPF side sends offsetof(buffer) + data_len, not the whole
+// struct, so the fixed size buffer of the event has no counterpart on the wire to compare against.
+type socketDataUploadWire struct {
+	Protocol0    enums.ConnectionProtocol
+	HaveReduce   uint8
+	Direction0   enums.SocketDataDirection
+	Finished     uint8
+	Sequence0    uint16
+	DataLen      uint16
+	StartTime0   uint64
+	EndTime0     uint64
+	ConnectionID uint64
+	RandomID     uint64
+	DataID0      uint64
+	PrevDataID0  uint64
+	TotalSize0   uint64
 }
