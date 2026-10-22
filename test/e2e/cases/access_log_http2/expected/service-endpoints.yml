@@ -1,0 +1,16 @@
+{{- contains . }}
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "GET:/h2c/items" }}
+  name: GET:/h2c/items
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/h2c/items" }}
+  name: POST:/h2c/items
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "GET:/h2c/missing" }}
+  name: GET:/h2c/missing
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/Unary" }}
+  name: POST:/e2e.E2EService/Unary
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/Fail" }}
+  name: POST:/e2e.E2EService/Fail
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/ServerStream" }}
+  name: POST:/e2e.E2EService/ServerStream
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/ClientStream" }}
+  name: POST:/e2e.E2EService/ClientStream
+{{- end }}

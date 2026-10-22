@@ -1,0 +1,16 @@
+{{- contains . }}
+- id: {{ b64enc "http2-server.default" }}.1
+  name: http2-server.default
+  group: ""
+  shortname: http2-server.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+- id: {{ b64enc "http2-client.default" }}.1
+  name: http2-client.default
+  group: ""
+  shortname: http2-client.default
+  layers:
+    - K8S_SERVICE
+  normal: true
+{{- end }}

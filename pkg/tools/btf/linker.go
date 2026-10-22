@@ -207,6 +207,12 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *per
 			}
 
 			data := dataSupplier()
+			if data == nil {
+				// the consumer refused the event (e.g. the memory protection of the socket data buffers is active)
+				recordDroppedByLimit()
+				recordPool.PutRecord(record)
+				continue
+			}
 			if r, ok := data.(EventReader); ok {
 				sampleReader := NewReader(record.RawSample)
 				r.ReadFrom(sampleReader)

@@ -147,6 +147,14 @@ jobs:
           - name: Access Log
             base: test/e2e/cases/access_log
             config: e2e.yaml
+          # HTTP/2 access log: h2c, gRPC (unary / streaming / trailers-only) and HTTP/2 over TLS
+          # over long lived multiplexed connections.
+          - name: Access Log HTTP/2
+            base: test/e2e/cases/access_log_http2
+            config: e2e.yaml
+            docker:
+              file: Dockerfile
+              name: test/access-log-http2:test
           # istio ambient: no envoy sidecar anywhere, the whole topology has to be
           # correlated from the node local ztunnel data path. Covered over the ambient
           # capable istio minors, both without and with a waypoint proxy.
@@ -154,14 +162,26 @@ jobs:
             base: test/e2e/cases/ambient
             config: e2e.yaml
             env: ISTIO_VERSION=1.24.6
+            docker:
+              file: ../access_log_http2/Dockerfile
+              context: test/e2e/cases/access_log_http2
+              name: test/access-log-http2:test
           - name: Ambient Istio 1.26.8
             base: test/e2e/cases/ambient
             config: e2e.yaml
             env: ISTIO_VERSION=1.26.8
+            docker:
+              file: ../access_log_http2/Dockerfile
+              context: test/e2e/cases/access_log_http2
+              name: test/access-log-http2:test
           - name: Ambient Istio 1.28.10
             base: test/e2e/cases/ambient
             config: e2e.yaml
             env: ISTIO_VERSION=1.28.10
+            docker:
+              file: ../access_log_http2/Dockerfile
+              context: test/e2e/cases/access_log_http2
+              name: test/access-log-http2:test
           - name: Ambient Waypoint Istio 1.24.6
             base: test/e2e/cases/ambient
             config: e2e-waypoint.yaml
@@ -189,7 +209,7 @@ jobs:
         run: echo "${{ matrix.test.env }}"  >> $GITHUB_ENV
       - name: Build test image
         if: matrix.test.docker != null
-        run: docker build -t ${{ matrix.test.docker.name }} -f ${{ matrix.test.base }}/${{ matrix.test.docker.file }} ${{ matrix.test.base }}
+        run: docker build -t ${{ matrix.test.docker.name }} -f ${{ matrix.test.base }}/${{ matrix.test.docker.file }} ${{ matrix.test.docker.context || matrix.test.base }}
       - name: ${{ matrix.test.name }}
         uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
         with:

@@ -19,6 +19,7 @@ package btf
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,6 +50,19 @@ func recordLostSamples(mapName string, count uint64) {
 	})
 }
 
+// recordDroppedByLimit counts an event the consumer refused because the memory protection is active.
+// It is reported next to the lost samples but with its own cause and advice: the remedy is memory, not
+// a larger perf buffer. The counter is an atomic so the drop path, which runs exactly when the agent
+// is already saturated, does not take the summary lock per event.
+func recordDroppedByLimit() {
+	droppedByMemoryProtection.Add(1)
+	lostSamples.loggerStart.Do(func() {
+		go lostSamples.logPeriodically()
+	})
+}
+
+var droppedByMemoryProtection atomic.Uint64
+
 // drain atomically returns the samples accumulated since the last drain and resets the counter, so
 // each reporting interval directly reads the newly-dropped counts without tracking previous totals,
 // and the map does not grow unbounded.
@@ -70,6 +84,11 @@ func (c *lostSampleCounter) logPeriodically() {
 		for name, dropped := range c.drain() {
 			log.Warnf("perf event queue(%s) dropped %d samples in the last %s, "+
 				"consider increasing the per_cpu_buffer or parse_parallels", name, dropped, lostSampleLogInterval)
+		}
+		if dropped := droppedByMemoryProtection.Swap(0); dropped > 0 {
+			log.Warnf("memory protection dropped %d socket data events in the last %s, "+
+				"consider giving the agent more memory or raising access_log.protocol_analyze.max_memory_percent",
+				dropped, lostSampleLogInterval)
 		}
 	}
 }

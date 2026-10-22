@@ -47,6 +47,16 @@ type ProtocolAnalyzeConfig struct {
 	ParseParallels   int    `mapstructure:"parse_parallels"`
 	AnalyzeParallels int    `mapstructure:"analyze_parallels"`
 	QueueSize        int    `mapstructure:"queue_size"`
+	// TriggerEvents: analyze the buffered socket data of a partition as soon as this many data events are
+	// pending, instead of only on the flush period tick. Bounds the memory held by the unparsed events
+	// (each one keeps a 20 KB buffer until it is parsed). 0 disables the trigger.
+	TriggerEvents int `mapstructure:"trigger_events"`
+	// MaxMemoryPercent: when the memory usage of the process reaches this share of its memory limit (the
+	// cgroup limit, or GOMEMLIMIT), new socket data events are dropped (counted in the log) until the
+	// usage is below it again, instead of growing until the process is killed. 0 disables it.
+	MaxMemoryPercent int `mapstructure:"max_memory_percent"`
+	// MaxMemory: an absolute threshold that overrides the percentage when set (e.g. 1GB).
+	MaxMemory string `mapstructure:"max_memory"`
 }
 
 func (c *Config) IsActive() bool {

@@ -22,9 +22,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -89,6 +89,7 @@ func NewAnalyzeQueue(ctx *common.AccessLogContext) (*AnalyzeQueue, error) {
 }
 
 func (q *AnalyzeQueue) Start(ctx context.Context) {
+	buffer.EnableMemoryProtectionFromConfig(q.context.Config.ProtocolAnalyze.MaxMemoryPercent, q.context.Config.ProtocolAnalyze.MaxMemory)
 	q.eventQueue = btf.NewEventQueue("socket data analyzer",
 		q.context.Config.ProtocolAnalyze.AnalyzeParallels, q.context.Config.ProtocolAnalyze.QueueSize,
 		func(num int) btf.PartitionContext {
@@ -102,7 +103,10 @@ func (q *AnalyzeQueue) Start(ctx context.Context) {
 		})
 	q.eventQueue.RegisterReceiver(q.context.BPF.SocketDataUploadQueue, int(q.perCPUBuffer),
 		q.context.Config.ProtocolAnalyze.ParseParallels, func() interface{} {
-			return &events.SocketDataUploadEvent{Buffer: *buffer.BorrowNewBuffer()}
+			if !buffer.AcquireEvent() {
+				return nil // memory protection active: the event is dropped by the reader
+			}
+			return &events.SocketDataUploadEvent{}
 		}, func(data interface{}) int {
 			return int(data.(*events.SocketDataUploadEvent).ConnectionID)
 		})
@@ -119,12 +123,20 @@ func (q *AnalyzeQueue) ChangeSupportAnalyzers(protocols func(ctx *common.AccessL
 }
 
 type PartitionContext struct {
+	// pendingDataEvents counts the data events appended since the last ProcessEvents, triggerEvents is
+	// the count that starts an immediate ProcessEvents (0: only the periodic tick)
+	pendingDataEvents int64
+	triggerEvents     int64
+
 	context      *common.AccessLogContext
 	protocolMgr  *ProtocolManager
 	connections  cmap.ConcurrentMap
 	partitionNum int
 
 	analyzeLocker sync.Mutex
+	// rerun is set when a trigger could not run because another ProcessEvents was already running:
+	// the running one repeats the pass instead of letting the triggering data wait for the next trigger
+	rerun atomic.Bool
 }
 
 func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64,
@@ -144,6 +156,8 @@ func newPartitionConnection(protocolMgr *ProtocolManager, conID, randomID uint64
 
 func (p *PartitionConnection) appendProtocolIfNeed(protocolMgr *ProtocolManager, conID, randomID uint64,
 	protocol enums.ConnectionProtocol, currentDataID uint64) {
+	p.protocolLocker.Lock()
+	defer p.protocolLocker.Unlock()
 	if minDataID, exist := p.protocol[protocol]; !exist {
 		analyzer := protocolMgr.GetProtocol(protocol)
 		p.protocol[protocol] = currentDataID
@@ -162,6 +176,7 @@ func NewPartitionContext(ctx *common.AccessLogContext, num int, protocols []Prot
 		connections:  cmap.New(),
 		partitionNum: num,
 	}
+	pc.triggerEvents = int64(ctx.Config.ProtocolAnalyze.TriggerEvents)
 	ctx.ConnectionMgr.RegisterProcessor(pc)
 	return pc
 }
@@ -220,8 +235,27 @@ func (p *PartitionContext) Consume(data interface{}) {
 			event.ConnectionID, event.RandomID, pid, event.PrevDataID0, event.DataID0, event.Sequence0, event.IsFinished(),
 			event.Protocol0, event.BufferLen())
 		connection := p.GetConnectionContext(event.ConnectionID, event.RandomID, event.Protocol0, event.DataID0)
-		connection.AppendData(event)
+		p.AppendAndMaybeAnalyze(connection, event)
 	}
+}
+
+// AppendAndMaybeAnalyze appends a socket data event to its connection and starts an analysis pass of
+// the connections with new data once enough of them are pending. Consumers that receive the events
+// themselves (instead of through Consume) call this, so the trigger policy stays in one place.
+func (p *PartitionContext) AppendAndMaybeAnalyze(connection *PartitionConnection, data buffer.SocketDataBuffer) {
+	connection.AppendData(data)
+	if p.NoteDataEvent() {
+		go p.processEventsOfNewData()
+	}
+}
+
+// NoteDataEvent counts a pending data event and reports whether the trigger count has been reached.
+// The counter is reset by the analysis pass itself, so a trigger that cannot run right away is not lost.
+func (p *PartitionContext) NoteDataEvent() bool {
+	if p.triggerEvents <= 0 {
+		return false
+	}
+	return atomic.AddInt64(&p.pendingDataEvents, 1) >= p.triggerEvents
 }
 
 func (p *PartitionContext) GetConnectionContext(connectionID, randomID uint64,
@@ -246,39 +280,72 @@ func (p *PartitionContext) buildConnectionKey(conID, ranID uint64) string {
 	return string(buf)
 }
 
+// ProcessEvents analyzes every connection of the partition and detects closed ones; it runs on the
+// periodic flush tick.
 func (p *PartitionContext) ProcessEvents() {
+	p.processEvents(true)
+}
+
+// processEventsOfNewData analyzes only the connections that received data since the last pass; it runs
+// when the pending event counter reaches trigger_events.
+func (p *PartitionContext) processEventsOfNewData() {
+	p.processEvents(false)
+}
+
+func (p *PartitionContext) processEvents(all bool) {
 	// it could be triggered by interval or reach counter
 	// if any trigger bean locked, the other one just ignore process
 	if !p.analyzeLocker.TryLock() {
+		// the data that triggered this run would otherwise wait for the next trigger (or tick): let the
+		// run that holds the lock repeat the pass instead
+		p.rerun.Store(true)
 		return
 	}
 	defer p.analyzeLocker.Unlock()
 
-	closedConnections := make([]string, 0)
-	p.connections.IterCb(func(conKey string, con interface{}) {
+	for {
+		p.rerun.Store(false)
+		atomic.StoreInt64(&p.pendingDataEvents, 0)
+		p.processEvents0(all)
+		if !p.rerun.Load() {
+			return
+		}
+	}
+}
+
+// processEvents0 analyzes the connections that received data since the last pass. `all` also analyzes
+// the idle ones and runs the close detection; it is set on the periodic tick, so a pass triggered by
+// the event counter of one busy connection does not walk every connection of the partition.
+func (p *PartitionContext) processEvents0(all bool) {
+	closed := make([]*PartitionConnection, 0)
+	p.connections.IterCb(func(_ string, con interface{}) {
 		info := con.(*PartitionConnection)
+		hasNewData := info.takeDataAppended()
+		if !hasNewData && !all {
+			return
+		}
 		p.processConnectionEvents(info)
+		if !all {
+			return
+		}
 
 		// if the connection already closed and not contains any buffer data, then delete the connection
-		var bufLen = 0
-		for _, buf := range info.dataBuffers {
-			bufLen += buf.DataLength()
-		}
-		if bufLen > 0 {
+		if info.PendingDataLength() > 0 {
 			return
 		}
 		if !info.closed {
 			p.checkTheConnectionIsAlreadyClose(info)
 		}
 		if info.closed {
-			closedConnections = append(closedConnections, conKey)
+			closed = append(closed, info)
 			log.Debugf("detect the connection is already closed, then notify to the callback, connection ID: %d, random ID: %d, partition number: %d",
 				info.connectionID, info.randomID, p.partitionNum)
 		}
 	})
 
-	for _, conKey := range closedConnections {
-		p.connections.Remove(conKey)
+	for _, con := range closed {
+		p.connections.Remove(p.buildConnectionKey(con.connectionID, con.randomID))
+		con.ReleasePendingData()
 	}
 }
 
@@ -315,7 +382,7 @@ func (p *PartitionContext) ProcessExpireEvents() {
 }
 
 func (p *PartitionContext) processConnectionExpireEvents(connection *PartitionConnection) {
-	for _, buf := range connection.dataBuffers {
+	for _, buf := range connection.Buffers() {
 		if c := buf.DeleteExpireEvents(maxBufferExpireDuration); c > 0 {
 			log.Debugf("total removed %d expired socket data events from connection ID: %d, random ID: %d", c,
 				connection.connectionID, connection.randomID)
@@ -329,16 +396,12 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 	}
 	helper := &AnalyzeHelper{}
 
-	// since the socket data/detail are getting unsorted, so rover need to using the minimal data id to analyze to ensure the order
-	sortedProtocols := make([]enums.ConnectionProtocol, 0, len(connection.protocol))
-	for protocol := range connection.protocol {
-		sortedProtocols = append(sortedProtocols, protocol)
-	}
-	sort.Slice(sortedProtocols, func(i, j int) bool {
-		return connection.protocol[sortedProtocols[i]] < connection.protocol[sortedProtocols[j]]
-	})
-	for _, protocol := range sortedProtocols {
-		if err := connection.protocolAnalyzer[protocol].Analyze(connection, helper); err != nil {
+	for _, protocol := range connection.sortedProtocols() {
+		analyzer := connection.analyzer(protocol)
+		if analyzer == nil {
+			continue
+		}
+		if err := analyzer.Analyze(connection, helper); err != nil {
 			log.Warnf("failed to analyze the %s protocol data: %v", enums.ConnectionProtocolString(protocol), err)
 		}
 	}
@@ -347,7 +410,7 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 		// notify the connection manager to skip analyze all data(just sending the detail)
 		connection.skipAllDataAnalyze = true
 		p.context.ConnectionMgr.SkipAllDataAnalyzeAndDowngradeProtocol(connection.connectionID, connection.randomID)
-		for _, buf := range connection.dataBuffers {
+		for _, buf := range connection.Buffers() {
 			for e := buf.BuildDetails().Front(); e != nil; e = e.Next() {
 				forwarder.SendTransferNoProtocolEvent(p.context, e.Value.(events.SocketDetail))
 			}

@@ -1,0 +1,4 @@
+{{- contains . }}
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "GET:/https/items" }}
+  name: GET:/https/items
+{{- end }}

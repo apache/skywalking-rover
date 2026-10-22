@@ -39,7 +39,10 @@ func (l *Listener) initSocketDataQueue(parallels, queueSize int, config *profili
 func (l *Listener) startSocketData(ctx context.Context, bpfLoader *bpf.Loader) {
 	// socket buffer data
 	l.socketDataQueue.RegisterReceiver(bpfLoader.SocketDataUploadQueue, l.protocolPerCPUBuffer, 1, func() interface{} {
-		return &analyzeBase.SocketDataUploadEvent{Buffer: *buffer.BorrowNewBuffer()}
+		if !buffer.AcquireEvent() {
+			return nil // memory protection active: the event is dropped by the reader
+		}
+		return &analyzeBase.SocketDataUploadEvent{}
 	}, func(data interface{}) int {
 		return int(data.(*analyzeBase.SocketDataUploadEvent).ConnectionID)
 	})

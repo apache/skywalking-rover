@@ -103,6 +103,10 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	resp.Header = http.Header(mimeHeader)
 
 	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	if !readBody {
+		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
+		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
+	}
 	if readBody {
 		b, r, err := result.readFullResponseBody(bufReader, buf)
 		if err != nil {
@@ -121,12 +125,40 @@ func (r *Response) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer,
 	r.headerBuffer = buf.Slice(true, start, endPosition)
 }
 
+// SetBodyBuffer sets the body of a message whose body was consumed separately (see buffer.BodyConsumer)
+func (r *Response) SetBodyBuffer(b *buffer.Buffer) {
+	r.bodyBuffer = b
+}
+
+// HasBody applies RFC 7230 3.3.3: the response to a HEAD request and a 1xx, 204 or 304 response (and
+// a 2xx response to CONNECT) never carries a body, whatever Content-Length or Transfer-Encoding say.
+// Reading a body for them would consume the next message of a keep-alive connection.
+func (r *Response) HasBody() bool {
+	if r.req != nil && r.req.Original() != nil {
+		switch r.req.Original().Method {
+		case http.MethodHead:
+			return false
+		case http.MethodConnect:
+			if r.original.StatusCode/100 == 2 {
+				return false
+			}
+		}
+	}
+	code := r.original.StatusCode
+	return code/100 != 1 && code != http.StatusNoContent && code != http.StatusNotModified
+}
+
 func (r *Response) readFullResponseBody(bodyReader *bufio.Reader, original *buffer.Buffer) (*buffer.Buffer, enums.ParseResult, error) {
+	if !r.HasBody() {
+		// rewind to the end of the headers, the next message of the connection starts there
+		original.SetPosition(original.OffsetPosition(-bodyReader.Buffered()))
+		return nil, enums.ParseResultSuccess, nil
+	}
 	length, err := r.appointedLength()
 	if err != nil {
 		return nil, enums.ParseResultSkipPackage, err
 	} else if length > 0 {
-		return r.checkBodyWithSize(original, bodyReader, length, true)
+		return r.checkBodyWithSize(original, bodyReader, length)
 	}
 
 	if r.isChunked() {

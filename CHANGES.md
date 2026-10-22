@@ -5,6 +5,17 @@ Release Notes.
 0.8.0
 ------------------
 #### Features
+* Fix HTTP/2 access log parsing: preface and SETTINGS inference, HPACK per direction, CONTINUATION, padding, trailers, frame bounds. h2c and gRPC produced no access logs before.
+* Report the socket data events the HTTP/2 parser drops, so an analyzer that carries the kernel level detail in those events does not lose the bytes of the call.
+* Consume HTTP/1 bodies of a known length as their socket data arrives: every event is released immediately and kept as a metadata-only copy for the kernel log details.
+* Fix HTTP/1 messages never completing when BPF truncated their socket call, bodiless responses swallowing a keep-alive connection, and an incomplete body reported as complete with size 0.
+* Fix the buffer corrupting data that spans two socket events, keeping a stale skip offset, reading from an expired element and scanning from the front for out-of-order events.
+* Fix the socket data upload copying only `size & 0x7ff` bytes per chunk, and `writev`/`sendmsg` re-reading one iov entry while dropping the others, both with no truncation signal.
+* Raise `access_log.protocol_analyze.per_cpu_buffer` to 4MB: 1MB held about 50 socket data events per CPU, so a busy reader dropped samples and HTTP/2 lost whole connections.
+* Add memory protection (`protocol_analyze.max_memory_percent`, default 90): while the process memory reaches that share of its limit, new socket data events are dropped and counted.
+* Analyze a partition once `protocol_analyze.trigger_events` (default 1000) events are pending instead of only on the flush period, visiting the connections that received data.
+* Protect the per connection protocol maps with a lock and account the events an analyzer holds outside the connection buffer, so removing a closed connection does not leak them.
+* Add the HTTP/2 access log E2E test (h2c, gRPC unary, streaming and trailers-only, HTTP/2 over TLS), also running on the Istio ambient data path.
 * Separate multiple process for reading connection information in the access log module.
 * Add a delay time before delete the connection in the access log module.
 * Fix context structs parameters for tracepoint programs.
