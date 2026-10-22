@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
+
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
 
 // memory protection state (see the comment in buffer.go)
@@ -313,4 +315,29 @@ func applyMemorySample(usage int64) bool {
 	log.Infof("memory protection released: usage %d MB is below the threshold %d MB, %d events held by the analysis",
 		usage>>20, threshold>>20, eventsInUse.Load())
 	return false
+}
+
+// the agent cannot be operated on a heap profile: these are the numbers that say whether the
+// analysis is keeping up with the kernel, and they are the first thing to look at when it is not
+func init() {
+	telemetry.Register("rover_socket_data_events_in_use",
+		"Socket data events held by the analysis, each holding a buffer of the upload chunk size",
+		telemetry.Gauge, func() float64 { return float64(eventsInUse.Load()) })
+	telemetry.Register("rover_socket_data_events_dropped_total",
+		"Socket data events refused because the memory protection was active",
+		telemetry.Counter, func() float64 { return float64(droppedByLimit.Load()) })
+	telemetry.Register("rover_memory_usage_bytes",
+		"Memory usage of the process as the memory protection measures it",
+		telemetry.Gauge, func() float64 { return float64(memoryUsage.Load()) })
+	telemetry.Register("rover_memory_threshold_bytes",
+		"Usage at which new socket data events are dropped, 0 when the protection is off",
+		telemetry.Gauge, func() float64 { return float64(memoryThreshold.Load()) })
+	telemetry.Register("rover_memory_protection_active",
+		"1 while the memory protection is dropping new socket data events",
+		telemetry.Gauge, func() float64 {
+			if memoryProtectionActive.Load() {
+				return 1
+			}
+			return 0
+		})
 }

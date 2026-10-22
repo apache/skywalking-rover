@@ -18,6 +18,8 @@
 package common //nolint:revive // package name is acceptable in this context
 
 import (
+	"sync/atomic"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
@@ -56,7 +58,22 @@ func (r *ProtocolEventData) ProtocolLog() *v3.AccessLogProtocolLogs {
 	return r.ProtocolLogData
 }
 
+// mergeKernelLogs is process wide because reporting one record per operation instead of one per
+// syscall is a policy of the agent, not a property of a connection or an analyzer
+var mergeKernelLogs atomic.Bool
+
+// SetMergeKernelLogs is called once from the configuration, see events.MergeDetails for what it does
+func SetMergeKernelLogs(enabled bool) {
+	mergeKernelLogs.Store(enabled)
+}
+
+// NewProtocolLogEvent builds the log of one message. The details are merged here, where the message
+// is finished, rather than when the log is flushed: between the two they sit in the flush queue, and
+// merging first is what keeps the unmerged records out of it.
 func NewProtocolLogEvent(kernelLogs []events.SocketDetail, protocolData *v3.AccessLogProtocolLogs) ProtocolLog {
+	if mergeKernelLogs.Load() {
+		kernelLogs = events.MergeDetails(kernelLogs)
+	}
 	return &ProtocolEventData{
 		KernelLogs:      kernelLogs,
 		ProtocolLogData: protocolData,

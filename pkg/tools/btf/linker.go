@@ -177,7 +177,11 @@ func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBuff
 	}
 	m.closers = append(m.closers, rd)
 
-	recordBuilder := newPerfRecordBuilder(dataSupplier())
+	// the sizing event is only measured, never delivered: it must be given back or it holds one
+	// pooled buffer and one unit of the event accounting for the lifetime of the process
+	sizingEvent := dataSupplier()
+	recordBuilder := newPerfRecordBuilder(sizingEvent)
+	discardEvent(sizingEvent)
 	for i := 0; i < parallels; i++ {
 		m.asyncReadEvent(rd, emap, recordBuilder, dataSupplier, bufReader)
 	}
@@ -218,12 +222,14 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *per
 				r.ReadFrom(sampleReader)
 				if readErr := sampleReader.HasError(); readErr != nil {
 					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					discardEvent(data)
 					recordPool.PutRecord(record)
 					continue
 				}
 			} else {
 				if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
 					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					discardEvent(data)
 					recordPool.PutRecord(record)
 					continue
 				}
@@ -451,6 +457,19 @@ func (m *Linker) Close() error {
 type perfRecordBuilder struct {
 	dataSize int
 	pool     sync.Pool
+}
+
+// EventDiscarder is implemented by an event that holds a resource the reader must give back when it
+// drops the event instead of delivering it, such as the pooled buffer of a socket data event.
+type EventDiscarder interface {
+	Discard()
+}
+
+// discardEvent gives back whatever an undelivered event holds
+func discardEvent(data interface{}) {
+	if discarder, ok := data.(EventDiscarder); ok {
+		discarder.Discard()
+	}
 }
 
 func newPerfRecordBuilder(data interface{}) *perfRecordBuilder {

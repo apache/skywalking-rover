@@ -29,6 +29,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/logger"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
+
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
 
 var log = logger.GetLogger("access_log", "common")
@@ -54,6 +56,9 @@ type Queue struct {
 
 	dropKernelLogCount   int64
 	dropProtocolLogCount int64
+	// the counters above are reset when they are logged; these are the totals the metrics report
+	droppedKernelLogs   int64
+	droppedProtocolLogs int64
 }
 
 type QueueConsumer interface {
@@ -76,6 +81,7 @@ func (q *Queue) AppendKernelLog(log KernelLog) {
 	case q.kernelLogs <- log:
 	default:
 		atomic.AddInt64(&q.dropKernelLogCount, 1)
+		atomic.AddInt64(&q.droppedKernelLogs, 1)
 		return
 	}
 	q.consumeIfNeed()
@@ -86,6 +92,7 @@ func (q *Queue) AppendProtocolLog(log ProtocolLog) {
 	case q.protocolLogs <- log:
 	default:
 		atomic.AddInt64(&q.dropProtocolLogCount, 1)
+		atomic.AddInt64(&q.droppedProtocolLogs, 1)
 		return
 	}
 	q.consumeIfNeed()
@@ -97,7 +104,24 @@ func (q *Queue) consumeIfNeed() {
 	}
 }
 
+// RegisterMetrics exposes the depth of the flush queues and what they had to drop
+func (q *Queue) RegisterMetrics() {
+	telemetry.Register("rover_access_log_kernel_logs_pending",
+		"Kernel logs waiting for the next flush", telemetry.Gauge,
+		func() float64 { return float64(len(q.kernelLogs)) })
+	telemetry.Register("rover_access_log_protocol_logs_pending",
+		"Protocol logs waiting for the next flush", telemetry.Gauge,
+		func() float64 { return float64(len(q.protocolLogs)) })
+	telemetry.Register("rover_access_log_kernel_logs_dropped_total",
+		"Kernel logs dropped because the flush queue was full", telemetry.Counter,
+		func() float64 { return float64(atomic.LoadInt64(&q.droppedKernelLogs)) })
+	telemetry.Register("rover_access_log_protocol_logs_dropped_total",
+		"Protocol logs dropped because the flush queue was full", telemetry.Counter,
+		func() float64 { return float64(atomic.LoadInt64(&q.droppedProtocolLogs)) })
+}
+
 func (q *Queue) Start(ctx context.Context) {
+	q.RegisterMetrics()
 	go func() {
 		timeTicker := time.NewTicker(q.period)
 		for {

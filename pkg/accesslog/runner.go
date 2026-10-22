@@ -86,6 +86,7 @@ func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
 
 		mergeKernelLogs: config.Flush.MergeKernelLogs,
 	}
+	common.SetMergeKernelLogs(config.Flush.MergeKernelLogs)
 	runner.context.Queue = common.NewQueue(config.Flush.MaxCountOneStream, flushDuration, runner)
 	return runner, nil
 }
@@ -235,12 +236,8 @@ func (r *Runner) buildProtocolLog(protocolLog common.ProtocolLog) (*common.Conne
 	if r.context.ConnectionMgr.ShouldDeferForResolution(connection) {
 		return nil, nil, nil, true
 	}
+	// the details were merged when the message was finished, see common.NewProtocolLogEvent
 	relatedLogs := protocolLog.RelateKernelLogs()
-	if r.mergeKernelLogs {
-		// merging the details before they are built keeps the records out of the heap entirely: the
-		// built messages are what the agent holds until the backend has taken them
-		relatedLogs = events.MergeDetails(relatedLogs)
-	}
 	kernelLogs := make([]*v3.AccessLogKernelLog, 0, len(relatedLogs))
 	for _, kl := range relatedLogs {
 		event := forwarder.BuildKernelLogFromEvent(common.LogTypeKernelTransfer, kl)

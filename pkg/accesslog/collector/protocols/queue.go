@@ -40,6 +40,7 @@ import (
 	"github.com/docker/go-units"
 
 	cmap "github.com/orcaman/concurrent-map"
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
 
 var maxBufferExpireDuration = time.Minute
@@ -138,6 +139,12 @@ type PartitionContext struct {
 	// running: without it every event above the trigger count would start a goroutine that only finds
 	// the lock taken, which is one goroutine per event under sustained load
 	triggerScheduled atomic.Bool
+
+	// self observability of the analysis: how much is waiting, how often it runs and how long it
+	// takes. Without these the only way to tell that the analysis is behind is a heap profile.
+	analyzePasses atomic.Int64
+	analyzeNanos  atomic.Int64
+	lastPassAt    atomic.Int64
 	// rerun is set when a trigger could not run because another ProcessEvents was already running:
 	// the running one repeats the pass instead of letting the triggering data wait for the next trigger
 	rerun atomic.Bool
@@ -181,7 +188,9 @@ func NewPartitionContext(ctx *common.AccessLogContext, num int, protocols []Prot
 		partitionNum: num,
 	}
 	pc.triggerEvents = int64(ctx.Config.ProtocolAnalyze.TriggerEvents)
+	pc.lastPassAt.Store(time.Now().UnixNano())
 	ctx.ConnectionMgr.RegisterProcessor(pc)
+	registerPartitionMetrics(pc)
 	return pc
 }
 
@@ -320,7 +329,11 @@ func (p *PartitionContext) processEvents(all bool) {
 	for {
 		p.rerun.Store(false)
 		atomic.StoreInt64(&p.pendingDataEvents, 0)
+		start := time.Now()
 		p.processEvents0(all)
+		p.analyzeNanos.Add(int64(time.Since(start)))
+		p.analyzePasses.Add(1)
+		p.lastPassAt.Store(time.Now().UnixNano())
 		if !p.rerun.Load() {
 			return
 		}
@@ -431,4 +444,55 @@ func (p *PartitionContext) processConnectionEvents(connection *PartitionConnecti
 			buf.Clean()
 		}
 	}
+}
+
+// the partitions register themselves so the metrics can report all of them without the queue having
+// to hand them out; the series are registered once, on the first partition
+var (
+	partitionsLocker     sync.Mutex
+	registeredPartitions []*PartitionContext
+	partitionMetricsOnce sync.Once
+)
+
+func registerPartitionMetrics(p *PartitionContext) {
+	partitionsLocker.Lock()
+	registeredPartitions = append(registeredPartitions, p)
+	partitionsLocker.Unlock()
+	partitionMetricsOnce.Do(func() {
+		series := func(read func(*PartitionContext) float64) func() []telemetry.Sample {
+			return func() []telemetry.Sample {
+				partitionsLocker.Lock()
+				defer partitionsLocker.Unlock()
+				samples := make([]telemetry.Sample, 0, len(registeredPartitions))
+				for _, partition := range registeredPartitions {
+					samples = append(samples, telemetry.Sample{
+						Labels: map[string]string{"partition": strconv.Itoa(partition.partitionNum)},
+						Value:  read(partition),
+					})
+				}
+				return samples
+			}
+		}
+		telemetry.RegisterSeries("rover_analyze_pending_events",
+			"Socket data events appended to a partition since its last analysis pass",
+			telemetry.Gauge, series(func(p *PartitionContext) float64 {
+				return float64(atomic.LoadInt64(&p.pendingDataEvents))
+			}))
+		telemetry.RegisterSeries("rover_analyze_connections",
+			"Connections a partition is tracking", telemetry.Gauge,
+			series(func(p *PartitionContext) float64 { return float64(p.connections.Count()) }))
+		telemetry.RegisterSeries("rover_analyze_passes_total",
+			"Analysis passes a partition has run", telemetry.Counter,
+			series(func(p *PartitionContext) float64 { return float64(p.analyzePasses.Load()) }))
+		telemetry.RegisterSeries("rover_analyze_seconds_total",
+			"Time a partition has spent analyzing, which against the wall clock is how busy it is",
+			telemetry.Counter, series(func(p *PartitionContext) float64 {
+				return time.Duration(p.analyzeNanos.Load()).Seconds()
+			}))
+		telemetry.RegisterSeries("rover_analyze_last_pass_age_seconds",
+			"Time since a partition last finished an analysis pass", telemetry.Gauge,
+			series(func(p *PartitionContext) float64 {
+				return time.Since(time.Unix(0, p.lastPassAt.Load())).Seconds()
+			}))
+	})
 }

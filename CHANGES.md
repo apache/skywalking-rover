@@ -18,6 +18,9 @@ Release Notes.
 * Add `access_log.flush.merge_kernel_logs` (default off): report one kernel log per operation of a message instead of one per syscall, with the counters summed.
 * Queue at most one analysis pass started by `trigger_events`, instead of one goroutine per event above the trigger count.
 * Bound the HTTP/2 SETTINGS inference by the max frame size instead of six settings, so a peer sending more is still recognized.
+* Expose the agent's own state on the pprof server as `/metrics`: pending and held socket data events, analysis passes and their age, flush and send queue depths.
+* Release the socket data events that are dropped before an analyzer sees them (read error, filtered connection, no analyzer, buffer clean), instead of leaving them to the collector.
+* Merge the kernel logs of a message when it is finished instead of when it is flushed, so the unmerged records never enter the flush queue.
 * Add the HTTP/2 access log E2E test (h2c, gRPC unary, streaming and trailers-only, HTTP/2 over TLS), also running on the Istio ambient data path.
 * Separate multiple process for reading connection information in the access log module.
 * Add a delay time before delete the connection in the access log module.

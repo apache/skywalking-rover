@@ -440,12 +440,21 @@ func (r *Buffer) Position() *Position {
 	return r.current.Clone()
 }
 
+// Clean drops everything the buffer holds. The data events are released rather than only forgotten:
+// their buffers come from the pool and the admission control counts them, so dropping the list alone
+// would leak one buffer per event until the garbage collector catches up.
 func (r *Buffer) Clean() {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
+	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
+		if b, ok := e.Value.(SocketDataBuffer); ok && b != nil {
+			ReleaseEvent(b.ReleaseBuffer())
+		}
+	}
 	r.dataEvents = list.New()
 	r.detailEvents = list.New()
+	r.uploadedBytes = make(map[uint64]int64)
 	r.head = nil
 	r.current = nil
 	r.endPosition = nil

@@ -110,19 +110,33 @@ func (p *PartitionConnection) AppendDetail(ctx *common.AccessLogContext, detail 
 		forwarder.SendTransferNoProtocolEvent(ctx, detail)
 		return
 	}
-	if buf := p.Buffer(detail.GetProtocol()); buf != nil {
-		buf.AppendDetailEvent(detail)
-		p.markDataAppended()
+	buf := p.Buffer(detail.GetProtocol())
+	if buf == nil {
+		// no analyzer owns this protocol: the detail is dropped here, so anything it holds has to be
+		// given back rather than left to the garbage collector
+		releaseDroppedEvent(detail)
+		return
 	}
+	buf.AppendDetailEvent(detail)
+	p.markDataAppended()
 }
 
 func (p *PartitionConnection) AppendData(data buffer.SocketDataBuffer) {
-	if p.skipAllDataAnalyze {
+	if p.skipAllDataAnalyze || p.Buffer(data.Protocol()) == nil {
+		// the connection is no longer analyzed, or no analyzer owns this protocol: either way the
+		// event is dropped here and its buffer must go back to the pool
+		buffer.ReleaseEvent(data.ReleaseBuffer())
 		return
 	}
-	if buf := p.Buffer(data.Protocol()); buf != nil {
-		buf.AppendDataEvent(data)
-		p.markDataAppended()
+	p.Buffer(data.Protocol()).AppendDataEvent(data)
+	p.markDataAppended()
+}
+
+// releaseDroppedEvent gives back the buffer of an event that is dropped before it reaches a buffer.
+// A detail that carries no buffer (the kernel detail events of the rover itself) releases nothing.
+func releaseDroppedEvent(event interface{}) {
+	if holder, ok := event.(buffer.SocketDataBuffer); ok {
+		buffer.ReleaseEvent(holder.ReleaseBuffer())
 	}
 }
 

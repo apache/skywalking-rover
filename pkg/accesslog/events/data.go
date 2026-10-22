@@ -47,6 +47,12 @@ func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
 	return nil
 }
 
+// Discard gives the event back when the reader drops it instead of delivering it (btf.EventDiscarder),
+// so the accounting of the memory protection does not drift upwards on every dropped event
+func (s *SocketDataUploadEvent) Discard() {
+	buffer.ReleaseEvent(s.ReleaseBuffer())
+}
+
 // CopyMetadata returns a copy of the event usable as a kernel log detail (buffer.MetadataCopier).
 // The copy does not carry the 20KB data array: the point of keeping it is to release the memory of
 // the original event while the message is still being consumed.
