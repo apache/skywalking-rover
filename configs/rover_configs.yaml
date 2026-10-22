@@ -145,6 +145,13 @@ access_log:
     max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:10000}
     # The period of flush access log to the backend
     period: ${ROVER_ACCESS_LOG_FLUSH_PERIOD:5s}
+    # Report one kernel log per operation of a message instead of one per socket syscall, with the
+    # counters and the durations of the merged records summed.
+    # A message carried by many syscalls costs one record per syscall, which dominates the access log
+    # volume of large messages. Merging bounds it, and in exchange the backend loses the per syscall
+    # timing: the metrics that are a sum stay correct, the read and write cpm metrics count merged
+    # records instead of syscalls, and the *_time metrics become the time of a merged record.
+    merge_kernel_logs: ${ROVER_ACCESS_LOG_FLUSH_MERGE_KERNEL_LOGS:false}
   connection_analyze:
     # The size of connection buffer on each CPU
     per_cpu_buffer: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PER_CPU_BUFFER:200KB}

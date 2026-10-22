@@ -15,6 +15,9 @@ Release Notes.
 * Add memory protection (`protocol_analyze.max_memory_percent`, default 90): while the process memory reaches that share of its limit, new socket data events are dropped and counted.
 * Analyze a partition once `protocol_analyze.trigger_events` (default 1000) events are pending instead of only on the flush period, visiting the connections that received data.
 * Protect the per connection protocol maps with a lock and account the events an analyzer holds outside the connection buffer, so removing a closed connection does not leak them.
+* Add `access_log.flush.merge_kernel_logs` (default off): report one kernel log per operation of a message instead of one per syscall, with the counters summed.
+* Queue at most one analysis pass started by `trigger_events`, instead of one goroutine per event above the trigger count.
+* Bound the HTTP/2 SETTINGS inference by the max frame size instead of six settings, so a peer sending more is still recognized.
 * Add the HTTP/2 access log E2E test (h2c, gRPC unary, streaming and trailers-only, HTTP/2 over TLS), also running on the Istio ambient data path.
 * Separate multiple process for reading connection information in the access log module.
 * Add a delay time before delete the connection in the access log module.

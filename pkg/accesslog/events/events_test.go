@@ -28,6 +28,8 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 // nolint
@@ -35,6 +37,11 @@ func TestBufferRead(t *testing.T) {
 	tests := []struct {
 		hex    string
 		create func() btf.EventReader
+		// binaryTarget and narrow are set for an event whose Go fields are deliberately wider than the
+		// kernel struct: binary.Read fills a twin with the kernel widths, and narrow turns the parsed
+		// event back into that twin, so the guard still covers both the order and the width of every field
+		binaryTarget func() any
+		narrow       func(btf.EventReader) any
 	}{
 		{
 			hex: `
@@ -61,6 +68,10 @@ func TestBufferRead(t *testing.T) {
 03 00 00 00 00 00 00 00 02 02 00 02 02 09 01 00`,
 			create: func() btf.EventReader {
 				return &SocketDetailEvent{}
+			},
+			binaryTarget: func() any { return &socketDetailWire{} },
+			narrow: func(read btf.EventReader) any {
+				return narrowSocketDetail(read.(*SocketDetailEvent))
 			},
 		},
 		{
@@ -1375,7 +1386,10 @@ fa 0d 8d 69 a3 e6 6d a5 29 98 d7 20 6f a3 13 ea
 				t.Fatalf("Failed to decode hex string: %v", err)
 				return
 			}
-			binaryRead := test.create()
+			binaryRead := any(test.create())
+			if test.binaryTarget != nil {
+				binaryRead = test.binaryTarget()
+			}
 			selfRead := test.create()
 			bufReader := btf.NewReader(rawData)
 			selfRead.ReadFrom(bufReader)
@@ -1386,7 +1400,69 @@ fa 0d 8d 69 a3 e6 6d a5 29 98 d7 20 6f a3 13 ea
 				t.Fatalf("reading buffer error: %v", err)
 			}
 			// self parsing should same with binary.Read
-			assert.Equal(t, selfRead, binaryRead)
+			parsed := any(selfRead)
+			if test.narrow != nil {
+				parsed = test.narrow(selfRead)
+			}
+			assert.Equal(t, parsed, binaryRead)
 		})
+	}
+}
+
+// socketDetailWire mirrors the kernel struct of SocketDetailEvent field by field. The event itself
+// widens the counters and the durations so that merging several socket calls into one record cannot
+// overflow them, which is why the layout guard compares against this twin instead of the event.
+type socketDetailWire struct {
+	ConnectionID uint64
+	RandomID     uint64
+	DataID0      uint64
+
+	StartTime uint64
+	EndTime   uint64
+
+	L4Duration                    uint32
+	L3Duration                    uint32
+	L3LocalDuration               uint32
+	L3OutputDuration              uint32
+	L3ResolveMacDuration          uint32
+	L3NetFilterDuration           uint32
+	L2Duration                    uint32
+	L2ReadySendDuration           uint32
+	L2SendDuration                uint32
+	L2PackageToQueueDuration      uint32
+	L3TotalRcvDuration            uint32
+	IfIndex                       uint32
+	L4PackageRcvFromQueueDuration uint64
+	L4TotalPackageSize            uint64
+	L2EnterQueueCount             uint8
+	L4PackageCount                uint8
+	L4RetransmitPackageCount      uint8
+	L3ResolveMacCount             uint8
+	L3NetFilterCount              uint8
+	FunctionName                  enums.SocketFunctionName
+	Protocol                      enums.ConnectionProtocol
+	SSL                           uint8
+}
+
+func narrowSocketDetail(d *SocketDetailEvent) *socketDetailWire {
+	return &socketDetailWire{
+		ConnectionID: d.ConnectionID, RandomID: d.RandomID, DataID0: d.DataID0,
+		StartTime: d.StartTime, EndTime: d.EndTime,
+		L4Duration: uint32(d.L4Duration), L3Duration: uint32(d.L3Duration),
+		L3LocalDuration: uint32(d.L3LocalDuration), L3OutputDuration: uint32(d.L3OutputDuration),
+		L3ResolveMacDuration: uint32(d.L3ResolveMacDuration), L3NetFilterDuration: uint32(d.L3NetFilterDuration),
+		L2Duration: uint32(d.L2Duration), L2ReadySendDuration: uint32(d.L2ReadySendDuration),
+		L2SendDuration: uint32(d.L2SendDuration), L2PackageToQueueDuration: uint32(d.L2PackageToQueueDuration),
+		L3TotalRcvDuration: uint32(d.L3TotalRcvDuration), IfIndex: d.IfIndex,
+		L4PackageRcvFromQueueDuration: d.L4PackageRcvFromQueueDuration,
+		L4TotalPackageSize:            d.L4TotalPackageSize,
+		L2EnterQueueCount:             uint8(d.L2EnterQueueCount),
+		L4PackageCount:                uint8(d.L4PackageCount),
+		L4RetransmitPackageCount:      uint8(d.L4RetransmitPackageCount),
+		L3ResolveMacCount:             uint8(d.L3ResolveMacCount),
+		L3NetFilterCount:              uint8(d.L3NetFilterCount),
+		FunctionName:                  d.FunctionName,
+		Protocol:                      d.Protocol,
+		SSL:                           d.SSL,
 	}
 }

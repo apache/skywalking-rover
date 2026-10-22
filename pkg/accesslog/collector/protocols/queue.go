@@ -134,6 +134,10 @@ type PartitionContext struct {
 	partitionNum int
 
 	analyzeLocker sync.Mutex
+	// triggerScheduled is held while an analysis pass started by the event counter is queued or
+	// running: without it every event above the trigger count would start a goroutine that only finds
+	// the lock taken, which is one goroutine per event under sustained load
+	triggerScheduled atomic.Bool
 	// rerun is set when a trigger could not run because another ProcessEvents was already running:
 	// the running one repeats the pass instead of letting the triggering data wait for the next trigger
 	rerun atomic.Bool
@@ -244,9 +248,19 @@ func (p *PartitionContext) Consume(data interface{}) {
 // themselves (instead of through Consume) call this, so the trigger policy stays in one place.
 func (p *PartitionContext) AppendAndMaybeAnalyze(connection *PartitionConnection, data buffer.SocketDataBuffer) {
 	connection.AppendData(data)
-	if p.NoteDataEvent() {
-		go p.processEventsOfNewData()
+	if !p.NoteDataEvent() {
+		return
 	}
+	if !p.triggerScheduled.CompareAndSwap(false, true) {
+		// a pass is already queued or running: tell it to repeat instead of queueing another one, so
+		// the data that triggered this does not wait for the next trigger
+		p.rerun.Store(true)
+		return
+	}
+	go func() {
+		defer p.triggerScheduled.Store(false)
+		p.processEventsOfNewData()
+	}()
 }
 
 // NoteDataEvent counts a pending data event and reports whether the trigger count has been reached.

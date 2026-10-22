@@ -33,6 +33,10 @@ type Config struct {
 type FlushConfig struct {
 	MaxCountOneStream int    `mapstructure:"max_count"`
 	Period            string `mapstructure:"period"`
+	// MergeKernelLogs: report one kernel log per operation of a message instead of one per socket
+	// syscall, with the counters and durations summed. It bounds the access log volume of large
+	// messages, which otherwise costs one record per syscall, at the price of the per syscall timing.
+	MergeKernelLogs bool `mapstructure:"merge_kernel_logs"`
 }
 
 type ConnectionAnalyzeConfig struct {

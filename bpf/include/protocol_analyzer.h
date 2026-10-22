@@ -102,11 +102,15 @@ static __inline bool is_http2_settings_frame(const char *buf, size_t count)
 	}
 	bpf_probe_read(frame, sizeof(frame), buf);
 	__u32 length = ((__u32)frame[0] << 16) | ((__u32)frame[1] << 8) | frame[2];
-	// type SETTINGS(0x4), flags only ACK(0x1) allowed, stream id 0, length is a multiple of 6 and at most 6 settings
+	// type SETTINGS(0x4), flags only ACK(0x1) allowed, stream id 0, and a length that is a multiple of
+	// the 6 byte setting entry. The length is bounded by the default SETTINGS_MAX_FRAME_SIZE rather
+	// than by a guess at how many settings a peer sends: a client that sends more of them would
+	// otherwise not be recognized as HTTP/2 when the capture starts at its SETTINGS frame, which is
+	// the silent "no protocol" case this inference exists to avoid.
 	if (frame[3] != 0x4 || (frame[4] & 0xfe) || (frame[5] & 0x7f) || frame[6] || frame[7] || frame[8]) {
 		return false;
 	}
-	if (length % 6 != 0 || length > 36) {
+	if (length % 6 != 0 || length > 16384) {
 		return false;
 	}
 	return true;
