@@ -53,6 +53,9 @@ type Runner struct {
 	cluster    string
 	ctx        context.Context
 	sender     *sender.GRPCSender
+	// mergeKernelLogs folds the kernel logs of one message that describe the same operation into one
+	// record (see forwarder.MergeKernelLogs for what the backend makes of that)
+	mergeKernelLogs bool
 }
 
 func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
@@ -80,7 +83,10 @@ func NewRunner(mgr *module.Manager, config *common.Config) (*Runner, error) {
 		backendOp:  backendOP,
 		cluster:    clusterName,
 		sender:     sender.NewGRPCSender(mgr, connectionMgr),
+
+		mergeKernelLogs: config.Flush.MergeKernelLogs,
 	}
+	common.SetMergeKernelLogs(config.Flush.MergeKernelLogs)
 	runner.context.Queue = common.NewQueue(config.Flush.MaxCountOneStream, flushDuration, runner)
 	return runner, nil
 }
@@ -112,6 +118,9 @@ func (r *Runner) Consume(kernels chan common.KernelLog, protocols chan common.Pr
 	}
 
 	batch := r.sender.NewBatch()
+	if r.mergeKernelLogs {
+		batch.EnableKernelLogMerge()
+	}
 	r.buildConnectionLogs(batch, kernels, protocols)
 	log.Debugf("ready to send access log, connection count: %d", batch.ConnectionCount())
 	r.sender.AddBatch(batch)
@@ -227,8 +236,10 @@ func (r *Runner) buildProtocolLog(protocolLog common.ProtocolLog) (*common.Conne
 	if r.context.ConnectionMgr.ShouldDeferForResolution(connection) {
 		return nil, nil, nil, true
 	}
-	kernelLogs := make([]*v3.AccessLogKernelLog, 0)
-	for _, kl := range protocolLog.RelateKernelLogs() {
+	// the details were merged when the message was finished, see common.NewProtocolLogEvent
+	relatedLogs := protocolLog.RelateKernelLogs()
+	kernelLogs := make([]*v3.AccessLogKernelLog, 0, len(relatedLogs))
+	for _, kl := range relatedLogs {
 		event := forwarder.BuildKernelLogFromEvent(common.LogTypeKernelTransfer, kl)
 		if event == nil {
 			continue

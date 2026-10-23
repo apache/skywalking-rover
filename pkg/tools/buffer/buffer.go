@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -34,19 +35,145 @@ import (
 
 var (
 	ErrNotComplete = errors.New("socket: not complete event")
-	emptyList      = list.New()
+	// ErrTruncated: the reader reached the end of a socket call that BPF truncated (the upload chunk
+	// limit was hit), so the following bytes of the buffer belong to the next socket call and are not
+	// the continuation of the message being read
+	ErrTruncated = errors.New("socket: the socket call is truncated by the upload limit")
+	emptyList    = list.New()
 
 	log = logger.GetLogger("tools", "buffer")
 
-	PooledBuffer = sync.Pool{
-		New: func() any {
-			return &[20480]byte{}
-		},
-	}
+	// pooledBuffers recycles the data of socket data events that hold it through a slice. The BPF side
+	// sends only the bytes it read, and most socket calls are far smaller than a full chunk, so one
+	// pool of full sized arrays would spend 20KB on a 200 byte message. The classes are few on purpose:
+	// every class is a separate pool with its own recycling, and a class that is rarely hit only costs
+	// collections. A buffer always comes back to the class its capacity belongs to.
+	bufferClasses = []int{2048, 8192, MaxEventBufferSize}
+	pooledBuffers = buildBufferPools()
 )
 
-func BorrowNewBuffer() *[20480]byte {
-	return PooledBuffer.Get().(*[20480]byte)
+// MaxEventBufferSize is the largest socket data event, the BPF upload chunk size
+const MaxEventBufferSize = 20480
+
+func buildBufferPools() []*sync.Pool {
+	pools := make([]*sync.Pool, len(bufferClasses))
+	for i := range bufferClasses {
+		size := bufferClasses[i]
+		pools[i] = &sync.Pool{New: func() any { return make([]byte, size) }}
+	}
+	return pools
+}
+
+// bufferClassOf returns the index of the smallest class that holds size bytes
+func bufferClassOf(size int) int {
+	for i, class := range bufferClasses {
+		if size <= class {
+			return i
+		}
+	}
+	return len(bufferClasses) - 1
+}
+
+// Socket data events and the memory they hold.
+//
+// Every event carries a 20KB data array until the analyzer releases it, so an analysis backlog (slow
+// backend, large bodies, truncated messages) grows the process until it is killed. Two things guard
+// against that, and both go through this file:
+//
+//   - admission: when the memory usage of the process reaches the configured share of its limit (see
+//     memory.go, the same pair the OOM killer looks at), new events are refused and counted, and
+//     accepted again once the usage falls back below it;
+//   - accounting: eventsInUse counts the events that currently hold data and bytesInUse the memory
+//     they occupy, so the analysis can be told how much it is still holding. Since the upload is
+//     variable length the two are no longer proportional.
+//
+// An event either embeds its array (AcquireEvent) or points at a pooled one (AcquireEventBuffer);
+// ReleaseEvent takes both shapes, driven by what the event's ReleaseBuffer returns.
+var (
+	eventsInUse    atomic.Int64
+	droppedByLimit atomic.Int64
+	// acceptedEvents and acceptedBytes describe what the kernel actually delivers: the two sides of a
+	// connection can carry the same bytes in a very different number of socket calls, and the cost of
+	// the analysis follows the number of events, not the bytes
+	acceptedEvents atomic.Int64
+	acceptedBytes  atomic.Int64
+	// expiredEvents counts the events released by the expiry rather than by an analyzer: an event
+	// that leaves this way belongs to a message that never completed
+	expiredEvents atomic.Int64
+	// bytesInUse is what the events actually hold, which is no longer the event count times the chunk
+	// size now that the upload is variable length
+	bytesInUse atomic.Int64
+)
+
+// MemoryStats returns the socket data events holding an array, the events dropped by the memory
+// protection, the last sampled memory usage and the threshold (bytes, 0 when the protection is off)
+func MemoryStats() (inUse, dropped, usage, threshold int64) {
+	return eventsInUse.Load(), droppedByLimit.Load(), memoryUsage.Load(), memoryThreshold.Load()
+}
+
+// AcquireEvent reports whether an event that embeds its data array may be created
+func AcquireEvent() bool {
+	if memoryProtectionActive.Load() {
+		droppedByLimit.Add(1)
+		return false
+	}
+	eventsInUse.Add(1)
+	acceptedEvents.Add(1)
+	return true
+}
+
+// AcquireEventBuffer reserves the data of an event that holds it through a slice, for a payload of
+// size bytes; nil means the memory protection is active and the event must be dropped. The slice is
+// as long as the payload and its capacity is the class it came from, which is what returns it.
+func AcquireEventBuffer(size int) []byte {
+	if !AcquireEvent() {
+		return nil
+	}
+	return takeBuffer(size)
+}
+
+// TakeBuffer is AcquireEventBuffer without the admission check, for an event that has already been
+// admitted and only now knows how much data it carries
+func TakeBuffer(size int) []byte {
+	return takeBuffer(size)
+}
+
+func takeBuffer(size int) []byte {
+	if size < 0 {
+		size = 0
+	}
+	if size > MaxEventBufferSize {
+		size = MaxEventBufferSize
+	}
+	class := bufferClassOf(size)
+	data := pooledBuffers[class].Get().([]byte)
+	bytesInUse.Add(int64(cap(data)))
+	return data[:size]
+}
+
+// ReleaseEvent releases one socket data event: `b` is what its ReleaseBuffer returned, so a pooled
+// slice goes back to the pool of its class and nil (an event that owns no buffer) only clears the
+// accounting
+func ReleaseEvent(b []byte) {
+	eventsInUse.Add(-1)
+	ReleaseBufferOnly(b)
+}
+
+// ReleaseBufferOnly returns the data of an event without counting the event itself, for a buffer that
+// was taken after the event was admitted
+func ReleaseBufferOnly(b []byte) {
+	if b == nil {
+		return
+	}
+	capacity := cap(b)
+	bytesInUse.Add(-int64(capacity))
+	for i, class := range bufferClasses {
+		if capacity == class {
+			//nolint:staticcheck // the slice is the pooled object, its header allocation is the price of the class
+			pooledBuffers[i].Put(b[:capacity])
+			return
+		}
+	}
 }
 
 type SocketDataBuffer interface {
@@ -82,7 +209,7 @@ type SocketDataBuffer interface {
 	// EndTime the data end timestamp
 	EndTime() uint64
 
-	ReleaseBuffer() *[20480]byte
+	ReleaseBuffer() []byte
 }
 
 type SocketDataDetail interface {
@@ -120,12 +247,34 @@ type Buffer struct {
 	// because the older socket detail may not be received in buffer
 	latestExpiredDataID uint64
 
+	// virtualBytes are bytes of the message that the kernel transferred but BPF did not upload (a socket
+	// call larger than the upload chunk limit is truncated), accounted by the protocol reader so the
+	// reported size is the real one
+	virtualBytes int64
+	// sizeOverride, when positive, is the size reported by DataSize (a body whose kept events include
+	// framing bytes, e.g. chunked transfer encoding)
+	sizeOverride int64
+
 	// originalBuffer record this buffer is from Buffer.Slice or CombineSlices
 	// if it's not empty, then when getting the details should query from originalBuffer
 	// Because the BPF Queue is unsorted and can be delayed, so the details should query by real buffer
 	originalBuffer *Buffer
 	// endPosition record the end position of the originalBuffer
 	endPosition *Position
+
+	// uploadedBytes counts the bytes BPF uploaded per socket call (data id) as the events are appended,
+	// so the bytes a truncated socket call did not upload can be computed exactly even when the reader
+	// starts in the middle of the call (TotalSize - uploadedBytes[dataID])
+	uploadedBytes map[uint64]int64
+
+	// sequenceBarrier is the data id up to which every socket call of the connection has already been
+	// parsed. When it is set (the HTTP/2 per direction views), the reader refuses to continue a message
+	// into a following socket call whose previous call has not been seen yet, so a frame is never
+	// completed with the bytes of a later call while an earlier one is still missing. 0 disables it.
+	sequenceBarrier uint64
+	// stopAtTruncation makes the reader return ErrTruncated instead of silently continuing into the
+	// next socket call when the current one was truncated by the BPF upload limit
+	stopAtTruncation bool
 }
 
 type SocketDataEventLimited struct {
@@ -139,7 +288,11 @@ func (s *SocketDataEventLimited) Protocol() enums.ConnectionProtocol {
 }
 
 func (s *SocketDataEventLimited) BufferData() []byte {
-	return s.SocketDataBuffer.BufferData()[s.From:s.Size]
+	data := s.SocketDataBuffer.BufferData()
+	if data == nil {
+		return nil // a metadata-only copy carries no data
+	}
+	return data[s.From:s.Size]
 }
 
 func (s *SocketDataEventLimited) BufferLen() int {
@@ -177,6 +330,10 @@ func (i *DataIDRange) DeleteDetails(buf *Buffer) {
 	if buf.originalBuffer != nil {
 		i.DeleteDetails(buf.originalBuffer)
 	}
+	// the detail list of the root buffer is appended to by the partition goroutine, so the removal
+	// must not run concurrently with an insertion (container/list is not concurrency safe)
+	buf.eventLocker.Lock()
+	defer buf.eventLocker.Unlock()
 	for e := buf.detailEvents.Front(); e != nil; {
 		next := e.Next()
 		dataID := e.Value.(SocketDataDetail).DataID()
@@ -203,6 +360,12 @@ func (p *Position) Clone() *Position {
 	return &Position{element: p.element, bufIndex: p.bufIndex}
 }
 
+// HasElement reports whether the position points at an event (false at the end of the buffer or when
+// every event was removed)
+func (p *Position) HasElement() bool {
+	return p != nil && p.element != nil && p.element.Value != nil
+}
+
 func (p *Position) DataID() uint64 {
 	return p.element.Value.(SocketDataBuffer).DataID()
 }
@@ -215,12 +378,99 @@ func (p *Position) Seq() int {
 	return p.element.Value.(SocketDataBuffer).DataSequence()
 }
 
+// Offset is the read offset inside the element's buffer
+func (p *Position) Offset() int {
+	return p.bufIndex
+}
+
+// StartTime of the element the position points to (BPF time)
+func (p *Position) StartTime() uint64 {
+	return p.element.Value.(SocketDataBuffer).StartTime()
+}
+
+// Direction of the element the position points to
+func (p *Position) Direction() enums.SocketDataDirection {
+	return p.element.Value.(SocketDataBuffer).Direction()
+}
+
 func NewBuffer() *Buffer {
 	return &Buffer{
-		dataEvents:   list.New(),
-		detailEvents: list.New(),
-		validated:    false,
+		dataEvents:    list.New(),
+		detailEvents:  list.New(),
+		validated:     false,
+		uploadedBytes: make(map[uint64]int64),
 	}
+}
+
+// NewViewBuffer creates an empty buffer whose detail events are resolved from the original buffer.
+// It is used to re-partition the data events of a connection (e.g. per direction) while the
+// socket detail events stay in the original buffer.
+func NewViewBuffer(original *Buffer) *Buffer {
+	return &Buffer{
+		dataEvents:       list.New(),
+		detailEvents:     list.New(),
+		validated:        false,
+		originalBuffer:   original,
+		uploadedBytes:    make(map[uint64]int64),
+		stopAtTruncation: true,
+	}
+}
+
+// SetSequenceBarrier records the data id up to which every socket call of the connection has been
+// parsed, see the field comment. It is reset to 0 by passing 0.
+func (r *Buffer) SetSequenceBarrier(dataID uint64) {
+	r.sequenceBarrier = dataID
+}
+
+// UploadedBytes returns the bytes BPF uploaded for the socket call, 0 when it is not tracked
+func (r *Buffer) UploadedBytes(dataID uint64) int64 {
+	r.eventLocker.RLock()
+	defer r.eventLocker.RUnlock()
+	return r.uploadedBytes[dataID]
+}
+
+// TakeDataEvents detaches and returns all data events from the buffer (in order) without
+// releasing their byte arrays, and resets the reading positions. Detail events are kept.
+func (r *Buffer) TakeDataEvents() []SocketDataBuffer {
+	r.eventLocker.Lock()
+	defer r.eventLocker.Unlock()
+	if r.dataEvents.Len() == 0 {
+		return nil
+	}
+	result := make([]SocketDataBuffer, 0, r.dataEvents.Len())
+	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
+		if e.Value != nil {
+			result = append(result, e.Value.(SocketDataBuffer))
+		}
+	}
+	r.dataEvents = list.New()
+	r.uploadedBytes = make(map[uint64]int64)
+	r.head = nil
+	r.current = nil
+	r.shouldResetPosition = false
+	return result
+}
+
+// ReleaseAll removes every data event of the buffer and gives their pooled byte arrays back, so a
+// buffer that is thrown away (a removed connection) does not leak the in-use accounting
+func (r *Buffer) ReleaseAll() {
+	if r == nil {
+		return
+	}
+	r.eventLocker.Lock()
+	defer r.eventLocker.Unlock()
+	for e := r.dataEvents.Front(); e != nil; {
+		next := e.Next()
+		if b, ok := e.Value.(SocketDataBuffer); ok && b != nil {
+			ReleaseEvent(b.ReleaseBuffer())
+		}
+		r.dataEvents.Remove(e)
+		e = next
+	}
+	r.uploadedBytes = make(map[uint64]int64)
+	r.head = nil
+	r.current = nil
+	r.endPosition = nil
 }
 
 func (r *Buffer) FindFirstDataBuffer(dataID uint64) SocketDataBuffer {
@@ -254,15 +504,27 @@ func (r *Buffer) BuildTotalDataIDRange() *DataIDRange {
 }
 
 func (r *Buffer) Position() *Position {
+	if r == nil || r.current == nil {
+		return nil
+	}
 	return r.current.Clone()
 }
 
+// Clean drops everything the buffer holds. The data events are released rather than only forgotten:
+// their buffers come from the pool and the admission control counts them, so dropping the list alone
+// would leak one buffer per event until the garbage collector catches up.
 func (r *Buffer) Clean() {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
+	for e := r.dataEvents.Front(); e != nil; e = e.Next() {
+		if b, ok := e.Value.(SocketDataBuffer); ok && b != nil {
+			ReleaseEvent(b.ReleaseBuffer())
+		}
+	}
 	r.dataEvents = list.New()
 	r.detailEvents = list.New()
+	r.uploadedBytes = make(map[uint64]int64)
 	r.head = nil
 	r.current = nil
 	r.endPosition = nil
@@ -271,6 +533,16 @@ func (r *Buffer) Clean() {
 // nolint
 func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	dataEvents := list.New()
+	if start.element != end.element && r.isDetached(start.element) {
+		// the start element has already been removed from the list (expired or released): walking from
+		// it would stop at the first nil Next() and silently drop every element in between, so restart
+		// from the first element that is still linked
+		log.Debugf("the slice start element is already removed from the buffer, ref: %p", r)
+		if r.dataEvents.Front() == nil {
+			return nil
+		}
+		start = &Position{element: r.dataEvents.Front(), bufIndex: 0}
+	}
 	for nextElement := start.element; nextElement != end.element; nextElement = nextElement.Next() {
 		if nextElement == nil || nextElement.Value == nil {
 			break
@@ -281,13 +553,18 @@ func (r *Buffer) Slice(validated bool, start, end *Position) *Buffer {
 	lastBuffer := end.element.Value.(SocketDataBuffer)
 	dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: lastBuffer, Size: end.bufIndex})
 
+	// the details always live in the root buffer, so a slice of a view (or of a slice) resolves them there
+	original := r
+	if r.originalBuffer != nil {
+		original = r.originalBuffer
+	}
 	return &Buffer{
 		dataEvents:     dataEvents,
 		detailEvents:   emptyList,
 		validated:      validated,
 		head:           &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
 		current:        &Position{element: dataEvents.Front(), bufIndex: start.bufIndex},
-		originalBuffer: r,
+		originalBuffer: original,
 		endPosition:    end,
 	}
 }
@@ -308,6 +585,14 @@ func (r *Buffer) Len() int {
 func (r *Buffer) BuildDetails() *list.List {
 	// if the original buffer is not empty, then query the details from original buffer
 	if r.originalBuffer != nil {
+		if !r.head.HasElement() || (r.endPosition == nil && !r.current.HasElement()) {
+			// the slice carries no event (every part of it was absent or already released)
+			return list.New()
+		}
+		// the detail list of the root buffer is appended to by the partition goroutine while this
+		// iteration runs on the analyzer goroutine
+		r.originalBuffer.eventLocker.RLock()
+		defer r.originalBuffer.eventLocker.RUnlock()
 		events := list.New()
 		fromDataID := r.head.DataID()
 		var endDataID uint64
@@ -341,11 +626,58 @@ func (r *Buffer) BuildDetails() *list.List {
 	return r.detailEvents
 }
 
+// AddVirtualBytes records bytes of the message that were transferred but not uploaded by BPF
+func (r *Buffer) AddVirtualBytes(n int64) {
+	if r != nil && n > 0 {
+		r.virtualBytes += n
+	}
+}
+
+// ReducedBytesBetween returns the bytes the kernel transferred but BPF did not upload for the socket
+// calls between the two positions (inclusive): a socket call larger than the upload chunk limit ends
+// with a finished chunk flagged HaveReduceDataAfterChunk, its TotalSize is the real length.
+// A nil end means the end of the buffer.
+func (r *Buffer) ReducedBytesBetween(start, end *Position) int64 {
+	if r == nil || start == nil || start.element == nil {
+		return 0
+	}
+	var result int64
+	uploaded := make(map[uint64]int64)
+	for e := start.element; e != nil; e = e.Next() {
+		buf, ok := e.Value.(SocketDataBuffer)
+		if !ok || buf == nil {
+			break
+		}
+		uploaded[buf.DataID()] += int64(buf.BufferLen())
+		if end != nil && e == end.element && end.bufIndex < buf.BufferLen() {
+			break // the reduced bytes follow the last byte of the element, which is not consumed yet
+		}
+		if buf.IsFinished() && buf.HaveReduceDataAfterChunk() {
+			// the chunks of the socket call before `start` were not walked, so the uploaded bytes of the
+			// whole call are taken from the buffer's own accounting when it has them
+			total := r.UploadedBytes(buf.DataID())
+			if total < uploaded[buf.DataID()] {
+				total = uploaded[buf.DataID()]
+			}
+			if missing := int64(buf.TotalSize()) - total; missing > 0 {
+				result += missing
+			}
+		}
+		if end != nil && e == end.element {
+			break
+		}
+	}
+	return result
+}
+
 func (r *Buffer) DataSize() int64 {
 	if r == nil {
 		return 0
 	}
-	var result int64
+	if r.sizeOverride > 0 {
+		return r.sizeOverride
+	}
+	var result = r.virtualBytes
 	var headPosition = r.head
 	if headPosition == nil {
 		if !r.PrepareForReading() {
@@ -421,10 +753,12 @@ func CombineSlices(validated bool, originalBuffer *Buffer, buffers ...*Buffer) *
 		return buffers[0]
 	}
 	dataEvents := list.New()
+	var virtualBytes int64
 	for _, b := range buffers {
 		if b == nil || b.head == nil {
 			continue
 		}
+		virtualBytes += b.virtualBytes
 		if b.head.bufIndex > 0 {
 			headBuffer := b.dataEvents.Front().Value.(SocketDataBuffer)
 			dataEvents.PushBack(&SocketDataEventLimited{SocketDataBuffer: headBuffer,
@@ -458,6 +792,7 @@ func CombineSlices(validated bool, originalBuffer *Buffer, buffers ...*Buffer) *
 		current:        &Position{element: dataEvents.Front(), bufIndex: 0},
 		originalBuffer: originalBuffer,
 		endPosition:    endPosition,
+		virtualBytes:   virtualBytes,
 	}
 }
 
@@ -555,6 +890,21 @@ func (r *Buffer) Read(p []byte) (n int, err error) {
 		shouldRead = true
 	}
 
+	if shouldRead && !r.validated && curEvent.DataID() != nextEvent.DataID() {
+		// the message continues in a following socket call
+		if r.stopAtTruncation && curEvent.IsFinished() && curEvent.HaveReduceDataAfterChunk() {
+			// BPF did not upload the rest of the current call: the next bytes of the buffer are the
+			// bytes of another call, not the continuation of this message
+			return 0, ErrTruncated
+		}
+		if r.sequenceBarrier > 0 && nextEvent.PrevDataID() != curEvent.DataID() &&
+			nextEvent.PrevDataID() > r.sequenceBarrier {
+			// a socket call between the two has not been delivered yet: completing the message with the
+			// bytes of the later call would read across the missing one
+			shouldRead = false
+		}
+	}
+
 	if !shouldRead {
 		return 0, ErrNotComplete
 	}
@@ -580,14 +930,13 @@ func (r *Buffer) ReadFromCurrent(p []byte) (element *list.Element, n int) {
 }
 
 func (r *Buffer) ReadUntilBufferFull(data []byte) error {
-	reduceLen := len(data)
 	currentIndex := 0
-	for reduceLen > 0 {
-		readCount, err := r.Read(data[:reduceLen])
+	for currentIndex < len(data) {
+		// read into the not yet filled part, so data spanning multiple elements is not overwritten
+		readCount, err := r.Read(data[currentIndex:])
 		if err != nil {
 			return err
 		}
-		reduceLen -= readCount
 		currentIndex += readCount
 	}
 	return nil
@@ -641,6 +990,10 @@ func (r *Buffer) PrepareForReading() bool {
 		r.shouldResetPosition = false
 		return r.PrepareForReading()
 	}
+	if r.head != nil && r.head.element != nil && r.isDetached(r.head.element) {
+		// the head element was removed from the list (e.g. expired), restart from the first element
+		r.head = nil
+	}
 	if r.head == nil || r.head.element == nil {
 		// read in the first element
 		r.eventLocker.RLock()
@@ -653,6 +1006,59 @@ func (r *Buffer) PrepareForReading() bool {
 	}
 
 	return true
+}
+
+// IsCurrentSocketCallComplete reports whether every chunk of the socket call at the reading head has
+// been delivered (its last chunk, the one marked finished, is in the buffer). False means the reader
+// is waiting for a chunk of the very socket call it is reading, not for a following one.
+func (r *Buffer) IsCurrentSocketCallComplete() bool {
+	if r == nil || r.head == nil || r.head.element == nil {
+		return true
+	}
+	cur, ok := r.head.element.Value.(SocketDataBuffer)
+	if !ok || cur == nil {
+		return true
+	}
+	dataID := cur.DataID()
+	for e := r.head.element; e != nil; e = r.nextElement(e) {
+		b, ok := e.Value.(SocketDataBuffer)
+		if !ok || b == nil || b.DataID() != dataID {
+			return false
+		}
+		if b.IsFinished() {
+			return true
+		}
+	}
+	return false
+}
+
+// NextSocketCallDataID returns the data id of the first socket call behind the one at the reading
+// head, 0 when the buffer holds no further call
+func (r *Buffer) NextSocketCallDataID() uint64 {
+	if r == nil || r.head == nil || r.head.element == nil {
+		return 0
+	}
+	cur, ok := r.head.element.Value.(SocketDataBuffer)
+	if !ok || cur == nil {
+		return 0
+	}
+	for e := r.nextElement(r.head.element); e != nil; e = r.nextElement(e) {
+		b, ok := e.Value.(SocketDataBuffer)
+		if !ok || b == nil {
+			return 0
+		}
+		if b.DataID() != cur.DataID() {
+			return b.DataID()
+		}
+	}
+	return 0
+}
+
+// isDetached reports whether the element is no longer part of the data event list
+func (r *Buffer) isDetached(e *list.Element) bool {
+	r.eventLocker.RLock()
+	defer r.eventLocker.RUnlock()
+	return e.Next() == nil && e.Prev() == nil && r.dataEvents.Front() != e
 }
 
 // nolint
@@ -715,9 +1121,36 @@ func (r *Buffer) RemoveReadElements(includeDetails bool) bool {
 	return false
 }
 
+// HeadDataEvent returns the data event the reader head points to: the event RemoveCurrentElement
+// would release, so the caller can still report it before it is dropped
+func (r *Buffer) HeadDataEvent() SocketDataBuffer {
+	r.eventLocker.RLock()
+	defer r.eventLocker.RUnlock()
+	if r.head == nil || r.head.element == nil || r.head.element.Value == nil {
+		return nil
+	}
+	event, _ := r.head.element.Value.(SocketDataBuffer)
+	return event
+}
+
+// RemoveCurrentElement removes the element the reader head points to (the element the current
+// message started in) and moves the head to the next element. It returns true when no element is left.
+func (r *Buffer) RemoveCurrentElement() bool {
+	r.eventLocker.Lock()
+	defer r.eventLocker.Unlock()
+	if r.head == nil || r.head.element == nil {
+		return true
+	}
+	r.head.element = r.removeElement0(r.head.element)
+	r.head.bufIndex = 0
+	r.current = r.head.Clone()
+	return r.head.element == nil
+}
+
 // SkipCurrentElement skip current element in reader, if return true means have read finished
 func (r *Buffer) SkipCurrentElement() bool {
 	r.head.element = r.nextElement(r.current.element)
+	r.head.bufIndex = 0
 	r.current.bufIndex = 0
 
 	return r.head.element == nil
@@ -731,7 +1164,11 @@ func (r *Buffer) removeElement0(element *list.Element) *list.Element {
 	r.dataEvents.Remove(element)
 	if element.Value != nil {
 		if b, ok := element.Value.(SocketDataBuffer); ok && b != nil {
-			PooledBuffer.Put(b.ReleaseBuffer())
+			if b.IsFinished() {
+				// the socket call is complete, its upload accounting is not needed anymore
+				delete(r.uploadedBytes, b.DataID())
+			}
+			ReleaseEvent(b.ReleaseBuffer())
 		}
 	}
 	return result
@@ -778,9 +1215,16 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 	r.eventLocker.Lock()
 	defer r.eventLocker.Unlock()
 
+	if r.uploadedBytes == nil {
+		r.uploadedBytes = make(map[uint64]int64)
+	}
+	r.uploadedBytes[event.DataID()] += int64(event.BufferLen())
+	acceptedBytes.Add(int64(event.BufferLen()))
+
 	defer func() {
 		// if the current position is not nil and the current reading data id is bigger than the event data id
-		if r.current != nil && r.current.DataID() > event.DataID() {
+		// (the current element is nil once every element has been consumed or removed)
+		if r.current != nil && r.current.element != nil && r.current.DataID() > event.DataID() {
 			r.shouldResetPosition = true
 		}
 	}()
@@ -790,28 +1234,35 @@ func (r *Buffer) AppendDataEvent(event SocketDataBuffer) {
 		r.shouldResetPosition = true
 		return
 	}
-	if r.dataEvents.Back().Value.(SocketDataBuffer).DataID() < event.DataID() {
+	if last := r.dataEvents.Back().Value.(SocketDataBuffer); last.DataID() < event.DataID() ||
+		(last.DataID() == event.DataID() && last.DataSequence() < event.DataSequence()) ||
+		(last.DataID() == event.DataID() && last.DataSequence() == event.DataSequence() && last.StartTime() <= event.StartTime()) {
 		r.dataEvents.PushBack(event)
 		return
 	}
-	beenAdded := false
-	for element := r.dataEvents.Front(); element != nil; element = element.Next() {
-		existEvent := element.Value.(SocketDataBuffer)
-		if existEvent.DataID() > event.DataID() {
-			// data id needs order
-			beenAdded = true
-		} else if existEvent.DataID() == event.DataID() && existEvent.DataSequence() > event.DataSequence() {
-			// following the sequence order
-			beenAdded = true
+	// out of order events are usually late by a few positions only: search the insertion point from
+	// the back (a scan from the front walks the whole list of a busy connection for every late event)
+	for element := r.dataEvents.Back(); element != nil; element = element.Prev() {
+		if !eventAfter(event, element.Value.(SocketDataBuffer)) {
+			continue
 		}
-		if beenAdded {
-			r.dataEvents.InsertBefore(event, element)
-			break
-		}
+		r.dataEvents.InsertAfter(event, element)
+		return
 	}
-	if !beenAdded {
-		r.dataEvents.PushBack(event)
+	r.dataEvents.PushFront(event)
+}
+
+// eventAfter reports whether event must be ordered after existing: by data id, then sequence, then
+// start time (several events can share one data id and sequence, e.g. the TLS uprobe reports every
+// library write call with the data id of the enclosing socket call)
+func eventAfter(event, existing SocketDataBuffer) bool {
+	if event.DataID() != existing.DataID() {
+		return event.DataID() > existing.DataID()
 	}
+	if event.DataSequence() != existing.DataSequence() {
+		return event.DataSequence() > existing.DataSequence()
+	}
+	return event.StartTime() >= existing.StartTime()
 }
 
 func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
@@ -828,7 +1279,9 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 		startTime := host.Time(buffer.StartTime())
 		if expireTime.After(startTime) {
 			r.latestExpiredDataID = buffer.DataID()
-			PooledBuffer.Put(buffer.ReleaseBuffer())
+			delete(r.uploadedBytes, buffer.DataID())
+			ReleaseEvent(buffer.ReleaseBuffer())
+			expiredEvents.Add(1)
 			return true
 		}
 		return false
@@ -851,6 +1304,9 @@ func (r *Buffer) DeleteExpireEvents(expireDuration time.Duration) int {
 }
 
 func (r *Buffer) DataLength() int {
+	if r == nil {
+		return 0
+	}
 	r.eventLocker.RLock()
 	defer r.eventLocker.RUnlock()
 	if r.dataEvents == nil {

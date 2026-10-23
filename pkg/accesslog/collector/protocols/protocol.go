@@ -46,6 +46,16 @@ func (a *ProtocolManager) GetProtocol(protocol enums.ConnectionProtocol) Protoco
 type ProtocolMetrics interface {
 }
 
+// PendingDataMetrics is implemented by the metrics of a protocol that keeps socket data events
+// outside the connection buffer (the HTTP/2 analyzer re-partitions them per direction), so the queue
+// can still see that the connection has unparsed data and release it when the connection is removed
+type PendingDataMetrics interface {
+	// PendingDataLength is the count of socket data events the metrics still hold
+	PendingDataLength() int
+	// ReleasePendingData gives the held socket data events back to the pool
+	ReleasePendingData()
+}
+
 type AnalyzeHelper struct {
 	ProtocolBreak bool
 }

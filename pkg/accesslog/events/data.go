@@ -19,6 +19,7 @@ package events
 
 import (
 	"fmt"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
@@ -41,9 +42,59 @@ type SocketDataUploadEvent struct {
 	Buffer       [20480]byte
 }
 
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
-	return &s.Buffer
+// ReleaseBuffer: the array is embedded in the event, there is no pooled buffer to give back
+func (s *SocketDataUploadEvent) ReleaseBuffer() []byte {
+	return nil
 }
+
+// Discard gives the event back when the reader drops it instead of delivering it (btf.EventDiscarder),
+// so the accounting of the memory protection does not drift upwards on every dropped event
+func (s *SocketDataUploadEvent) Discard() {
+	buffer.ReleaseEvent(s.ReleaseBuffer())
+}
+
+// CopyMetadata returns a copy of the event usable as a kernel log detail (buffer.MetadataCopier).
+// The copy does not carry the 20KB data array: the point of keeping it is to release the memory of
+// the original event while the message is still being consumed.
+func (s *SocketDataUploadEvent) CopyMetadata() buffer.SocketDataBuffer {
+	return &SocketDataMetadata{
+		protocol: s.Protocol0, haveReduce: s.HaveReduce, direction: s.Direction0, finished: s.Finished,
+		sequence: s.Sequence0, dataLen: s.DataLen, startTime: s.StartTime0, endTime: s.EndTime0,
+		connectionID: s.ConnectionID, randomID: s.RandomID, dataID: s.DataID0, prevDataID: s.PrevDataID0,
+		totalSize: s.TotalSize0,
+	}
+}
+
+// SocketDataMetadata is a socket data event without its data buffer: every metadata field is kept so
+// it still reports the sizes, times and data ids of the socket call it stands for
+type SocketDataMetadata struct {
+	protocol                      enums.ConnectionProtocol
+	direction                     enums.SocketDataDirection
+	haveReduce, finished          uint8
+	sequence, dataLen             uint16
+	startTime, endTime            uint64
+	connectionID, randomID        uint64
+	dataID, prevDataID, totalSize uint64
+}
+
+func (s *SocketDataMetadata) Protocol() enums.ConnectionProtocol { return s.protocol }
+func (s *SocketDataMetadata) GenerateConnectionID() string {
+	return fmt.Sprintf("%d_%d", s.connectionID, s.randomID)
+}
+func (s *SocketDataMetadata) BufferData() []byte                   { return nil }
+func (s *SocketDataMetadata) BufferLen() int                       { return int(s.dataLen) }
+func (s *SocketDataMetadata) BufferStartPosition() int             { return 0 }
+func (s *SocketDataMetadata) TotalSize() uint64                    { return s.totalSize }
+func (s *SocketDataMetadata) Direction() enums.SocketDataDirection { return s.direction }
+func (s *SocketDataMetadata) DataID() uint64                       { return s.dataID }
+func (s *SocketDataMetadata) PrevDataID() uint64                   { return s.prevDataID }
+func (s *SocketDataMetadata) DataSequence() int                    { return int(s.sequence) }
+func (s *SocketDataMetadata) IsStart() bool                        { return s.sequence == 0 }
+func (s *SocketDataMetadata) IsFinished() bool                     { return s.finished == 1 }
+func (s *SocketDataMetadata) HaveReduceDataAfterChunk() bool       { return s.haveReduce == 1 }
+func (s *SocketDataMetadata) StartTime() uint64                    { return s.startTime }
+func (s *SocketDataMetadata) EndTime() uint64                      { return s.endTime }
+func (s *SocketDataMetadata) ReleaseBuffer() []byte                { return nil }
 
 func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
@@ -59,7 +110,12 @@ func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	s.DataID0 = r.ReadUint64()
 	s.PrevDataID0 = r.ReadUint64()
 	s.TotalSize0 = r.ReadUint64()
-	r.ReadUint8Array(s.Buffer[:], 20480)
+	// the BPF side only sends the bytes it read, so the record ends after data_len bytes of buffer
+	dataLen := int(s.DataLen)
+	if dataLen > len(s.Buffer) {
+		dataLen = len(s.Buffer)
+	}
+	r.ReadUint8Array(s.Buffer[:], dataLen)
 }
 
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {

@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
@@ -30,6 +31,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/module"
 	"github.com/apache/skywalking-rover/pkg/process"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 
 	"github.com/sirupsen/logrus"
 
@@ -45,6 +47,10 @@ type GRPCSender struct {
 	notify chan bool
 	mutex  sync.Mutex
 	ctx    context.Context
+
+	sends      atomic.Int64
+	sendNanos  atomic.Int64
+	sendErrors atomic.Int64
 
 	mgr           *module.Manager
 	connectionMgr *common.ConnectionManager
@@ -65,8 +71,27 @@ func NewGRPCSender(mgr *module.Manager, connectionMgr *common.ConnectionManager)
 	}
 }
 
+// RegisterMetrics exposes how far behind the backend the agent is: the batches waiting to be sent
+// are built access log messages, and they are held in memory until the stream has taken them
+func (g *GRPCSender) RegisterMetrics() {
+	telemetry.Register("rover_access_log_send_queue_batches", "Built access log batches waiting to be sent",
+		telemetry.Gauge, func() float64 {
+			g.mutex.Lock()
+			defer g.mutex.Unlock()
+			return float64(g.logs.Len())
+		})
+	telemetry.Register("rover_access_log_sends_total", "Access log batches handed to the stream",
+		telemetry.Counter, func() float64 { return float64(g.sends.Load()) })
+	telemetry.Register("rover_access_log_send_seconds_total",
+		"Time spent sending access log batches, which against the wall clock is how busy the sender is",
+		telemetry.Counter, func() float64 { return time.Duration(g.sendNanos.Load()).Seconds() })
+	telemetry.Register("rover_access_log_send_errors_total", "Access log batches the stream rejected",
+		telemetry.Counter, func() float64 { return float64(g.sendErrors.Load()) })
+}
+
 func (g *GRPCSender) Start(ctx context.Context) {
 	g.ctx = ctx
+	g.RegisterMetrics()
 	go func() {
 		for {
 			select {
@@ -114,7 +139,11 @@ func (g *GRPCSender) handleLogs() (int, error) {
 		}
 		// send logs
 		now := time.Now()
-		if err := g.sendLogs(logs); err != nil {
+		err := g.sendLogs(logs)
+		g.sendNanos.Add(int64(time.Since(now)))
+		g.sends.Add(1)
+		if err != nil {
+			g.sendErrors.Add(1)
 			return len(logs.logs), err
 		}
 		log.Infof("sending access log success, connection count: %d, use time: %s",
