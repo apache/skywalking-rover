@@ -49,6 +49,7 @@ Release Notes.
 * Remove the ineffective `ctnetlink_fill_info` kprobe and fix an always-true condition in the conntrack BPF program.
 * Bump up `google.golang.org/grpc` to `1.84.0` to fix CVE-2026-33186 (authorization bypass via malformed `:path` header), and replace the deprecated `golang.org/x/net/context` with the standard library `context`.
 * Bump up `golang.org/x/net` to `0.61.0` to fix GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612, and GO-2026-6617 (CVE-2026-78659, CVE-2026-78660, CVE-2026-78669, CVE-2026-78663, and CVE-2026-97032), and `golang.org/x/text` to `0.43.0` to fix GO-2026-6629 (CVE-2026-56851).
+* Ignore absent ztunnel principal offsets when decoding full-window identity samples.
 
 #### Documentation
 * Add a dead link checker in the CI.

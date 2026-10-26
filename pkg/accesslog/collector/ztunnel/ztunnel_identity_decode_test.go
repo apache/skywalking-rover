@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
+	ztunneltool "github.com/apache/skywalking-rover/pkg/tools/ztunnel"
 )
 
 // garbage lays out an ArcStr whose bytes are NOT printable ASCII at addr, the way a wrong offset
@@ -62,6 +63,57 @@ func TestCompactShippedIdentityPointer(t *testing.T) {
 				t.Fatalf("a non-null %s pointer must count towards the downgrade", tc.name)
 			}
 		})
+	}
+}
+
+// An absent principal offset means its inline Identity fields were not resolved. The fallback
+// namespace and cluster remain usable, but bytes immediately before ConnectionResult start must
+// never be interpreted as principal pointers by adding the relative member offsets to -1.
+func TestDecodeAbsentPrincipalDoesNotReadRelativeIdentityOffsets(t *testing.T) {
+	offsets := validOffsets()
+	offsets.SourcePrincipal = ztunneltool.OffsetAbsent
+	window := make([]byte, offsets.Window)
+	mem := newFakeMemory()
+	mem.writeArcStr(0x1000, "misplaced-namespace")
+	mem.writeArcStr(0x2000, "misplaced-account")
+	mem.writeArcStr(0x3000, "source-ns")
+	mem.writeArcStr(0x4000, "source-cluster")
+	mem.writeArcStr(0x5000, "destination-ns")
+	mem.writeArcStr(0x6000, "destination-account")
+	mem.writeArcStr(0x7000, "destination-cluster")
+
+	putPointer := func(offset int, value uint64) {
+		binary.LittleEndian.PutUint64(window[offset:offset+8], value)
+	}
+	// SourcePrincipal is absent. These deliberately plausible pointer values are outside the
+	// ConnectionResult's principal fields and must not be followed as if they were one.
+	putPointer(7, 0x1000)  // OffsetAbsent + IdentityNamespace
+	putPointer(15, 0x2000) // OffsetAbsent + IdentityServiceAccount
+	putPointer(offsets.SourceNamespace, 0x3000)
+	putPointer(offsets.SourceCluster, 0x4000)
+	putPointer(offsets.DestinationPrincipal+offsets.IdentityNamespace, 0x5000)
+	putPointer(offsets.DestinationPrincipal+offsets.IdentityServiceAccount, 0x6000)
+	putPointer(offsets.DestinationCluster, 0x7000)
+	window[offsets.Src+sockAddrV4IPOffset] = 10
+	window[offsets.Src+sockAddrV4IPOffset+1] = 20
+	window[offsets.Src+sockAddrV4IPOffset+2] = 0
+	window[offsets.Src+sockAddrV4IPOffset+3] = 1
+	binary.LittleEndian.PutUint16(window[offsets.Src+sockAddrV4PortOffset:], 41244)
+	window[offsets.SecurityPolicy] = ztunnelSecurityPolicyMutualTLS
+
+	sample, err := newZTunnelIdentityDecoder(offsets, newArcStrCache(16)).Decode(window, mem)
+	if err != nil {
+		t.Fatalf("decode with absent source principal: %v", err)
+	}
+	if sample.Source == nil || sample.Source.Namespace != "source-ns" || sample.Source.Cluster != "source-cluster" {
+		t.Fatalf("source fallback identity = %+v; want namespace/cluster from resolved labels", sample.Source)
+	}
+	if sample.Source.ServiceAccount != "" {
+		t.Fatalf("absent source principal produced service account %q", sample.Source.ServiceAccount)
+	}
+	if sample.Destination == nil || sample.Destination.Namespace != "destination-ns" ||
+		sample.Destination.ServiceAccount != "destination-account" || sample.Destination.Cluster != "destination-cluster" {
+		t.Fatalf("destination identity = %+v; want the resolved destination labels", sample.Destination)
 	}
 }
 
