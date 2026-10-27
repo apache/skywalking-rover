@@ -145,6 +145,13 @@ access_log:
     max_count: ${ROVER_ACCESS_LOG_FLUSH_MAX_COUNT:10000}
     # The period of flush access log to the backend
     period: ${ROVER_ACCESS_LOG_FLUSH_PERIOD:5s}
+    # Report one kernel log per operation of a message instead of one per socket syscall, with the
+    # counters and the durations of the merged records summed.
+    # A message carried by many syscalls costs one record per syscall, which dominates the access log
+    # volume of large messages. Merging bounds it, and in exchange the backend loses the per syscall
+    # timing: the metrics that are a sum stay correct, the read and write cpm metrics count merged
+    # records instead of syscalls, and the *_time metrics become the time of a merged record.
+    merge_kernel_logs: ${ROVER_ACCESS_LOG_FLUSH_MERGE_KERNEL_LOGS:false}
   connection_analyze:
     # The size of connection buffer on each CPU
     per_cpu_buffer: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PER_CPU_BUFFER:200KB}
@@ -155,14 +162,35 @@ access_log:
     # The size of per paralleled analyzer queue
     queue_size: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_QUEUE_SIZE:2000}
   protocol_analyze:
-    # The size of socket data buffer on each CPU
-    per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:1MB}
+    # The size of the socket data perf buffer on each CPU, so the agent allocates this x the CPU count.
+    # One socket data event is about 20KB, so 4MB holds roughly 200 events per CPU: enough for the reader
+    # to be descheduled for a moment without the kernel dropping samples. Dropped samples are not a lost
+    # request only: a lost HTTP/2 header block desynchronizes HPACK for the rest of that connection. The
+    # agent logs "perf event queue(...) dropped N samples" when this is too small for the traffic.
+    per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:4MB}
     # The count of parallel protocol event parse
     parse_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARSE_PARALLELS:2}
     # The count of parallel protocol analyzer
     analyze_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS:2}
-    # The size of per paralleled analyzer queue
+    # The size of per paralleled analyzer queue. Each queued event holds a 20KB buffer, so this is
+    # analyze_parallels x queue_size x 20KB of events waiting for analysis; a full queue makes the reader
+    # stop draining the perf buffer, which costs lost samples (counted) instead of unbounded memory.
     queue_size: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}
+    # Analyze the buffered socket data of a partition as soon as this many data events are pending, instead
+    # of only on the flush period, so the unparsed data of a partition stays bounded (each event holds a 20KB
+    # buffer, so 1000 events are 20MB). 0 disables it. Lower values analyze more often: measured over 4000
+    # events of one partition, 1000 costs about 1.3x the analysis of the flush-period-only path and 200 about
+    # 1.9x, because every pass has a fixed cost per connection.
+    trigger_events: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_TRIGGER_EVENTS:1000}
+    # When the memory usage of the process reaches this share of its memory limit, new socket data events are
+    # dropped (counted in the log) until the usage is below it again, instead of growing until the process is
+    # killed. With a cgroup limit the usage is the cgroup working set (the usage without the reclaimable page
+    # cache); without one the limit is GOMEMLIMIT and the usage is the live Go heap plus the memory outside it.
+    # 0 disables the protection. A container that mounts the host /sys over /sys cannot read its own cgroup,
+    # so the limit has to come from GOMEMLIMIT or from max_memory there.
+    max_memory_percent: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_MAX_MEMORY_PERCENT:90}
+    # An absolute threshold (e.g. 1GB) that overrides the percentage when set.
+    max_memory: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_MAX_MEMORY:}
 
 pprof:
   # Is active the pprof

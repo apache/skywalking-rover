@@ -19,6 +19,7 @@ package sender
 
 import (
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
@@ -27,6 +28,14 @@ var maxLogsPerSend = 10_000
 
 type BatchLogs struct {
 	logs map[*common.ConnectionInfo]*ConnectionLogs
+	// mergeKernelLogs folds a kernel log into the previous one of the same connection when they
+	// describe the same operation, for the records that do not belong to a protocol log
+	mergeKernelLogs bool
+}
+
+// EnableKernelLogMerge makes the batch fold the kernel logs it is given, see forwarder.MergeKernelLogs
+func (l *BatchLogs) EnableKernelLogMerge() {
+	l.mergeKernelLogs = true
 }
 
 func newBatchLogs() *BatchLogs {
@@ -46,6 +55,10 @@ func (l *BatchLogs) AppendKernelLog(connection *common.ConnectionInfo, log *v3.A
 		l.logs[connection] = logs
 	}
 
+	if l.mergeKernelLogs && len(logs.kernels) > 0 &&
+		forwarder.TryMergeKernelLog(logs.kernels[len(logs.kernels)-1], log) {
+		return
+	}
 	logs.kernels = append(logs.kernels, log)
 }
 
@@ -82,6 +95,7 @@ func (l *BatchLogs) splitBatchLogs() []*BatchLogs {
 			result = append(result, currentBatch)
 			currentCount = 0
 		}
+		currentBatch.mergeKernelLogs = l.mergeKernelLogs
 		currentBatch.logs[connection] = logs
 		currentCount++
 	}

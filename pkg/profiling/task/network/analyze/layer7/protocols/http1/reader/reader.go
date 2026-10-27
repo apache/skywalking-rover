@@ -243,7 +243,7 @@ func (m *MessageOpt) checkChunkedBody(buf *buffer.Buffer, bodyReader *bufio.Read
 		if needBytes == 0 {
 			break
 		}
-		b, r, err1 := m.checkBodyWithSize(buf, bodyReader, int(needBytes), false)
+		b, r, err1 := m.checkBodyWithSize(buf, bodyReader, int(needBytes))
 		if err1 != nil {
 			return nil, enums.ParseResultSkipPackage, err1
 		} else if r != enums.ParseResultSuccess {
@@ -267,39 +267,58 @@ func (m *MessageOpt) checkChunkedBody(buf *buffer.Buffer, bodyReader *bufio.Read
 	return buffer.CombineSlices(true, buf, buffers...), enums.ParseResultSuccess, nil
 }
 
-func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader, size int,
-	detectedNotSending bool) (*buffer.Buffer, enums.ParseResult, error) {
+func (m *MessageOpt) checkBodyWithSize(buf *buffer.Buffer, reader *bufio.Reader, size int) (*buffer.Buffer, enums.ParseResult, error) {
 	reduceSize := size
 	var readSize, lastReadSize int
 	var err error
 	startPosition := buf.OffsetPosition(-reader.Buffered())
+	// bytes of the body that the kernel transferred but BPF did not upload: a socket call larger than
+	// the upload chunk limit is truncated, the body still ends where Content-Length says
+	var virtualBytes int64
+	// the lost bytes of a truncated socket call only change when the reader moves into another event,
+	// so the (list walking) recount runs on an element change instead of on every 4KB read
+	lastElementDataID, lastElementSeq, haveLastElement := uint64(0), 0, false
+	accountReduced := func() {
+		cur := buf.OffsetPosition(-reader.Buffered())
+		if !cur.HasElement() {
+			return
+		}
+		if haveLastElement && cur.DataID() == lastElementDataID && cur.Seq() == lastElementSeq {
+			return
+		}
+		lastElementDataID, lastElementSeq, haveLastElement = cur.DataID(), cur.Seq(), true
+		if reduced := buf.ReducedBytesBetween(startPosition, cur); reduced > virtualBytes {
+			reduceSize -= int(reduced - virtualBytes)
+			virtualBytes = reduced
+		}
+	}
 	for reduceSize > 0 {
 		readSize = reduceSize
 		if readSize > len(m.Reader().bodyBuffer) {
 			readSize = len(m.Reader().bodyBuffer)
 		}
 		lastReadSize, err = io.ReadFull(reader, m.Reader().bodyBuffer[0:readSize])
+		reduceSize -= lastReadSize
+		accountReduced()
 		if err != nil {
+			if reduceSize <= 0 {
+				break
+			}
 			if errors.Is(err, buffer.ErrNotComplete) {
 				return nil, enums.ParseResultSkipPackage, nil
 			}
-			if (err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF)) && reduceSize-lastReadSize <= 0 {
-				return nil, enums.ParseResultSuccess, nil
-			}
-
+			// the body is not complete yet (the rest of it has not been uploaded): the truncated case is
+			// already covered by the `reduceSize <= 0` break above, so reporting the message as complete
+			// here would report it with a body size of 0 and drop the bytes that are still to come
 			return nil, enums.ParseResultSkipPackage, fmt.Errorf("reading the body error: %v", err)
 		}
-		reduceSize -= lastReadSize
 	}
+	// the end position is exact even when a socket call was truncated by BPF: the bytes that were not
+	// uploaded are accounted above, so no trimming at the reduced chunk is needed (the old trimming
+	// re-sliced the original buffer with a position of the slice's own list and duplicated the last chunk)
 	endPosition := buf.OffsetPosition(-reader.Buffered())
 	slice := buf.Slice(true, startPosition, endPosition)
-	if detectedNotSending {
-		if pos := slice.DetectNotSendingLastPosition(); pos != nil {
-			log.Debugf("found the socket data not sending finished in BPF, so update the body to the latest data, %v", pos)
-			endPosition = pos
-			slice = buf.Slice(true, startPosition, endPosition)
-		}
-	}
+	slice.AddVirtualBytes(virtualBytes)
 
 	return slice, enums.ParseResultSuccess, nil
 }

@@ -26,6 +26,8 @@
 #define CONNECTION_MESSAGE_TYPE_UNKNOWN 0
 #define CONNECTION_MESSAGE_TYPE_REQUEST 1
 #define CONNECTION_MESSAGE_TYPE_RESPONSE 2
+// the protocol is recognized but the message does not tell whether the sender is the client or the server
+#define CONNECTION_MESSAGE_TYPE_ANY 3
 
 // HTTP 1.x
 // request frame format: https://www.rfc-editor.org/rfc/rfc2068.html#section-5
@@ -77,10 +79,38 @@ static bool is_http2_magic(const char *buf_src, size_t count)
 {
 	static const char magic[] = "PRI * HTTP/2";
 	char buffer[sizeof(magic)] = { 0 };
+	if (count < sizeof(magic) - 1) {
+		return false;
+	}
 	bpf_probe_read(buffer, sizeof(buffer) - 1, buf_src);
-	for (int idx = 0; idx < sizeof(magic); ++idx) {
+	for (int idx = 0; idx < sizeof(magic) - 1; ++idx) {
 		if (magic[idx] == buffer[idx])
 			continue;
+		return false;
+	}
+	return true;
+}
+
+// is_http2_settings_frame: a message starting with a SETTINGS frame on stream 0 (RFC 7540 6.5),
+// which is the first frame both endpoints send after the (client) preface
+static __inline bool is_http2_settings_frame(const char *buf, size_t count)
+{
+	static const __u8 kFrameBasicSize = 0x9;
+	__u8 frame[9] = { 0 };
+	if (count < kFrameBasicSize) {
+		return false;
+	}
+	bpf_probe_read(frame, sizeof(frame), buf);
+	__u32 length = ((__u32)frame[0] << 16) | ((__u32)frame[1] << 8) | frame[2];
+	// type SETTINGS(0x4), flags only ACK(0x1) allowed, stream id 0, and a length that is a multiple of
+	// the 6 byte setting entry. The length is bounded by the default SETTINGS_MAX_FRAME_SIZE rather
+	// than by a guess at how many settings a peer sends: a client that sends more of them would
+	// otherwise not be recognized as HTTP/2 when the capture starts at its SETTINGS frame, which is
+	// the silent "no protocol" case this inference exists to avoid.
+	if (frame[3] != 0x4 || (frame[4] & 0xfe) || (frame[5] & 0x7f) || frame[6] || frame[7] || frame[8]) {
+		return false;
+	}
+	if (length % 6 != 0 || length > 16384) {
 		return false;
 	}
 	return true;
@@ -111,8 +141,15 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
     // header info
     __u8 staticInx, headerBlockFragmentOffset;
 
+    // the client connection preface (RFC 7540 3.5) is only ever sent by the client, so the message
+    // is an HTTP/2 request and the connection is recognized from its very first byte
     if (is_http2_magic(buf, count)) {
-        frameOffset = 24;
+        return CONNECTION_MESSAGE_TYPE_REQUEST;
+    }
+    // a message starting with the SETTINGS frame (server preface, or client SETTINGS when the preface
+    // was written separately): HTTP/2 for sure, but it does not tell the role
+    if (is_http2_settings_frame(buf, count)) {
+        return CONNECTION_MESSAGE_TYPE_ANY;
     }
 
     // each all frame

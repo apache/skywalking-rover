@@ -54,14 +54,24 @@ func (r *Request) Reader() *Reader {
 }
 
 func (r *Request) MinDataID() int {
-	return int(r.headerBuffer.FirstSocketBuffer().DataID())
+	if first := r.headerBuffer.FirstSocketBuffer(); first != nil {
+		return int(first.DataID())
+	}
+	return 0
 }
 
 func (r *Request) MaxDataID() int {
+	// the body buffer can be empty when the whole body fell into the part of a socket call that BPF
+	// did not upload: fall back to the headers instead of dereferencing a nil socket buffer
 	if r.bodyBuffer != nil {
-		return int(r.bodyBuffer.LastSocketBuffer().DataID())
+		if last := r.bodyBuffer.LastSocketBuffer(); last != nil {
+			return int(last.DataID())
+		}
 	}
-	return int(r.headerBuffer.LastSocketBuffer().DataID())
+	if last := r.headerBuffer.LastSocketBuffer(); last != nil {
+		return int(last.DataID())
+	}
+	return 0
 }
 
 func (r *Request) Original() *http.Request {
@@ -128,6 +138,10 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	}
 
 	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	if !readBody {
+		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
+		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
+	}
 	if readBody {
 		if b, r, err := result.readFullBody(bufReader, buf); err != nil {
 			return nil, enums.ParseResultSkipPackage, err
@@ -146,12 +160,17 @@ func (r *Request) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer, 
 	r.headerBuffer = buf.Slice(true, start, endPosition)
 }
 
+// SetBodyBuffer sets the body of a message whose body was consumed separately (see buffer.BodyConsumer)
+func (r *Request) SetBodyBuffer(b *buffer.Buffer) {
+	r.bodyBuffer = b
+}
+
 func (r *Request) readFullBody(bodyReader *bufio.Reader, original *buffer.Buffer) (*buffer.Buffer, enums.ParseResult, error) {
 	length, err := r.appointedLength()
 	if err != nil {
 		return nil, enums.ParseResultSkipPackage, err
 	} else if length > 0 {
-		return r.checkBodyWithSize(original, bodyReader, length, true)
+		return r.checkBodyWithSize(original, bodyReader, length)
 	}
 
 	if r.isChunked() {

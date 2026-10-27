@@ -20,6 +20,7 @@ package events
 import (
 	"fmt"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -40,8 +41,32 @@ type SocketDataUploadEvent struct {
 	Buffer       [20480]byte
 }
 
-func (s *SocketDataUploadEvent) ReleaseBuffer() *[20480]byte {
-	return &s.Buffer
+// ReleaseBuffer: the array is embedded in the event, there is no separately pooled buffer to give back
+// (handing out an interior pointer would put memory of a live event into the pool)
+func (s *SocketDataUploadEvent) ReleaseBuffer() []byte {
+	return nil
+}
+
+func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
+	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
+	s.HaveReduce = r.ReadUint8()
+	s.Direction0 = enums.SocketDataDirection(r.ReadUint8())
+	s.Finished = r.ReadUint8()
+	s.Sequence0 = r.ReadUint16()
+	s.DataLen = r.ReadUint16()
+	s.StartTime0 = r.ReadUint64()
+	s.EndTime0 = r.ReadUint64()
+	s.ConnectionID = r.ReadUint64()
+	s.RandomID = r.ReadUint64()
+	s.DataID0 = r.ReadUint64()
+	s.PrevDataID0 = r.ReadUint64()
+	s.TotalSize0 = r.ReadUint64()
+	// the BPF side only sends the bytes it read, so the record ends after data_len bytes of buffer
+	dataLen := int(s.DataLen)
+	if dataLen > len(s.Buffer) {
+		dataLen = len(s.Buffer)
+	}
+	r.ReadUint8Array(s.Buffer[:], dataLen)
 }
 
 func (s *SocketDataUploadEvent) Protocol() enums.ConnectionProtocol {

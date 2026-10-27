@@ -21,6 +21,9 @@ import (
 	"container/list"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
@@ -64,6 +67,18 @@ type HTTP1Metrics struct {
 
 	halfRequests      *list.List
 	analyzeUnFinished *list.List
+	// pendingBody is the Content-Length body currently being consumed as its data arrives (the events
+	// are released immediately instead of being held until the whole message is complete)
+	pendingBody *http1PendingBody
+}
+
+type http1PendingBody struct {
+	request  *reader.Request
+	response *reader.Response // nil while a request body is consumed
+	consumer *buffer.BodyConsumer
+	// started is when the body started being consumed: a body whose announced length never arrives
+	// (a wrong Content-Length, a lost event) must not pin the parser of the connection forever
+	started time.Time
 }
 
 func (p *HTTP1Protocol) GenerateConnection(connectionID, randomID uint64) ProtocolMetrics {
@@ -88,6 +103,18 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		metrics.ConnectionID, metrics.RandomID, buf.DataLength())
 	p.handleUnFinishedEvents(metrics, connection)
 	buf.ResetForLoopReading()
+	if pending := metrics.pendingBody; pending != nil {
+		if time.Since(pending.started) > maxBufferExpireDuration {
+			// the announced body never arrived completely (wrong Content-Length, lost events): give it
+			// up instead of consuming every following message of the connection as its body
+			http1Log.Debugf("give up the pending HTTP/1 body, connection ID: %d, random ID: %d",
+				metrics.ConnectionID, metrics.RandomID)
+			metrics.pendingBody = nil
+		} else if !buf.PrepareForReading() || !p.consumePendingBody(metrics, connection, buf) {
+			// the body is consumed as it arrives: without the rest of it there is no next message yet
+			return nil
+		}
+	}
 	for {
 		if !buf.PrepareForReading() {
 			return nil
@@ -113,20 +140,25 @@ func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 		}
 		if err != nil {
 			http1Log.Debugf("failed to handle HTTP/1.x protocol, connection ID: %d, random ID: %d, data id: %d, type: %d, error: %v",
-				metrics.ConnectionID, metrics.RandomID, buf.Position().DataID(), messageType, err)
+				metrics.ConnectionID, metrics.RandomID, http1DataID(buf), messageType, err)
 		}
 
 		http1Log.Debugf("readed message, messageType: %v, buf: %p, data id: %d, "+
 			"connection ID: %d, random ID: %d, metrics : %p, handle result: %d",
-			messageType, buf, buf.Position().DataID(), metrics.ConnectionID, metrics.RandomID, metrics, result)
+			messageType, buf, http1DataID(buf), metrics.ConnectionID, metrics.RandomID, metrics, result)
 		finishReading := false
 		switch result {
 		case enums.ParseResultSuccess:
-			finishReading = buf.RemoveReadElements(false)
+			if !buf.Position().HasElement() {
+				// the body consumer released every event up to the end of the buffer
+				finishReading = true
+			} else {
+				finishReading = buf.RemoveReadElements(false)
+			}
 		case enums.ParseResultSkipPackage:
 			finishReading = buf.SkipCurrentElement()
 			log.Debugf("skip current element, data id: %d, buf: %p, connection ID: %d, random ID: %d",
-				buf.Position().DataID(), buf, metrics.ConnectionID, metrics.RandomID)
+				http1DataID(buf), buf, metrics.ConnectionID, metrics.RandomID)
 		}
 
 		if finishReading {
@@ -141,7 +173,27 @@ func (p *HTTP1Protocol) ForProtocol() enums.ConnectionProtocol {
 }
 
 func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer) (enums.ParseResult, error) {
-	req, result, err := p.reader.ReadRequest(buf, true)
+	// headers first: a body with a known length is consumed as it arrives (events released right away)
+	req, result, err := p.reader.ReadRequest(buf, false)
+	if err != nil {
+		return enums.ParseResultSkipPackage, err
+	}
+	if result != enums.ParseResultSuccess {
+		return result, nil
+	}
+	if consumer := http1BodyConsumer(req.Headers(), req.HeaderBuffer()); consumer != nil {
+		// the events the headers were read from are not needed anymore: release them before the body is
+		// consumed, otherwise they stay at the front of the buffer and the next analyze round (which
+		// always restarts at the front) parses them again, in front of the live data
+		http1ReleaseReadElements(buf)
+		metrics.pendingBody = &http1PendingBody{request: req, consumer: consumer, started: time.Now()}
+		p.consumePendingBody(metrics, nil, buf)
+		return enums.ParseResultSuccess, nil
+	}
+	// neither Content-Length nor chunked (no body, or read to the end of the packet): the whole message
+	// is read at once, from its start
+	buf.PrepareForReading()
+	req, result, err = p.reader.ReadRequest(buf, true)
 	if err != nil {
 		return enums.ParseResultSkipPackage, err
 	}
@@ -150,6 +202,77 @@ func (p *HTTP1Protocol) handleRequest(metrics *HTTP1Metrics, buf *buffer.Buffer)
 	}
 	metrics.appendRequestToList(req)
 	return result, nil
+}
+
+// http1ReleaseReadElements removes the events the message headers were read from (everything before
+// the reading position) and leaves the position at the first byte of the body
+func http1ReleaseReadElements(buf *buffer.Buffer) {
+	if !buf.Position().HasElement() {
+		return
+	}
+	if buf.RemoveReadElements(false) {
+		return
+	}
+	// the positions were moved by the removal: continue from the new head (the body start)
+	buf.PrepareForReading()
+}
+
+// http1DataID returns the data id at the reading position (0 at the end of the buffer), for logs
+func http1DataID(buf *buffer.Buffer) uint64 {
+	if pos := buf.Position(); pos.HasElement() {
+		return pos.DataID()
+	}
+	return 0
+}
+
+// http1BodyConsumer returns the streaming consumer for a body with a known framing (Content-Length or
+// chunked transfer encoding), nil when the body has to be read with the message
+func http1BodyConsumer(headers map[string][]string, headerBuffer *buffer.Buffer) *buffer.BodyConsumer {
+	if length := http1ContentLength(headers); length > 0 {
+		return buffer.NewBodyConsumer(length, headerBuffer)
+	}
+	for _, v := range headers["Transfer-Encoding"] {
+		for _, coding := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(coding), "chunked") {
+				return buffer.NewChunkedBodyConsumer(headerBuffer)
+			}
+		}
+	}
+	return nil
+}
+
+// http1ContentLength returns the Content-Length of the message, 0 when absent or invalid
+func http1ContentLength(headers map[string][]string) int64 {
+	values := headers["Content-Length"]
+	if len(values) == 0 {
+		return 0
+	}
+	length, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil || length < 0 {
+		return 0
+	}
+	return length
+}
+
+// consumePendingBody consumes what the buffer holds of the pending body and finishes the message when
+// the body is complete; it returns true when the body is complete
+func (p *HTTP1Protocol) consumePendingBody(metrics *HTTP1Metrics, connection *PartitionConnection, buf *buffer.Buffer) bool {
+	pending := metrics.pendingBody
+	if !pending.consumer.Consume(buf) {
+		return false
+	}
+	metrics.pendingBody = nil
+	body := pending.consumer.Body(buf)
+	if pending.response == nil {
+		pending.request.SetBodyBuffer(body)
+		metrics.appendRequestToList(pending.request)
+		return true
+	}
+	pending.response.SetBodyBuffer(body)
+	if analyzeError := p.analyzer.HandleHTTPData(metrics, connection, pending.request, pending.response); analyzeError != nil {
+		p.appendAnalyzeUnFinished(metrics, pending.request, pending.response)
+	}
+	return true
 }
 
 func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, connection *PartitionConnection,
@@ -162,14 +285,39 @@ func (p *HTTP1Protocol) handleResponse(metrics *HTTP1Metrics, connection *Partit
 		return enums.ParseResultSkipPackage, nil
 	}
 
-	// parsing response
-	response, result, err := p.reader.ReadResponse(request, b, true)
+	// parsing response: headers first, a body with a known length is consumed as it arrives
+	response, result, err := p.reader.ReadResponse(request, b, false)
 	defer func() {
 		// if parsing response failed, then put the request back to the list
 		if result != enums.ParseResultSuccess {
 			metrics.halfRequests.PushFront(request)
 		}
 	}()
+	if err != nil {
+		return enums.ParseResultSkipPackage, err
+	} else if result != enums.ParseResultSuccess {
+		return result, nil
+	}
+	if !response.HasBody() {
+		// the response carries no body by definition (HEAD request, 1xx/204/304, 2xx to CONNECT) even
+		// when it announces a Content-Length: consuming one would swallow the following messages of
+		// the keep-alive connection
+		if analyzeError := p.analyzer.HandleHTTPData(metrics, connection, request, response); analyzeError != nil {
+			p.appendAnalyzeUnFinished(metrics, request, response)
+		}
+		return enums.ParseResultSuccess, nil
+	}
+	if consumer := http1BodyConsumer(response.Headers(), response.HeaderBuffer()); consumer != nil {
+		// see handleRequest: the header events must not stay in front of the body
+		http1ReleaseReadElements(b)
+		metrics.pendingBody = &http1PendingBody{request: request, response: response, consumer: consumer, started: time.Now()}
+		p.consumePendingBody(metrics, connection, b)
+		return enums.ParseResultSuccess, nil
+	}
+	// neither Content-Length nor chunked (no body, or read to the end of the packet): the whole message
+	// is read at once, from its start
+	b.PrepareForReading()
+	response, result, err = p.reader.ReadResponse(request, b, true)
 	if err != nil {
 		return enums.ParseResultSkipPackage, err
 	} else if result != enums.ParseResultSuccess {

@@ -1,0 +1,150 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# HTTP/2 access log: h2c (prior knowledge), gRPC (unary, server / client streaming, trailers-only
+# error) and HTTP/2 over TLS (Go crypto/tls), all over long lived multiplexed connections.
+setup:
+  env: kind
+  # the plain kind cluster of test/e2e/base, this case needs no node specific setting
+  file: ../../base/kind.yaml
+  init-system-environment: ../../base/env
+  kind:
+    import-images:
+      - apache/skywalking-rover:latest
+      - test/access-log-http2:test
+    expose-ports:
+      - namespace: istio-system
+        resource: service/skywalking-oap
+        port: 12800
+  steps:
+    - name: set PATH
+      command: export PATH=/tmp/skywalking-infra-e2e/bin:$PATH
+    - name: install yq
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh yq
+    - name: install swctl
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh swctl
+    - name: install kubectl
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh kubectl
+    - name: Install helm
+      command: bash test/e2e/base/scripts/prepare/setup-e2e-shell/install.sh helm
+    - name: Install ECK operator CRDs
+      command: |
+        rm -rf skywalking-helm
+        helm pull oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" --untar
+        helm dep up skywalking-helm
+        tar xzf skywalking-helm/charts/eck-operator-3.3.1.tgz -C /tmp eck-operator/charts/eck-operator-crds
+        helm -n istio-system install eck-crds /tmp/eck-operator/charts/eck-operator-crds \
+          --create-namespace
+    - name: Install SkyWalking
+      command: |
+        helm -n istio-system install skywalking \
+          oci://ghcr.io/apache/skywalking-helm/skywalking-helm \
+          --version "0.0.0-${SW_KUBERNETES_COMMIT_SHA}" \
+          --set fullnameOverride=skywalking \
+          --set eck-operator.installCRDs=false \
+          --set oap.replicas=1 \
+          --set ui.enabled=false \
+          --set oap.image.tag=${SW_OAP_COMMIT} \
+          --set oap.image.repository=ghcr.io/apache/skywalking/oap \
+          --set oap.storageType=elasticsearch \
+          -f test/e2e/base/kubernetes-values.yaml
+      wait:
+        - namespace: istio-system
+          resource: deployments/skywalking-oap
+          for: condition=available
+    - name: Install SkyWalking Rover
+      command: |
+        # the same rover as the access log case, with a bigger per CPU perf buffer: HTTP/2 parsing needs
+        # every socket event, a lost HEADERS frame desynchronizes HPACK for the rest of the connection
+        envsubst < test/e2e/cases/access_log/rover.yaml | kubectl apply -f -
+        kubectl -n default set env daemonset/skywalking-rover ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER=51200KB
+        kubectl -n default rollout status daemonset/skywalking-rover --timeout=5m
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
+    - name: Deploy HTTP/2 services
+      command: |
+        export IMAGE_NAME=test/access-log-http2:test
+        envsubst < test/e2e/cases/access_log_http2/service.yaml | kubectl apply -f -
+      wait:
+        - namespace: default
+          resource: pod
+          for: condition=Ready
+  timeout: 25m
+
+verify:
+  retry:
+    count: 20
+    interval: 10s
+  cases:
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql service ls
+      expected: expected/service.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql endpoint list --service-name=http2-server.default
+      expected: expected/service-endpoints.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql endpoint list --service-name=http2-server.default
+      expected: expected/service-endpoints-tls.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_cpm --service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_time --service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_http_call_successful_rate --service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=GET:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=POST:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=GET:/h2c/missing
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Unary
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Fail
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/ServerStream
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/ClientStream
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_cpm --service-name=http2-server.default --endpoint-name=GET:/https/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_time --service-name=http2-server.default --endpoint-name=POST:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_avg_req_body_size --service-name=http2-server.default --endpoint-name=POST:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_avg_resp_body_size --service-name=http2-server.default --endpoint-name=POST:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_call_time --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Unary
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_avg_req_body_size --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Unary
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_avg_resp_body_size --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Unary
+      expected: expected/metrics-has-value.yml
+    # status code classes: 2xx for the normal endpoints, 4xx for the 404 endpoint
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_status_2xx_cpm --service-name=http2-server.default --endpoint-name=POST:/h2c/items
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_status_2xx_cpm --service-name=http2-server.default --endpoint-name=POST:/e2e.E2EService/Unary
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_endpoint_http_status_4xx_cpm --service-name=http2-server.default --endpoint-name=GET:/h2c/missing
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_client_http_call_cpm --service-name=http2-client.default --dest-service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_http_call_cpm --service-name=http2-client.default --dest-service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_relation_server_http_call_time --service-name=http2-client.default --dest-service-name=http2-server.default
+      expected: expected/metrics-has-value.yml
+    - query: |
+        instance_name=$(swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql instance ls --service-name http2-server.default | yq '.[0].name' -)
+        swctl --display yaml --base-url=http://${service_skywalking_oap_host}:${service_skywalking_oap_12800}/graphql metrics exec --expression=kubernetes_service_instance_http_call_cpm --service-name=http2-server.default --instance-name=$instance_name
+      expected: expected/metrics-has-value.yml

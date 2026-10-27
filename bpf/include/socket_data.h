@@ -21,7 +21,22 @@
 #include "protocol_analyzer.h"
 #include "queue.h"
 
+// per socket call at most SOCKET_UPLOAD_CHUNK_LIMIT x SOCKET_UPLOAD_CHUNK_SIZE (6 x 20480B = 120KB)
+// bytes are uploaded; a larger call is truncated (have_reduce_after_chunk) and its real length stays in
+// total_size. The chunk body is unrolled into every syscall exit, every TLS uretprobe and the network
+// profiling probes, so the limit is bounded by what the verifier accepts. Measured on 6.1 (worst
+// program, of the 1M processed instruction budget): 6 chunks 203K, 7 chunks 440K, 8 chunks 753K; 9 and
+// above are rejected for exceeding the 512 byte stack depth of the inlined call chain, and then no
+// upload program loads at all. 6 keeps the margin for other kernels and architectures.
 #define SOCKET_UPLOAD_CHUNK_LIMIT 6
+
+// SOCKET_UPLOAD_CHUNK_SIZE is the number of bytes a single chunk uploads
+#define SOCKET_UPLOAD_CHUNK_SIZE MAX_TRANSMIT_SOCKET_READ_LENGTH
+
+// the verifier hint on the offset inside an iov entry (see UPLOAD_PER_SOCKET_DATA_IOV) must never
+// truncate a real offset
+_Static_assert(SOCKET_UPLOAD_CHUNK_LIMIT * SOCKET_UPLOAD_CHUNK_SIZE <= 0x1ffff,
+               "the iov offset hint 0x1ffff is smaller than the bytes a socket call can upload");
 
 struct socket_data_upload_event {
     __u8 protocol;
@@ -39,12 +54,13 @@ struct socket_data_upload_event {
     __u64 total_size;
     char buffer[MAX_TRANSMIT_SOCKET_READ_LENGTH];
 };
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, __u32);
-    __type(value, struct socket_data_upload_event);
-    __uint(max_entries, 1);
-} socket_data_upload_event_per_cpu_map SEC(".maps");
+
+// A perf record is framed by an 8 byte perf_event_header whose size field is a __u16, plus a 4 byte
+// raw length, and the whole record is padded to 8 bytes: it can never reach 65536. Measured on 6.1,
+// a payload of 65508 bytes is delivered and 65520 is dropped without a trace, which is the arithmetic
+// above. The bound is the perf ABI, so it is the same on every supported kernel.
+_Static_assert(sizeof(struct socket_data_upload_event) + 12 <= 65500,
+               "the socket data event does not fit in a perf record");
 DATA_QUEUE(socket_data_upload_queue);
 
 struct socket_data_sequence_t {
@@ -137,9 +153,20 @@ static __always_inline void __upload_socket_data_with_buffer(void *ctx, __u8 ind
     socket_data_event->data_len = size;
     socket_data_event->finished = is_finished;
     socket_data_event->have_reduce_after_chunk = have_reduce_after_chunk;
-    asm volatile("%[size] &= 0x7ff;\n" ::[size] "+r"(size) :);
+    // The probe-read size has to be bounded for the verifier. The mask alone cannot do it: it must
+    // leave every chunk size unchanged, so it has to be an all-ones value, and 0x7fff would cap the
+    // chunk at 16383 bytes while 0x7fff would let the verifier assume a read of 32767 bytes into a
+    // 20480 byte buffer. Masking first and then clamping to the buffer gives it the exact range.
+    asm volatile("%[size] &= 0x7fff;\n" ::[size] "+r"(size) :);
+    if (size > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
+        size = MAX_TRANSMIT_SOCKET_READ_LENGTH;
+    }
     bpf_probe_read(&socket_data_event->buffer, size, buf);
-    rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event, sizeof(*socket_data_event));
+    // only the bytes that were read are sent: the event is fixed size in the scratch map, but a perf
+    // record that always carries the whole buffer costs 20568 bytes for a 100 byte message, which is
+    // what the per CPU ring buffer fills up with. The reader takes data_len bytes, see the Go side.
+    rover_submit_buf(ctx, &socket_data_upload_queue, socket_data_event,
+                     __builtin_offsetof(struct socket_data_upload_event, buffer) + size);
 }
 
 static __noinline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size, struct upload_data_args *args, __u8 force_unfinished) {
@@ -150,8 +177,8 @@ static __noinline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size
         ssize_t remaining = size - already_send;
         size_t need_send_in_chunk = 0;
         __u8 have_reduce_after_chunk = 0;
-        if (remaining > MAX_TRANSMIT_SOCKET_READ_LENGTH) {
-            need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;
+        if (remaining > SOCKET_UPLOAD_CHUNK_SIZE) {
+            need_send_in_chunk = SOCKET_UPLOAD_CHUNK_SIZE;
             have_reduce_after_chunk = 1;
         } else {
             need_send_in_chunk = remaining;
@@ -173,31 +200,41 @@ static __noinline void upload_socket_data_buf(void *ctx, char* buf, ssize_t size
 if (iov_index < iovlen) {                                                   \
     struct iovec cur_iov;                                                   \
     bpf_probe_read(&cur_iov, sizeof(cur_iov), &iov[iov_index]);             \
-    ssize_t remaining = size - already_send;                                \
-    size_t need_send_in_chunk = remaining - cur_iov_sended;                 \
-    __u8 have_reduce_after_chunk = 0;                                       \
-    if (cur_iov_sended + need_send_in_chunk > cur_iov.iov_len) {            \
-        need_send_in_chunk = cur_iov.iov_len - cur_iov_sended;              \
-        if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {         \
-            need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;           \
-            have_reduce_after_chunk = 1;                                    \
-        } else {                                                            \
-            iov_index++;                                                    \
-            cur_iov_sended = 0;                                             \
-        }                                                                   \
-    } else if (need_send_in_chunk > MAX_TRANSMIT_SOCKET_READ_LENGTH) {      \
-        need_send_in_chunk = MAX_TRANSMIT_SOCKET_READ_LENGTH;               \
-        have_reduce_after_chunk = 1;                                        \
+    size_t need_send_in_chunk = size - already_send;                        \
+    size_t avail_in_iov = cur_iov.iov_len - cur_iov_sended;                 \
+    if (need_send_in_chunk > avail_in_iov) {                                \
+        need_send_in_chunk = avail_in_iov;                                  \
     }                                                                       \
-    __u32 is_finished = (need_send_in_chunk + already_send) >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;                            \
-    __upload_socket_data_with_buffer(ctx, loop_count, cur_iov.iov_base + cur_iov_sended, need_send_in_chunk, is_finished, have_reduce_after_chunk, args);      \
-    already_send += need_send_in_chunk;                                                                                              \
+    if (need_send_in_chunk > SOCKET_UPLOAD_CHUNK_SIZE) {                    \
+        need_send_in_chunk = SOCKET_UPLOAD_CHUNK_SIZE;                      \
+    }                                                                       \
+    char *chunk_base = (char *)cur_iov.iov_base + cur_iov_sended;           \
+    already_send += need_send_in_chunk;                                     \
+    /* keep the offset inside the entry when the chunk only covers a part of it, otherwise every   \
+       following chunk re-reads the entry from its beginning and the entries behind it are never   \
+       uploaded, while the byte count still adds up to the size of the syscall */                  \
+    cur_iov_sended += need_send_in_chunk;                                   \
+    /* neither counter can grow past SOCKET_UPLOAD_CHUNK_LIMIT x SOCKET_UPLOAD_CHUNK_SIZE, so the   \
+       masks never change a real value; telling the bound to the verifier keeps it from exploring   \
+       every chunk body with an unbounded offset, which otherwise lifts the biggest upload programs \
+       over the 1M processed instruction limit */                                                   \
+    asm volatile("%[v] &= 0x1ffff;\n" ::[v] "+r"(already_send) :);          \
+    asm volatile("%[v] &= 0x1ffff;\n" ::[v] "+r"(cur_iov_sended) :);        \
+    if (cur_iov_sended >= cur_iov.iov_len) {                                \
+        iov_index++;                                                        \
+        cur_iov_sended = 0;                                                 \
+    }                                                                       \
+    /* the data that does not fit into the remaining chunks is only signaled by the flag on the     \
+       finished chunk, so it must be derived from what is really left, not from one entry */        \
+    __u8 have_reduce_after_chunk = already_send < size ? 1 : 0;             \
+    __u32 is_finished = already_send >= size || loop_count == (SOCKET_UPLOAD_CHUNK_LIMIT - 1) ? true : false;  \
+    __upload_socket_data_with_buffer(ctx, loop_count, chunk_base, need_send_in_chunk, is_finished, have_reduce_after_chunk, args);      \
     loop_count++;                                                                                                                    \
 }
 
 static __noinline void upload_socket_data_iov(void *ctx, struct iovec* iov, const size_t iovlen, ssize_t size, struct upload_data_args *args) {
     ssize_t already_send = 0;
-    ssize_t cur_iov_sended = 0;
+    size_t cur_iov_sended = 0;
     __u8 iov_index = 0;
     __u8 loop_count = 0;
 
