@@ -36,7 +36,7 @@ jobs:
     env:
       VERSION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
         with:
           submodules: true
       # Plain `docker login` instead of docker/login-action: the ASF allow-list
