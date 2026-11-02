@@ -279,7 +279,7 @@ The text of each license is also included at licenses/license-[project].txt.
     github.com/spf13/pflag v1.0.10 BSD-3-Clause
     github.com/tklauser/go-sysconf v0.3.9 BSD-3-Clause
     golang.org/x/arch v0.0.0-20220722155209-00200b7164a7 BSD-3-Clause
-    golang.org/x/net v0.61.0 BSD-3-Clause
+    golang.org/x/net v0.62.0 BSD-3-Clause
     golang.org/x/oauth2 v0.36.0 BSD-3-Clause
     golang.org/x/sync v0.24.0 BSD-3-Clause
     golang.org/x/sys v0.49.0 BSD-3-Clause
