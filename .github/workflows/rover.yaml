@@ -23,16 +23,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.x"
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Check License
-        uses: apache/skywalking-eyes@9bd5feb86b5817aa6072b008f9866a2c3bbc8587
+        uses: apache/skywalking-eyes@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
+      # After the license check: its composite action sets up its own Go version.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
       - name: Get dependencies
         run: make deps
       - name: Test
@@ -50,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build and save docker images
@@ -58,7 +59,7 @@ jobs:
           make docker
           docker save -o docker-images-skywalking-rover.tar apache/skywalking-rover:latest
       - name: Upload docker images
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-images-skywalking-rover
           path: docker-images-skywalking-rover.tar
@@ -175,10 +176,10 @@ jobs:
             config: e2e-waypoint.yaml
             env: ISTIO_VERSION=1.28.10
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         name: Download docker images
         with:
           name: docker-images-skywalking-rover
@@ -191,10 +192,10 @@ jobs:
         if: matrix.test.docker != null
         run: docker build -t ${{ matrix.test.docker.name }} -f ${{ matrix.test.base }}/${{ matrix.test.docker.file }} ${{ matrix.test.base }}
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
+        uses: apache/skywalking-infra-e2e@56ac8befeb5f910f2dc9339e65d07cd18953f90e
         with:
           e2e-file: $GITHUB_WORKSPACE/${{ matrix.test.base }}/${{ matrix.test.config }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ failure() }}
         name: Upload Logs
         with:
@@ -207,7 +208,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Setup SSL Certs
@@ -220,12 +221,12 @@ jobs:
           docker build -t test/test-nginx:test -f test/e2e/cases/profiling/task/network/base/Dockerfile.nginx test/e2e/cases/profiling/task/network/base/
           docker save -o docker-images-nginx.tar test/test-nginx:test
       - name: Upload SSL Certs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: network-ssl-data
           path: test/e2e/cases/profiling/task/network/base/ssl
       - name: Upload docker images
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-images-test-nginx
           path: docker-images-nginx.tar
@@ -263,20 +264,20 @@ jobs:
               file: http2/Dockerfile
               name: test/network-http2:test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         name: Download rover docker image
         with:
           name: docker-images-skywalking-rover
           path: docker-images
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         name: Download nginx docker image
         with:
           name: docker-images-test-nginx
           path: docker-images
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         name: Download SSL Data
         with:
           name: network-ssl-data
@@ -294,10 +295,10 @@ jobs:
           bash test/e2e/base/scripts/update-signed-ssl.sh service /tmp/ssl_data
           bash test/e2e/base/scripts/update-signed-ssl.sh proxy /tmp/ssl_data
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
+        uses: apache/skywalking-infra-e2e@56ac8befeb5f910f2dc9339e65d07cd18953f90e
         with:
           e2e-file: $GITHUB_WORKSPACE/test/e2e/cases/profiling/task/network/${{ matrix.test.config }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ failure() }}
         name: Upload Logs
         with:
@@ -334,10 +335,10 @@ jobs:
               file: process_thread_count/Dockerfile
               name: test/continuous-process_thread_count:test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         name: Download docker images
         with:
           name: docker-images-skywalking-rover
@@ -356,10 +357,10 @@ jobs:
         if: matrix.test.docker != null
         run: docker build -t ${{ matrix.test.docker.name }} -f test/e2e/cases/profiling/continuous/${{ matrix.test.docker.file }} test/e2e/cases/profiling/continuous
       - name: ${{ matrix.test.name }}
-        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
+        uses: apache/skywalking-infra-e2e@56ac8befeb5f910f2dc9339e65d07cd18953f90e
         with:
           e2e-file: $GITHUB_WORKSPACE/test/e2e/cases/profiling/continuous/${{ matrix.test.config }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ failure() }}
         name: Upload Logs
         with:
