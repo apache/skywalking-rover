@@ -52,6 +52,7 @@ Release Notes.
 * Bump up `golang.org/x/net` to `0.61.0` to fix GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612, and GO-2026-6617 (CVE-2026-78659, CVE-2026-78660, CVE-2026-78669, CVE-2026-78663, and CVE-2026-97032), and `golang.org/x/text` to `0.43.0` to fix GO-2026-6629 (CVE-2026-56851).
 * Ignore absent ztunnel principal offsets when decoding full-window identity samples.
 * Bump up `github.com/cilium/ebpf` to `0.22.0` to fix CVE-2026-10722 (integer overflow via `LoadCollectionSpecFromReader`).
+* Bump up `golang.org/x/net` to `0.62.0` to fix GO-2026-6860 and GO-2026-6866 (CVE-2026-78661 and CVE-2026-97045).
 
 #### Documentation
 * Add a dead link checker in the CI.
