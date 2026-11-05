@@ -17,7 +17,10 @@
 
 package unwind
 
-import "runtime"
+import (
+	"runtime"
+	"sync"
+)
 
 // maxRegisters is the size of the register file tracked while unwinding,
 // it covers all the DWARF registers which are used by the CFI on x86_64(0-16) and arm64(0-31)
@@ -37,21 +40,36 @@ type Arch struct {
 	PC int
 	// AddressMask is used to strip the non-address bits (such as pointer authentication) from the return address
 	AddressMask uint64
+	// FrameRecordAtCFA is true when the frame record(previous frame pointer and return address) is always
+	// saved right below the CFA, then the caller's stack pointer could be recovered by the frame pointer
+	FrameRecordAtCFA bool
 }
 
 var (
 	// ArchAMD64 is the x86_64 architecture, the return address column is the pseudo register 16(RIP)
-	ArchAMD64 = &Arch{Name: "amd64", SP: 7, FP: 6, LR: -1, PC: 16, AddressMask: ^uint64(0)}
-	// ArchARM64 is the aarch64 architecture, the return address is stored in the X30(LR)
-	ArchARM64 = &Arch{Name: "arm64", SP: 31, FP: 29, LR: 30, PC: -1, AddressMask: (uint64(1) << 48) - 1}
+	ArchAMD64 = &Arch{Name: "amd64", SP: 7, FP: 6, LR: -1, PC: 16, AddressMask: ^uint64(0), FrameRecordAtCFA: true}
+	// ArchARM64 is the aarch64 architecture with 48-bit user virtual address, the return address is stored in the X30(LR),
+	// the pointer authentication code is stored in the bits above the virtual address size
+	ArchARM64 = newARM64Arch(48)
+
+	currentArchOnce sync.Once
+	currentArch     *Arch
 )
+
+func newARM64Arch(vaBits uint) *Arch {
+	return &Arch{Name: "arm64", SP: 31, FP: 29, LR: 30, PC: -1, AddressMask: (uint64(1) << vaBits) - 1}
+}
 
 // CurrentArch returns the architecture of the running rover, nil if it is not supported
 func CurrentArch() *Arch {
-	for _, arch := range []*Arch{ArchAMD64, ArchARM64} {
-		if arch.Name == runtime.GOARCH {
-			return arch
+	currentArchOnce.Do(func() {
+		switch runtime.GOARCH {
+		case ArchAMD64.Name:
+			currentArch = ArchAMD64
+		case "arm64":
+			// the pointer authentication mask depends on the user virtual address size of the kernel(48 or 52 bits)
+			currentArch = newARM64Arch(userAddressBits())
 		}
-	}
-	return nil
+	})
+	return currentArch
 }

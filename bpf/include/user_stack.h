@@ -38,6 +38,8 @@ struct user_stack_event {
     __u64 sp;
     __u64 fp;
     __u64 lr;
+    // the user address of the copied stack, it could be lower than the stack pointer(the red zone)
+    __u64 stack_base;
     __u32 stack_size;
     __u8 stack[USER_STACK_MAX_SIZE];
 };
@@ -65,6 +67,9 @@ static __always_inline bool user_addr_valid(__u64 pc, __u64 sp, __u64 limit) {
 }
 
 #if defined(bpf_target_x86)
+// the leaf functions could use the 128 bytes below the stack pointer without adjusting it(System V ABI),
+// such as saving the callee saved registers, so the red zone also needs to be copied
+#define USER_STACK_RED_ZONE 128
 // offsets of the registers in the "struct pt_regs"(x86_64), it's stable in all kernel versions
 #define USER_REGS_SIZE 168
 #define USER_REGS_BP 32
@@ -192,21 +197,35 @@ static __always_inline bool read_task_user_regs(struct user_stack_event *e) {
 }
 #endif
 
-// copy the user stack from the stack pointer, try to copy until the end of the page with the extra pages,
+#ifndef USER_STACK_RED_ZONE
+#define USER_STACK_RED_ZONE 0
+#endif
+
+// copy the user stack from the base address, try to copy until the end of the page with the extra pages,
 // because the read would be failure when the memory range is not all mapped(such as the top of the stack)
-static __always_inline bool copy_user_stack(struct user_stack_event *e) {
-    __u64 sp = e->sp;
-    __u64 to_page_end = USER_STACK_PAGE_SIZE - (sp & (USER_STACK_PAGE_SIZE - 1));
+static __always_inline bool copy_user_stack_from(struct user_stack_event *e, __u64 base) {
+    __u64 to_page_end = USER_STACK_PAGE_SIZE - (base & (USER_STACK_PAGE_SIZE - 1));
     __u64 size;
 #pragma unroll
     for (int pages = 3; pages >= 0; pages--) {
         size = to_page_end + pages * USER_STACK_PAGE_SIZE;
-        if (bpf_probe_read_user(e->stack, size, (void *)sp) == 0) {
+        if (bpf_probe_read_user(e->stack, size, (void *)base) == 0) {
+            e->stack_base = base;
             e->stack_size = size;
             return true;
         }
     }
     return false;
+}
+
+// copy the user stack from the red zone(below the stack pointer) first,
+// fallback to the stack pointer when the red zone is not readable(such as in the unmapped page)
+static __always_inline bool copy_user_stack(struct user_stack_event *e) {
+    __u64 sp = e->sp;
+    if (USER_STACK_RED_ZONE > 0 && sp > USER_STACK_RED_ZONE && copy_user_stack_from(e, sp - USER_STACK_RED_ZONE)) {
+        return true;
+    }
+    return copy_user_stack_from(e, sp);
 }
 
 // output the user stack event, returns true if the event has been sent to the user space

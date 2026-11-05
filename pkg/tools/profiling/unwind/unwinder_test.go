@@ -448,3 +448,86 @@ func TestUnwindThroughSignalFrame(t *testing.T) {
 		t.Fatalf("expected frames %x, actual %x", expected, frames)
 	}
 }
+
+func TestUnwindSignalFrameToLowerStack(t *testing.T) {
+	// handler(0x1000): running on the alternate signal stack, which is above the interrupted stack
+	// trampoline(0x1fff): signal frame, CFA=*(rsp+8) is the interrupted SP(lower than the current SP)
+	// interrupted(0x3000): RA undefined
+	data := buildTestEHFrameWithCIEs([][]byte{amd64CIE, amd64SignalCIE},
+		testFDE{start: 0x1000, length: 0x100},
+		testFDE{start: 0x1fff, length: 0x10, cie: 1, instructions: []byte{cfaDefCFAExpression, 3, opBreg0 + 7, 8, opDeref}},
+		testFDE{start: 0x3000, length: 0x100, instructions: []byte{cfaUndefined, 16}},
+	)
+	unwinder := newTestUnwinder(t, data)
+
+	stack := &testStack{}
+	// handler: sp=base+0x100, RA at base+0x100
+	stack.put(testStackBase+0x100, 0x2000)
+	// trampoline: sp=base+0x108, the saved interrupted SP at base+0x110
+	stack.put(testStackBase+0x110, testStackBase+0x20)
+	// the interrupted PC at CFA-8
+	stack.put(testStackBase+0x18, 0x3000)
+
+	frames := unwinder.UnwindInto(Registers{PC: 0x1010, SP: testStackBase + 0x100},
+		&StackMemory{Base: testStackBase, Data: stack.data}, &staticResolver{start: 0x1000, end: 0x4000}, nil)
+	expected := []uint64{0x1010, 0x2000, 0x3000}
+	if !reflect.DeepEqual(frames, expected) {
+		t.Fatalf("expected frames %x, actual %x", expected, frames)
+	}
+}
+
+func TestUnwindRedZone(t *testing.T) {
+	// leaf(0x1000): CFA=rsp+8, rbp saved at CFA-16 which is in the red zone(below the SP)
+	// middle(0x2000): CFA=rbp+16, RA at CFA-8
+	// root(0x3000): RA undefined
+	data := buildTestEHFrame(
+		testFDE{start: 0x1000, length: 0x100, instructions: []byte{cfaOffset | 6, 2}},
+		testFDE{start: 0x2000, length: 0x100, instructions: []byte{cfaDefCFA, 6, 16}},
+		testFDE{start: 0x3000, length: 0x100, instructions: []byte{cfaUndefined, 16}},
+	)
+	unwinder := newTestUnwinder(t, data)
+
+	// the copied stack starts from the red zone(SP-128)
+	sp := uint64(testStackBase + 128)
+	stack := &testStack{}
+	stack.put(sp-8, testStackBase+0x100)
+	stack.put(sp, 0x2050)
+	stack.put(testStackBase+0x108, 0x3010)
+
+	frames := unwinder.UnwindInto(Registers{PC: 0x1010, SP: sp, FP: 0x1234},
+		&StackMemory{Base: testStackBase, Data: stack.data}, &staticResolver{start: 0x1000, end: 0x4000}, nil)
+	expected := []uint64{0x1010, 0x2050, 0x3010}
+	if !reflect.DeepEqual(frames, expected) {
+		t.Fatalf("expected frames %x, actual %x", expected, frames)
+	}
+}
+
+func TestARM64FramePointerKeepsSPUnknown(t *testing.T) {
+	// no CFI(0x5000): "stp x29, x30, [sp, #-64]!", the frame record is at the bottom of the frame,
+	// 	so the caller's SP is fp+64, not fp+16
+	// caller(0x2000): CFA=sp+16, RA at CFA-8, could not be applied without the SP, continue the frame pointer chain
+	data := buildTestEHFrameWithCIE(arm64CIE,
+		testFDE{start: 0x2000, length: 0x100, instructions: []byte{cfaDefCFAOffset, 16, cfaOffset | 29, 2, cfaOffset | 30, 1}},
+	)
+	table, err := ParseEHFrame(ArchARM64, data, testSectionAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unwinder := NewUnwinder(ArchARM64, staticTables{testModulePath: table}, 32)
+	stack := &testStack{}
+	// the frame record of the frame without CFI
+	stack.put(testStackBase+0x10, testStackBase+0x60)
+	stack.put(testStackBase+0x18, 0x2050)
+	// the wrong return address when the SP is fabricated as fp+16
+	stack.put(testStackBase+0x28, 0xbad)
+	// the frame record of the caller
+	stack.put(testStackBase+0x60, 0)
+	stack.put(testStackBase+0x68, 0x3010)
+
+	frames := unwinder.UnwindInto(Registers{PC: 0x5010, SP: testStackBase, FP: testStackBase + 0x10, LR: 0x2050},
+		&StackMemory{Base: testStackBase, Data: stack.data}, &staticResolver{start: 0x2000, end: 0x3000}, nil)
+	expected := []uint64{0x5010, 0x2050, 0x3010}
+	if !reflect.DeepEqual(frames, expected) {
+		t.Fatalf("expected frames %x, actual %x", expected, frames)
+	}
+}

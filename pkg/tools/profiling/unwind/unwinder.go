@@ -26,7 +26,8 @@ type Registers struct {
 	PC, SP, FP, LR uint64
 }
 
-// StackMemory is the copied user stack memory, which starts from the stack pointer
+// StackMemory is the copied user stack memory, which starts from the Base address,
+// the Base could be lower than the stack pointer, such as including the red zone in x86_64
 type StackMemory struct {
 	Base uint64
 	Data []byte
@@ -70,6 +71,17 @@ type frameState struct {
 	mem   *StackMemory
 	regs  [maxRegisters]uint64
 	valid [maxRegisters]bool
+	// minSP is the lowest possible stack pointer when the stack pointer could not be recovered,
+	// such as unwinding by the frame record on arm64, which could be saved at any location of the frame
+	minSP uint64
+}
+
+// stackLowerBound returns the stack pointer, or the lowest possible value of it when it's unknown
+func (f *frameState) stackLowerBound(sp int) uint64 {
+	if value, ok := f.register(sp); ok {
+		return value
+	}
+	return f.minSP
 }
 
 func (f *frameState) register(reg int) (uint64, bool) {
@@ -122,11 +134,15 @@ func (u *Unwinder) UnwindInto(regs Registers, mem *StackMemory, resolver ModuleR
 		}
 
 		next.reset(mem)
-		var ok bool
+		ok := false
 		if row != nil {
 			pc, ok = u.stepByRow(state, next, row, pc)
 			signalFrame = row.SignalFrame
-		} else {
+		}
+		// the stack pointer is unknown after unwinding by the frame record(arm64),
+		// then the rules based on the stack pointer could not be applied, so continue the frame pointer chain
+		if _, spKnown := state.register(u.arch.SP); row == nil || (!ok && !spKnown) {
+			next.reset(mem)
 			pc, ok = u.stepByFramePointer(state, next)
 			signalFrame = false
 		}
@@ -141,6 +157,7 @@ func (u *Unwinder) UnwindInto(regs Registers, mem *StackMemory, resolver ModuleR
 func (f *frameState) reset(mem *StackMemory) {
 	f.mem = mem
 	f.valid = [maxRegisters]bool{}
+	f.minSP = 0
 }
 
 // stepByRow recovers the caller registers into the next state, returns the return address
@@ -173,10 +190,12 @@ func (u *Unwinder) stepByRow(state, next *frameState, row *Row, pc uint64) (ra u
 	}
 	ra &= u.arch.AddressMask
 	// the stack must not shrink, otherwise the data must be invalid.
+	// except the signal frame, which could restore the stack pointer to the lower address,
+	// such as the signal handler running on the alternate signal stack which is above the interrupted stack.
 	// the CFA could equal the SP in the leaf function(or before the prologue) on arm64,
 	// the return address is in the link register, then the frame must make progress
-	sp, _ := state.register(u.arch.SP)
-	if cfa < sp || (cfa == sp && ra == pc) {
+	sp := state.stackLowerBound(u.arch.SP)
+	if (cfa < sp && !row.SignalFrame) || (cfa == sp && ra == pc) {
 		return 0, false
 	}
 	next.set(u.arch.SP, cfa)
@@ -211,8 +230,7 @@ func (u *Unwinder) stepByFramePointer(state, next *frameState) (ra uint64, ok bo
 	if !valid {
 		return 0, false
 	}
-	sp, _ := state.register(u.arch.SP)
-	if fp < sp {
+	if fp < state.stackLowerBound(u.arch.SP) {
 		return 0, false
 	}
 	prevFP, ok1 := state.readMemory(fp)
@@ -220,7 +238,14 @@ func (u *Unwinder) stepByFramePointer(state, next *frameState) (ra uint64, ok bo
 	if !ok1 || !ok2 {
 		return 0, false
 	}
-	next.set(u.arch.SP, fp+2*pointerSize)
+	if u.arch.FrameRecordAtCFA {
+		// the frame record is pushed right below the CFA, so the caller's stack pointer is known
+		next.set(u.arch.SP, fp+2*pointerSize)
+	} else {
+		// the frame record could be saved at any location of the frame(such as the bottom of the frame on arm64),
+		// so the caller's stack pointer is unknown, only the lowest possible value is known
+		next.minSP = fp + 2*pointerSize
+	}
 	next.set(u.arch.FP, prevFP)
 	return ra & u.arch.AddressMask, true
 }

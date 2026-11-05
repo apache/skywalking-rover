@@ -56,7 +56,7 @@ const (
 	// userStackFlushTimeout is the max time to wait for the pending events to be read when flushing
 	userStackFlushTimeout = time.Second
 	// userStackEventHeaderSize is the size of the fields before the stack data in "struct user_stack_event"
-	userStackEventHeaderSize = 52
+	userStackEventHeaderSize = 60
 )
 
 var (
@@ -291,11 +291,13 @@ func (c *UserStackCollector) handleEvent(data []byte) {
 		FP: order.Uint64(data[32:40]),
 		LR: order.Uint64(data[40:48]),
 	}
-	stackSize := int(order.Uint32(data[48:52]))
+	// the copied stack could start below the stack pointer, such as the red zone in x86_64
+	stackBase := order.Uint64(data[48:56])
+	stackSize := int(order.Uint32(data[56:60]))
 	if stackSize > len(data)-userStackEventHeaderSize {
 		stackSize = len(data) - userStackEventHeaderSize
 	}
-	stack := &unwind.StackMemory{Base: regs.SP, Data: data[userStackEventHeaderSize : userStackEventHeaderSize+stackSize]}
+	stack := &unwind.StackMemory{Base: stackBase, Data: data[userStackEventHeaderSize : userStackEventHeaderSize+stackSize]}
 	c.frames = c.unwinder.UnwindInto(regs, stack, c.info, c.frames)
 	if len(c.frames) <= 1 {
 		// could not unwind any caller, the frame pointer stack is better(or the same)

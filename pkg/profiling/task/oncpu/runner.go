@@ -165,13 +165,14 @@ func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotif
 
 	// opened perf events
 	perfEvents, err := r.openPerfEvent(objs.DoPerfEvent.FD())
-	r.perfEventFds = perfEvents
 	if err != nil {
+		// the partial descriptors are not published, so only closed here
 		for _, fd := range perfEvents {
 			_ = r.closePerfEvent(fd)
 		}
 		return err
 	}
+	r.perfEventFds = perfEvents
 	log.Debugf("success running on cpu profiling, perf event fds: %v", perfEvents)
 
 	// notify start success
