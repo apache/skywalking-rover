@@ -10,6 +10,7 @@ and send the snapshot to the backend server.
 | profiling.active                                                                | true        | ROVER_PROFILING_ACTIVE                                                                | Is active the process profiling.                                                      |
 | profiling.check_interval                                                        | 10s         | ROVER_PROFILING_CHECK_INTERVAL                                                        | Check the profiling task interval.                                                    |
 | profiling.flush_interval                                                        | 5s          | ROVER_PROFILING_FLUSH_INTERVAL                                                        | Combine existing profiling data and report to the backend interval.                   |
+| profiling.task.user_stack_unwind                                                | auto        | ROVER_PROFILING_TASK_USER_STACK_UNWIND                                                | The way to unwind the user space stack in the ON_CPU/OFF_CPU profiling task, `auto`, `dwarf` or `frame_pointer`, please read [User Space Stack Unwinding](#user-space-stack-unwinding).|
 | profiling.task.on_cpu.dump_period                                               | 9ms         | ROVER_PROFILING_TASK_ON_CPU_DUMP_PERIOD                                               | The profiling stack dump period.                                                      |
 | profiling.task.network.report_interval                                          | 2s          | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_REPORT_INTERVAL                                 | The interval of send metrics to the backend.                                          |
 | profiling.task.network.meter_prefix                                             | rover_net_p | ROVER_PROFILING_TASK_NETWORK_TOPOLOGY_METER_PREFIX                                    | The prefix of network profiling metrics name.                                         |
@@ -43,6 +44,45 @@ On CPU Profiling task is using `PERF_COUNT_SW_CPU_CLOCK` to profiling the proces
 ### Off CPU
 
 Off CPU Profiling task is attach the `finish_task_switch` in `krobe` to profiling the process.
+
+### User Space Stack Unwinding
+
+The On CPU and Off CPU profiling need to unwind the user space stack of the process. There are two ways to unwind the stack:
+
+1. `frame_pointer`: The kernel walks the stack through the frame pointer register. It has the lowest overhead,
+   but loses frames when the binaries or libraries are built without the frame pointer(the default of `-O2` in GCC/Clang,
+   and most distributions such as Debian, Ubuntu before 24.04, RHEL/CentOS, Alpine).
+2. `dwarf`: The eBPF program copies the user registers and the user stack(up to 16KB from the stack pointer) to the rover,
+   then the rover unwinds the stack by the call frame information(the `.eh_frame` section) of the ELF files.
+   The functions without the call frame information fall back to the frame pointer.
+
+The `profiling.task.user_stack_unwind` config decides the way, the default value is `auto`:
+
+| Value           | Description                                                                                                                                   |
+|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `auto`          | Use `dwarf` when any native module(the executable file or the shared libraries) of the process has the call frame information(the `.eh_frame` covers most of its code) and is built without the frame pointer, otherwise use `frame_pointer`. |
+| `dwarf`         | Always use `dwarf` when the process and the kernel support it.                                                                                |
+| `frame_pointer` | Always use `frame_pointer`.                                                                                                                   |
+
+In the `auto` and `dwarf` mode, the rover still uses `frame_pointer` in the following cases, and the reason is printed in the log:
+1. The process is a Golang program, the Golang always keeps the frame pointer and has no `.eh_frame` for the Golang code.
+2. The process is not a 64-bit program, or the architecture is not `amd64` or `arm64`.
+3. The executable file of the process could not be read.
+4. The perf event reader of the stack events could not be opened.
+5. The kernel could not load the `dwarf` eBPF program, which requires the kernel version `5.5+`(`bpf_probe_read_user`)
+   and the BTF(the kernel built with `CONFIG_DEBUG_INFO_BTF`, or the BTF files embedded in the rover).
+
+Limitations of the `dwarf` way:
+1. Only 16KB of the stack is copied, so the frames which are deeper than 16KB from the stack pointer are lost,
+   such as deep recursion or large local variables in the stack.
+2. The frames in the code without the call frame information(such as the JIT code in Java/Node.js, or the musl libc in Alpine which is built
+   without the `.eh_frame`) fall back to the frame pointer, so they are only complete when the code keeps the frame pointer,
+   such as running Java with `-XX:+PreserveFramePointer`.
+3. The shared libraries loaded after the profiling task started are not recognized, it's the same as the symbol resolving.
+4. It costs more CPU than `frame_pointer`, which is mainly related to the sampling count. Such as the Off CPU profiling of a process
+   with about 1,500 context switches per second costs about 6% of a CPU core for unwinding in the rover.
+   The raw stack is only used for unwinding in the memory, it's not stored or sent to the backend.
+5. When the unwinding could not find any caller of the sampled function, the stack unwound by the frame pointer in the same sample is used.
 
 ### Network
 

@@ -22,6 +22,7 @@ package offcpu
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -57,23 +58,48 @@ type StackCounter struct {
 	Deltas uint64 // total execute delta duration(nanoseconds)
 }
 
+// profilingObjects is the eBPF objects used by the frame pointer program
+type profilingObjects struct {
+	Counts             *ebpf.Map     `ebpf:"counts"`
+	Stacks             *ebpf.Map     `ebpf:"stacks"`
+	Starts             *ebpf.Map     `ebpf:"starts"`
+	DoFinishTaskSwitch *ebpf.Program `ebpf:"do_finish_task_switch"`
+}
+
+// loadedObjects is the loaded eBPF objects, the program is the frame pointer or the user stack copying program,
+// the user stack events map only exists when the user stack copying program is loaded
+type loadedObjects struct {
+	profilingObjects
+	UserStackEvents *ebpf.Map `ebpf:"user_stack_events"`
+}
+
+func (o *loadedObjects) Close() error {
+	return _BpfClose(o.DoFinishTaskSwitch, o.Counts, o.Stacks, o.Starts, o.UserStackEvents)
+}
+
 type Runner struct {
 	base             *base.Runner
+	config           *base.TaskConfig
 	pid              int32
 	processProfiling *profiling.Info
 	kernelProfiling  *profiling.Info
 
 	// runtime
-	previousStacks  map[ProcessStack]StackCounter
-	bpf             *bpfObjects
+	previousStacks map[ProcessStack]StackCounter
+	bpf            *loadedObjects
+	userStacks     *base.UserStackCollector
+	// runtimeLock protects the runtime eBPF objects, user stack collector and the flush data notify,
+	// which are shared between the Run, FlushData and Stop
+	runtimeLock     sync.Mutex
 	kprobe          *btf.Linker
 	stopChan        chan bool
 	flushDataNotify context.CancelFunc
 }
 
-func NewRunner(_ *base.TaskConfig, _ *module.Manager) (base.ProfileTaskRunner, error) {
+func NewRunner(config *base.TaskConfig, _ *module.Manager) (base.ProfileTaskRunner, error) {
 	return &Runner{
-		base: base.NewBaseRunner(),
+		base:   base.NewBaseRunner(),
+		config: config,
 	}, nil
 }
 
@@ -94,32 +120,41 @@ func (r *Runner) Init(_ *base.ProfilingTask, processes []api.ProcessInterface) e
 	return nil
 }
 
-func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) error {
-	objs := bpfObjects{}
-	spec, err := loadBpf()
+func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) (err error) {
+	objs := loadedObjects{}
+	copyUserStack, reason := base.ShouldCopyUserStack(r.config, r.pid, r.processProfiling)
+	log.Infof("the user stack of process %d would be unwound by %s, reason: %s", r.pid, base.UserStackUnwindWay(copyUserStack), reason)
+	copyUserStack, err = base.LoadProfilingObjects(loadBpf, "do_finish_task_switch", "do_finish_task_switch_user_stack",
+		copyUserStack, func(program *ebpf.ProgramSpec) error {
+			return base.ReplaceMonitorPid(program, r.pid)
+		}, &objs.profilingObjects, &objs)
 	if err != nil {
 		return err
 	}
-	// update the monitor pid
-	funcName := "do_finish_task_switch"
-	replacedPid := false
-	for i, ins := range spec.Programs[funcName].Instructions {
-		if ins.Reference() == "MONITOR_PID" {
-			spec.Programs[funcName].Instructions[i].Constant = int64(r.pid)
-			spec.Programs[funcName].Instructions[i].Offset = 0
-			replacedPid = true
+	var userStacks *base.UserStackCollector
+	if copyUserStack {
+		userStacks = base.StartUserStackCollector(r.processProfiling, objs.UserStackEvents)
+	}
+	linker := btf.NewLinker()
+	defer func() {
+		// the Stop is not called when running failure
+		if err != nil {
+			r.runtimeLock.Lock()
+			r.bpf, r.userStacks = nil, nil
+			r.runtimeLock.Unlock()
+			_ = linker.Close()
+			if userStacks != nil {
+				_ = userStacks.Close()
+			}
+			_ = objs.Close()
 		}
-	}
-	if !replacedPid {
-		return fmt.Errorf("replace the monitor pid failure")
-	}
-	if err1 := spec.LoadAndAssign(&objs, btf.GetEBPFCollectionOptionsIfNeed(spec)); err1 != nil {
-		return err1
-	}
+	}()
+	r.runtimeLock.Lock()
+	r.userStacks = userStacks
 	r.bpf = &objs
+	r.runtimeLock.Unlock()
 
 	symbols := r.findMatchesSymbol()
-	linker := btf.NewLinker()
 	linkedCount := 0
 	for _, symbol := range symbols {
 		switchers := make(map[string]*ebpf.Program)
@@ -164,18 +199,28 @@ func (r *Runner) Stop() error {
 	r.base.ShutdownOnce.Do(func() {
 		// wait for all profiling data been consumed finished
 		cancel, cancelFunc := context.WithCancel(context.Background())
+		r.runtimeLock.Lock()
 		r.flushDataNotify = cancelFunc
+		r.runtimeLock.Unlock()
 		select {
 		case <-cancel.Done():
 		case <-time.After(10 * time.Second):
 		}
 
+		r.runtimeLock.Lock()
+		if r.userStacks != nil {
+			if err1 := r.userStacks.Close(); err1 != nil {
+				err = multierror.Append(err, err1)
+			}
+			r.userStacks = nil
+		}
 		if r.bpf != nil {
 			if err1 := r.bpf.Close(); err1 != nil {
 				err = multierror.Append(err, err1)
 			}
 			r.bpf = nil
 		}
+		r.runtimeLock.Unlock()
 		if r.kprobe != nil {
 			if err1 := r.kprobe.Close(); err1 != nil {
 				err = multierror.Append(err, err1)
@@ -187,6 +232,8 @@ func (r *Runner) Stop() error {
 }
 
 func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
+	r.runtimeLock.Lock()
+	defer r.runtimeLock.Unlock()
 	if r.bpf == nil {
 		return nil, nil
 	}
@@ -239,9 +286,33 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 		})
 	}
 	log.Debugf("total found stacks: %d", count)
+	result = append(result, r.flushUserStacks(stacks, stackSymbols)...)
 
 	if r.flushDataNotify != nil {
 		r.flushDataNotify()
 	}
 	return result, nil
+}
+
+func (r *Runner) flushUserStacks(stacks *ebpf.Map, stackSymbols []uint64) []*v3.EBPFProfilingData {
+	if r.userStacks == nil {
+		return nil
+	}
+	result := make([]*v3.EBPFProfilingData, 0)
+	for _, stack := range r.userStacks.Flush() {
+		metadatas := r.base.GenerateUserStackData(r.processProfiling, r.kernelProfiling, stack, stacks, stackSymbols)
+		if len(metadatas) == 0 {
+			continue
+		}
+		result = append(result, &v3.EBPFProfilingData{
+			Profiling: &v3.EBPFProfilingData_OffCPU{
+				OffCPU: &v3.EBPFOffCPUProfiling{
+					Stacks:      metadatas,
+					SwitchCount: int32(stack.Count),
+					Duration:    int64(stack.Deltas),
+				},
+			},
+		})
+	}
+	return result
 }

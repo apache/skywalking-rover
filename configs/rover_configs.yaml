@@ -94,6 +94,14 @@ profiling:
   flush_interval: ${ROVER_PROFILING_FLUSH_INTERVAL:5s}
   # Customize profiling task config
   task:
+    # The way to unwind the user space stack in the ON_CPU/OFF_CPU profiling task
+    # "auto": using the "dwarf" when any native module of the process has the call frame information(.eh_frame)
+    #         and is built without the frame pointer, otherwise using the "frame_pointer"
+    # "dwarf": copy the user stack to rover and unwind it by the call frame information(.eh_frame),
+    #          it works when the binaries/libraries built without the frame pointer, falls back to the "frame_pointer" when not supported
+    # "frame_pointer": only unwind the stack by the frame pointer in the kernel, it has lower overhead but loses frames
+    #                  when the binaries/libraries built without the frame pointer
+    user_stack_unwind: ${ROVER_PROFILING_TASK_USER_STACK_UNWIND:auto}
     # The config when executing ON_CPU profiling task
     on_cpu:
       # The profiling stack dump period
