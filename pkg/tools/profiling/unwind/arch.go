@@ -26,6 +26,9 @@ import (
 // it covers all the DWARF registers which are used by the CFI on x86_64(0-16) and arm64(0-31)
 const maxRegisters = 34
 
+// archARM64Name is the name of the aarch64 architecture, same as the GOARCH
+const archARM64Name = "arm64"
+
 // Arch describes the DWARF register numbers of the architecture
 type Arch struct {
 	Name string
@@ -57,7 +60,7 @@ var (
 )
 
 func newARM64Arch(vaBits uint) *Arch {
-	return &Arch{Name: "arm64", SP: 31, FP: 29, LR: 30, PC: -1, AddressMask: (uint64(1) << vaBits) - 1}
+	return &Arch{Name: archARM64Name, SP: 31, FP: 29, LR: 30, PC: -1, AddressMask: (uint64(1) << vaBits) - 1}
 }
 
 // CurrentArch returns the architecture of the running rover, nil if it is not supported
@@ -66,7 +69,7 @@ func CurrentArch() *Arch {
 		switch runtime.GOARCH {
 		case ArchAMD64.Name:
 			currentArch = ArchAMD64
-		case "arm64":
+		case archARM64Name:
 			// the pointer authentication mask depends on the user virtual address size of the kernel(48 or 52 bits)
 			currentArch = newARM64Arch(userAddressBits())
 		}
