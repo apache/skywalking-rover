@@ -39,6 +39,7 @@ Release Notes.
 * Add success/failure counters to the conntrack real peer address queries.
 * Support monitoring short-lived processes in the access log module.
 * Read ztunnel connection peer identities via an eBPF uprobe on `ConnectionResult::record_internal`, with a build-id offset table and access-log fallback.
+* Support unwinding the user space stack by the call frame information(`.eh_frame`) in the ON_CPU/OFF_CPU profiling, fixing the missing frames when the binaries/libraries are built without the frame pointer. The `profiling.task.user_stack_unwind` config(`auto` by default) decides the unwinding way per process.
 
 #### Bug Fixes
 * Fix the base image cannot run in the arm64.
