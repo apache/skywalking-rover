@@ -18,12 +18,30 @@
 package bpf
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 )
+
+// TestAtomicXchgInsnEncoding: the probe of the atomic exchange encodes BPF_XCHG | BPF_FETCH in its immediate, as the
+// kernel reads it; with the immediate 0 it would be a plain atomic add that every kernel loads
+func TestAtomicXchgInsnEncoding(t *testing.T) {
+	var buf bytes.Buffer
+	if _, err := atomicXchgInsn().Marshal(&buf, binary.LittleEndian); err != nil {
+		t.Fatal(err)
+	}
+	raw := buf.Bytes()
+	if raw[0] != 0xdb {
+		t.Errorf("opcode %#x, want BPF_STX | BPF_ATOMIC | BPF_DW (0xdb)", raw[0])
+	}
+	if imm := binary.LittleEndian.Uint32(raw[4:8]); imm != 0xe1 {
+		t.Errorf("immediate %#x, want BPF_XCHG | BPF_FETCH (0xe1)", imm)
+	}
+}
 
 // TestStripAtomicFetch: the atomics with a result (fetch-add 0x01, xchg 0xe1, cmpxchg 0xf1) become moves, a plain
 // atomic add (0x00) stays, and the instruction count does not change

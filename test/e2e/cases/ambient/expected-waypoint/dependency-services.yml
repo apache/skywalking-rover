@@ -26,6 +26,10 @@
 # renders it as one edge or as the productpage -> waypoint -> details pair depends on the
 # backend's waypoint handling, not on rover, and pinning it here would make this case fail
 # on a backend change that is not a rover regression.
+#
+# The type of the waypoint node is not pinned either: its own legs are mTLS, and the backend
+# names it after whichever of its calls it sees first, the mTLS legs or the HTTP calls
+# productpage makes to it, so it is http or mtls depending on timing.
 nodes:
 {{- contains .nodes }}
 - id: {{ b64enc "productpage.default"}}.1
@@ -66,7 +70,7 @@ nodes:
   {{- end }}
 - id: {{ b64enc "bookinfo-waypoint.default" }}.1
   name: bookinfo-waypoint.default
-  type: http
+  type: {{ notEmpty .type }}
   isreal: true
   layers:
   {{- contains .layers }}

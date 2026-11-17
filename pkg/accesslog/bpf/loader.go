@@ -195,8 +195,7 @@ func haveAtomicXchg() error {
 		asm.FnMapLookupElem.Call(),
 		asm.JEq.Imm(asm.R0, 0, "out"),
 		asm.Mov.Imm(asm.R1, 1),
-		// r1 = xchg(*(u64 *)(r0 + 0), r1): BPF_STX | BPF_ATOMIC | BPF_DW, imm BPF_XCHG (0xe0) | BPF_FETCH (0x01)
-		asm.Xchg.Mem(asm.R0, asm.R1, asm.DWord, 0),
+		atomicXchgInsn(),
 		asm.Mov.Imm(asm.R0, 0).WithSymbol("out"),
 		asm.Return(),
 	}
@@ -205,6 +204,15 @@ func haveAtomicXchg() error {
 		return err
 	}
 	return prog.Close()
+}
+
+// atomicXchgInsn is r1 = xchg(*(u64 *)(r0 + 0), r1): BPF_STX | BPF_ATOMIC | BPF_DW, imm BPF_XCHG (0xe0) | BPF_FETCH
+// (0x01). The immediate is set explicitly: cilium/ebpf v0.22 encodes it from Constant, which Xchg.Mem leaves 0, so
+// the probe would otherwise be a plain atomic add that every kernel loads
+func atomicXchgInsn() asm.Instruction {
+	ins := asm.Xchg.Mem(asm.R0, asm.R1, asm.DWord, 0)
+	ins.Constant = int64(asm.Xchg >> 8)
+	return ins
 }
 
 // StripAtomicFetch replaces every atomic instruction with a result (BPF_FETCH, BPF_XCHG, BPF_CMPXCHG: an atomic store
