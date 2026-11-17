@@ -14,4 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-requests==2.25.0
+requests==2.33.1
+certifi==2026.10.18
+idna==3.15

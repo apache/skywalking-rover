@@ -24,7 +24,7 @@ header:
 
   paths-ignore:
     - '**/*.md'
-    - 'licenses'
+    - 'dist/licenses'
     - '**/go.mod'
     - '**/go.sum'
     - '**/*.json'
@@ -63,3 +63,17 @@ dependency:
     - name: sigs.k8s.io/json
       version: v0.0.0-20211020170558-c049b76a60c6
       license: Apache-2.0 and BSD-3-Clause
+    # These ship their license as LICENSE.md / license.md, which the Go
+    # resolver of license-eye v0.9.0 does not pick up.
+    - name: github.com/josharian/intern
+      version: v1.0.0
+      license: MIT
+    - name: github.com/magiconair/properties
+      version: v1.8.5
+      license: BSD-2-Clause
+    - name: github.com/mdlayher/netlink
+      version: v1.7.2
+      license: MIT
+    - name: github.com/mdlayher/socket
+      version: v0.5.1
+      license: MIT

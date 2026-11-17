@@ -145,9 +145,14 @@ func (d *ztunnelIdentityDecoder) decodeIdentity(window []byte, principalOffset, 
 	// decodeIdentityFromPointers keeps the two event paths decoding identically by construction.
 	// The Option<Identity> is niche encoded into the pointers themselves: an absent principal
 	// leaves them null, which decodeArcStr reports as an empty string rather than a failure.
+	var principalNamespace, principalServiceAccount uint64
+	if principalOffset != ztunneltool.OffsetAbsent {
+		principalNamespace = readPointer(window, principalOffset+d.offsets.IdentityNamespace)
+		principalServiceAccount = readPointer(window, principalOffset+d.offsets.IdentityServiceAccount)
+	}
 	return decodeIdentityFromPointers(d.strings, mem,
-		readPointer(window, principalOffset+d.offsets.IdentityNamespace),
-		readPointer(window, principalOffset+d.offsets.IdentityServiceAccount),
+		principalNamespace,
+		principalServiceAccount,
 		readPointer(window, namespaceOffset),
 		readPointer(window, clusterOffset))
 }

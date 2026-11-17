@@ -23,8 +23,10 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/apache/skywalking-rover/pkg/logger"
@@ -50,16 +52,39 @@ type Event struct {
 	KernelStackID uint32
 }
 
+// profilingObjects is the eBPF objects used by the frame pointer program
+type profilingObjects struct {
+	Counts      *ebpf.Map     `ebpf:"counts"`
+	Stacks      *ebpf.Map     `ebpf:"stacks"`
+	DoPerfEvent *ebpf.Program `ebpf:"do_perf_event"`
+}
+
+// loadedObjects is the loaded eBPF objects, the program is the frame pointer or the user stack copying program,
+// the user stack events map only exists when the user stack copying program is loaded
+type loadedObjects struct {
+	profilingObjects
+	UserStackEvents *ebpf.Map `ebpf:"user_stack_events"`
+}
+
+func (o *loadedObjects) Close() error {
+	return _BpfClose(o.DoPerfEvent, o.Counts, o.Stacks, o.UserStackEvents)
+}
+
 type Runner struct {
 	base             *base.Runner
+	config           *base.TaskConfig
 	pid              int32
 	processProfiling *profiling.Info
 	kernelProfiling  *profiling.Info
 	dumpFrequency    int64
 
 	// runtime
-	perfEventFds    []int
-	bpf             *bpfObjects
+	perfEventFds []int
+	bpf          *loadedObjects
+	userStacks   *base.UserStackCollector
+	// runtimeLock protects the runtime eBPF objects, user stack collector and the flush data notify,
+	// which are shared between the Run, FlushData and Stop
+	runtimeLock     sync.Mutex
 	stackCounter    map[Event]uint32
 	flushDataNotify context.CancelFunc
 	stopChan        chan bool
@@ -78,6 +103,7 @@ func NewRunner(config *base.TaskConfig, _ *module.Manager) (base.ProfileTaskRunn
 	}
 	return &Runner{
 		base:          base.NewBaseRunner(),
+		config:        config,
 		dumpFrequency: time.Second.Milliseconds() / dumpPeriod.Milliseconds(),
 	}, nil
 }
@@ -103,38 +129,50 @@ func (r *Runner) Init(_ *base.ProfilingTask, processes []api.ProcessInterface) e
 	return nil
 }
 
-func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) error {
+func (r *Runner) Run(_ context.Context, notify base.ProfilingRunningSuccessNotify) (err error) {
 	// load bpf
-	objs := bpfObjects{}
-	spec, err := loadBpf()
+	objs := loadedObjects{}
+	copyUserStack, reason := base.ShouldCopyUserStack(r.config, r.pid, r.processProfiling)
+	log.Infof("the user stack of process %d would be unwound by %s, reason: %s", r.pid, base.UserStackUnwindWay(copyUserStack), reason)
+	copyUserStack, err = base.LoadProfilingObjects(loadBpf, "do_perf_event", "do_perf_event_user_stack",
+		copyUserStack, func(program *ebpf.ProgramSpec) error {
+			return base.ReplaceMonitorPid(program, r.pid)
+		}, &objs.profilingObjects, &objs)
 	if err != nil {
-		return err
-	}
-	// update the monitor pid
-	funcName := "do_perf_event"
-	replacedPid := false
-	for i, ins := range spec.Programs[funcName].Instructions {
-		if ins.Reference() == "MONITOR_PID" {
-			spec.Programs[funcName].Instructions[i].Constant = int64(r.pid)
-			spec.Programs[funcName].Instructions[i].Offset = 0
-			replacedPid = true
-		}
-	}
-	if !replacedPid {
-		return fmt.Errorf("replace the monitor pid failure")
-	}
-	if err1 := spec.LoadAndAssign(&objs, nil); err1 != nil {
-		return fmt.Errorf("loading objects: %s", err1)
+		return fmt.Errorf("loading objects: %s", err)
 	}
 	defer objs.Close()
+	var userStacks *base.UserStackCollector
+	if copyUserStack {
+		userStacks = base.StartUserStackCollector(r.processProfiling, objs.UserStackEvents)
+	}
+	defer func() {
+		// the Stop is not called when running failure
+		if err == nil {
+			return
+		}
+		r.runtimeLock.Lock()
+		r.bpf, r.userStacks = nil, nil
+		r.runtimeLock.Unlock()
+		if userStacks != nil {
+			_ = userStacks.Close()
+		}
+	}()
+	r.runtimeLock.Lock()
+	r.userStacks = userStacks
 	r.bpf = &objs
+	r.runtimeLock.Unlock()
 
 	// opened perf events
 	perfEvents, err := r.openPerfEvent(objs.DoPerfEvent.FD())
-	r.perfEventFds = perfEvents
 	if err != nil {
+		// the partial descriptors are not published, so only closed here
+		for _, fd := range perfEvents {
+			_ = r.closePerfEvent(fd)
+		}
 		return err
 	}
+	r.perfEventFds = perfEvents
 	log.Debugf("success running on cpu profiling, perf event fds: %v", perfEvents)
 
 	// notify start success
@@ -168,11 +206,13 @@ func (r *Runner) openPerfEvent(perfFd int) ([]int, error) {
 
 		// attach ebpf to perf event
 		if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_SET_BPF, perfFd); err != nil {
+			_ = unix.Close(fd)
 			return fds, err
 		}
 
 		// enable perf event
 		if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_ENABLE, 0); err != nil {
+			_ = unix.Close(fd)
 			return fds, err
 		}
 		fds = append(fds, fd)
@@ -192,17 +232,28 @@ func (r *Runner) Stop() error {
 
 		// wait for all profiling data been consume finished
 		cancel, cancelFunc := context.WithCancel(context.Background())
+		r.runtimeLock.Lock()
 		r.flushDataNotify = cancelFunc
+		r.runtimeLock.Unlock()
 		select {
 		case <-cancel.Done():
 		case <-time.After(5 * time.Second):
 		}
 
+		r.runtimeLock.Lock()
+		if r.userStacks != nil {
+			if err := r.userStacks.Close(); err != nil {
+				result = multierror.Append(result, err)
+			}
+			r.userStacks = nil
+		}
 		if r.bpf != nil {
 			if err := r.bpf.Close(); err != nil {
 				result = multierror.Append(result, err)
 			}
+			r.bpf = nil
 		}
+		r.runtimeLock.Unlock()
 
 		close(r.stopChan)
 	})
@@ -210,6 +261,8 @@ func (r *Runner) Stop() error {
 }
 
 func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
+	r.runtimeLock.Lock()
+	defer r.runtimeLock.Unlock()
 	if r.bpf == nil {
 		return nil, nil
 	}
@@ -261,6 +314,7 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 		count++
 	}
 	log.Debugf("total found stacks: %d", count)
+	result = append(result, r.flushUserStacks(stacks, stackSymbols)...)
 
 	// close the flush data notify if exists
 	if r.flushDataNotify != nil {
@@ -270,6 +324,28 @@ func (r *Runner) FlushData() ([]*v3.EBPFProfilingData, error) {
 	return result, nil
 }
 
+func (r *Runner) flushUserStacks(stacks *ebpf.Map, stackSymbols []uint64) []*v3.EBPFProfilingData {
+	if r.userStacks == nil {
+		return nil
+	}
+	result := make([]*v3.EBPFProfilingData, 0)
+	for _, stack := range r.userStacks.Flush() {
+		metadatas := r.base.GenerateUserStackData(r.processProfiling, r.kernelProfiling, stack, stacks, stackSymbols)
+		if len(metadatas) == 0 {
+			continue
+		}
+		result = append(result, &v3.EBPFProfilingData{
+			Profiling: &v3.EBPFProfilingData_OnCPU{
+				OnCPU: &v3.EBPFOnCPUProfiling{
+					Stacks:    metadatas,
+					DumpCount: int32(stack.Count),
+				},
+			},
+		})
+	}
+	return result
+}
+
 func (r *Runner) closePerfEvent(fd int) error {
 	if fd <= 0 {
 		return nil
@@ -277,6 +353,10 @@ func (r *Runner) closePerfEvent(fd int) error {
 	var result error
 	if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_DISABLE, 0); err != nil {
 		result = multierror.Append(result, fmt.Errorf("closing perf event reader: %s", err))
+	}
+	// the perf event holds the reference of the eBPF program until the fd is closed
+	if err := unix.Close(fd); err != nil {
+		result = multierror.Append(result, fmt.Errorf("closing perf event fd: %s", err))
 	}
 	return result
 }

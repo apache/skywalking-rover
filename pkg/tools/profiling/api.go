@@ -169,6 +169,26 @@ func (i *Info) FindMultipleSymbolByRegex(rep string) ([]string, error) {
 	return result, nil
 }
 
+// ResolveFileAddress finds the ELF file which mapped the runtime address,
+// returns the file path and the virtual address in the ELF file
+func (i *Info) ResolveFileAddress(addr uint64) (path string, fileAddr uint64, ok bool) {
+	for _, mod := range i.Modules {
+		if mod.Type != ModuleTypeExec && mod.Type != ModuleTypeSo {
+			continue
+		}
+		for _, r := range mod.Ranges {
+			if addr < r.StartAddr || addr >= r.EndAddr {
+				continue
+			}
+			if mod.Type == ModuleTypeExec {
+				return mod.Path, addr, true
+			}
+			return mod.Path, addr - r.StartAddr + r.FileOffset + mod.SoAddr - mod.SoOffset, true
+		}
+	}
+	return "", 0, false
+}
+
 func (m *Module) contains(addr uint64) (uint64, bool) {
 	for _, r := range m.Ranges {
 		if addr >= r.StartAddr && addr < r.EndAddr {

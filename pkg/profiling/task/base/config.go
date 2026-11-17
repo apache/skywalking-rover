@@ -28,6 +28,8 @@ import (
 type TaskConfig struct {
 	OnCPU   *OnCPUConfig   `mapstructure:"on_cpu"`  // ON_CPU type of profiling task config
 	Network *NetworkConfig `mapstructure:"network"` // NETWORK type of profiling task config
+	// The way to unwind the user space stack in the ON_CPU/OFF_CPU profiling task, "auto", "frame_pointer" or "dwarf"
+	UserStackUnwind string `mapstructure:"user_stack_unwind"`
 }
 
 type OnCPUConfig struct {
@@ -58,6 +60,12 @@ type HTTPSamplingConfig struct {
 
 func (c *TaskConfig) Validate() error {
 	var err error
+	switch c.UserStackUnwind {
+	case "", UserStackUnwindAuto, UserStackUnwindFramePointer, UserStackUnwindDWARF:
+	default:
+		err = fmt.Errorf("the user stack unwind must be %q, %q or %q, current value: %s",
+			UserStackUnwindAuto, UserStackUnwindFramePointer, UserStackUnwindDWARF, c.UserStackUnwind)
+	}
 	network := c.Network
 	if network != nil {
 		err = c.durationValidate(err, network.ReportInterval, "parsing report interval failure: %v")

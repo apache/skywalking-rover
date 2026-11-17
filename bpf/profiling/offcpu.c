@@ -17,11 +17,11 @@
 
 #include "api.h"
 #include "offcpu.h"
+#include "user_stack.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
-SEC("kprobe/finish_task_switch")
-int do_finish_task_switch(struct pt_regs *ctx) {
+static __always_inline int finish_task_switch(struct pt_regs *ctx, bool copy_user_stack) {
     int monitor_pid;
     asm("%0 = MONITOR_PID ll" : "=r"(monitor_pid));
 
@@ -66,6 +66,19 @@ int do_finish_task_switch(struct pt_regs *ctx) {
     key.kernel_stack_id = bpf_get_stackid(ctx, &stacks, 0);
     key.user_stack_id = bpf_get_stackid(ctx, &stacks, (1ULL << 8));
 
+    // send the raw user stack to the user space for unwinding by the call frame information
+    if (copy_user_stack) {
+        struct user_stack_event *event = user_stack_event_buf();
+        if (event && read_task_user_regs(event)) {
+            event->kernel_stack_id = key.kernel_stack_id;
+            event->user_stack_id = key.user_stack_id;
+            event->deltas = t_end - t_start;
+            if (output_user_stack(ctx, event)) {
+                return 0;
+            }
+        }
+    }
+
     // add counters
     struct value_t *val;
     val = bpf_map_lookup_elem(&counts, &key);
@@ -79,4 +92,16 @@ int do_finish_task_switch(struct pt_regs *ctx) {
     (*val).counts += 1;
     (*val).deltas += t_end - t_start;
     return 0;
+}
+
+// only unwinding the user stack by the frame pointer
+SEC("kprobe/finish_task_switch")
+int do_finish_task_switch(struct pt_regs *ctx) {
+    return finish_task_switch(ctx, false);
+}
+
+// copying the user stack to the user space, fallback to the frame pointer when copy failure
+SEC("kprobe/finish_task_switch")
+int do_finish_task_switch_user_stack(struct pt_regs *ctx) {
+    return finish_task_switch(ctx, true);
 }

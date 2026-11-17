@@ -136,6 +136,7 @@ struct files_struct {
 } __attribute__((preserve_access_index));
 
 struct task_struct {
+	void *stack;
 	__u32 pid;
     __u32 tgid;
     struct thread_struct thread;

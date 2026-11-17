@@ -79,6 +79,7 @@ Release Notes.
 * Add success/failure counters to the conntrack real peer address queries.
 * Support monitoring short-lived processes in the access log module.
 * Read ztunnel connection peer identities via an eBPF uprobe on `ConnectionResult::record_internal`, with a build-id offset table and access-log fallback.
+* Support unwinding the user space stack by the call frame information(`.eh_frame`) in the ON_CPU/OFF_CPU profiling, fixing the missing frames when the binaries/libraries are built without the frame pointer. The `profiling.task.user_stack_unwind` config(`auto` by default) decides the unwinding way per process.
 
 #### Bug Fixes
 * Fix `Buffer.Len` summing the first event's length once per event instead of each event's length (the profiling HTTP/1 body length).
@@ -92,6 +93,9 @@ Release Notes.
 * Remove the ineffective `ctnetlink_fill_info` kprobe and fix an always-true condition in the conntrack BPF program.
 * Bump up `google.golang.org/grpc` to `1.84.0` to fix CVE-2026-33186 (authorization bypass via malformed `:path` header), and replace the deprecated `golang.org/x/net/context` with the standard library `context`.
 * Bump up `golang.org/x/net` to `0.61.0` to fix GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612, and GO-2026-6617 (CVE-2026-78659, CVE-2026-78660, CVE-2026-78669, CVE-2026-78663, and CVE-2026-97032), and `golang.org/x/text` to `0.43.0` to fix GO-2026-6629 (CVE-2026-56851).
+* Ignore absent ztunnel principal offsets when decoding full-window identity samples.
+* Bump up `github.com/cilium/ebpf` to `0.22.0` to fix CVE-2026-10722 (integer overflow via `LoadCollectionSpecFromReader`).
+* Bump up `golang.org/x/net` to `0.62.0` to fix GO-2026-6860 and GO-2026-6866 (CVE-2026-78661 and CVE-2026-97045).
 
 #### Documentation
 * Add a dead link checker in the CI.
