@@ -18,51 +18,224 @@
 package protocols
 
 import (
+	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/accesslog/common"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
-	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 type PartitionConnection struct {
+	// protocolLocker guards the four protocol maps below: they are written by the partition goroutine
+	// (a new protocol on an existing connection, a smaller data id) while the analyzer goroutine reads
+	// and iterates them, which the Go runtime aborts the process for ("concurrent map iteration and
+	// map write")
+	protocolLocker         sync.RWMutex
 	connectionID, randomID uint64
 	dataBuffers            map[enums.ConnectionProtocol]*buffer.Buffer
 	protocol               map[enums.ConnectionProtocol]uint64 // protocol with minimal data id
 	protocolAnalyzer       map[enums.ConnectionProtocol]Protocol
 	protocolMetrics        map[enums.ConnectionProtocol]ProtocolMetrics
-	closed                 bool
-	skipAllDataAnalyze     bool
-	lastCheckCloseTime     time.Time
+	// slots repeat the buffer, the analyzer and the metrics of the maps above by protocol (appendProtocolIfNeed
+	// writes both, under protocolLocker), for the reads of every event: a uint8 key hashed into a map was a
+	// visible part of the profile. A slot that is not set (a protocol beyond them, a connection built without
+	// appendProtocolIfNeed) is read from the maps.
+	slots              [protocolSlots]protocolSlot
+	closed             bool
+	skipAllDataAnalyze bool
+	lastCheckCloseTime time.Time
+	// dataAppended records that the connection received data since the last analysis pass, so a pass
+	// triggered by the event counter of a busy connection does not re-analyze every idle connection
+	dataAppended atomic.Bool
+	// gap is set while the connection resynchronises after an event the memory protection dropped (gap.go)
+	gap atomic.Pointer[connGap]
+	// gapFloor: the events below this data id arrive after a resynchronisation passed them (gap.go)
+	gapFloor atomic.Uint64
+	// removed is set when the partition removes the connection (closed), see PartitionContext.lastConnection
+	removed atomic.Bool
+	// knownProtocol (the protocol + 1) and knownMinDataID are a protocol of the connection and the smallest data
+	// id recorded for it when appendProtocolIfNeed last looked, see there
+	knownProtocol  atomic.Uint32
+	knownMinDataID atomic.Uint64
+}
+
+// protocolSlots is how many protocols have a slot (enums.ConnectionProtocolUnknown, HTTP and HTTP2)
+const protocolSlots = 3
+
+type protocolSlot struct {
+	set      bool
+	buf      *buffer.Buffer
+	analyzer Protocol
+	metrics  ProtocolMetrics
+}
+
+// setProtocolSlot fills the slot of the protocol (under protocolLocker, with the maps)
+func (p *PartitionConnection) setProtocolSlot(protocol enums.ConnectionProtocol, buf *buffer.Buffer, analyzer Protocol,
+	metrics ProtocolMetrics) {
+	if int(protocol) < protocolSlots {
+		p.slots[protocol] = protocolSlot{set: true, buf: buf, analyzer: analyzer, metrics: metrics}
+	}
+}
+
+// slot is the slot of the protocol when it is set (under protocolLocker)
+func (p *PartitionConnection) slot(protocol enums.ConnectionProtocol) *protocolSlot {
+	if int(protocol) < protocolSlots && p.slots[protocol].set {
+		return &p.slots[protocol]
+	}
+	return nil
 }
 
 func (p *PartitionConnection) Metrics(protocol enums.ConnectionProtocol) ProtocolMetrics {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	if s := p.slot(protocol); s != nil {
+		return s.metrics
+	}
 	return p.protocolMetrics[protocol]
 }
 
 func (p *PartitionConnection) IsExistProtocol(protocol enums.ConnectionProtocol) bool {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
 	_, exist := p.protocol[protocol]
 	return exist
 }
 
 func (p *PartitionConnection) Buffer(protocol enums.ConnectionProtocol) *buffer.Buffer {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	if s := p.slot(protocol); s != nil {
+		return s.buf
+	}
 	return p.dataBuffers[protocol]
 }
 
-func (p *PartitionConnection) AppendDetail(ctx *common.AccessLogContext, detail events.SocketDetail) {
-	if p.skipAllDataAnalyze {
-		// if the connection is already skip all data analyze, then just send the detail event
-		forwarder.SendTransferNoProtocolEvent(ctx, detail)
-		return
+// Buffers returns a snapshot of the data buffers of every protocol of the connection, so the caller
+// can iterate them without holding the lock while analyzing
+func (p *PartitionConnection) Buffers() []*buffer.Buffer {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	result := make([]*buffer.Buffer, 0, len(p.dataBuffers))
+	for _, buf := range p.dataBuffers {
+		result = append(result, buf)
 	}
-	p.dataBuffers[detail.GetProtocol()].AppendDetailEvent(detail)
+	return result
+}
+
+// sortedProtocols returns the protocols of the connection ordered by their minimal data id, together
+// with their analyzer and metrics; a snapshot, so the maps are not iterated outside the lock
+func (p *PartitionConnection) sortedProtocols() []enums.ConnectionProtocol {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	// since the socket data/detail are getting unsorted, so rover need to using the minimal data id to analyze to ensure the order
+	result := make([]enums.ConnectionProtocol, 0, len(p.protocol))
+	for protocol := range p.protocol {
+		result = append(result, protocol)
+	}
+	if len(result) > 1 {
+		sort.Slice(result, func(i, j int) bool {
+			return p.protocol[result[i]] < p.protocol[result[j]]
+		})
+	}
+	return result
+}
+
+func (p *PartitionConnection) analyzer(protocol enums.ConnectionProtocol) Protocol {
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	if s := p.slot(protocol); s != nil {
+		return s.analyzer
+	}
+	return p.protocolAnalyzer[protocol]
 }
 
 func (p *PartitionConnection) AppendData(data buffer.SocketDataBuffer) {
-	if p.skipAllDataAnalyze {
+	var buf *buffer.Buffer
+	var metrics ProtocolMetrics
+	if !p.skipAllDataAnalyze {
+		// the buffer and the metrics of the protocol under one read lock (they are set together)
+		protocol := data.Protocol()
+		p.protocolLocker.RLock()
+		if s := p.slot(protocol); s != nil {
+			buf, metrics = s.buf, s.metrics
+		} else {
+			buf, metrics = p.dataBuffers[protocol], p.protocolMetrics[protocol]
+		}
+		p.protocolLocker.RUnlock()
+	}
+	if buf == nil {
+		// the connection is no longer analyzed, or no analyzer owns this protocol: either way the
+		// event is dropped here and its buffer must go back to the pool
+		buffer.ReleaseEvent(data.ReleaseBuffer())
 		return
 	}
-	p.dataBuffers[data.Protocol()].AppendDataEvent(data)
+	data = buf.AppendDataEvent(data)
+	if observer, ok := metrics.(DataAppendObserver); ok {
+		observer.DataAppended(data)
+	}
+	p.markDataAppended()
+}
+
+// markDataAppended records that the connection received data since the last analysis pass
+func (p *PartitionConnection) markDataAppended() {
+	p.dataAppended.Store(true)
+}
+
+// takeDataAppended reports whether the connection received data since the last analysis pass and
+// clears the flag
+func (p *PartitionConnection) takeDataAppended() bool {
+	return p.dataAppended.Swap(false)
+}
+
+// PendingDataLength is the count of data events the connection still holds: the events in the
+// protocol buffers plus the events an analyzer moved into its own buffers (the HTTP/2 analyzer
+// re-partitions them per direction), so a connection with unparsed data is never treated as empty
+func (p *PartitionConnection) PendingDataLength() int {
+	var result int
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	for protocol, buf := range p.dataBuffers {
+		result += buf.DataLength()
+		if m, ok := p.protocolMetrics[protocol].(PendingDataMetrics); ok {
+			result += m.PendingDataLength()
+		}
+	}
+	return result + p.gapStashLength()
+}
+
+// releaseIfRemoved gives back what an append put into the connection when the partition removed it meanwhile: the
+// partition goroutine may have taken the connection just before the analysis removed it (removed is set before
+// the removal releases the data), so an event appended after that release would hold its pooled buffer (and its
+// share of the memory budget) forever. The event goes in before removed is read, and removed is set before
+// ReleasePendingData runs: either that release sees the event or this one does (both under the buffer lock).
+func (p *PartitionConnection) releaseIfRemoved() bool {
+	if !p.removed.Load() {
+		return false
+	}
+	p.releaseGap()
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	for _, buf := range p.dataBuffers {
+		buf.ReleaseAll()
+	}
+	return true
+}
+
+// ReleasePendingData gives every socket data event the connection still holds back to the pool, so
+// removing a connection with unparsed data does not leak the in-use accounting
+func (p *PartitionConnection) ReleasePendingData() {
+	p.releaseGap()
+	p.protocolLocker.RLock()
+	defer p.protocolLocker.RUnlock()
+	for protocol, buf := range p.dataBuffers {
+		buf.ReleaseAll()
+		if m, ok := p.protocolMetrics[protocol].(PendingDataMetrics); ok {
+			m.ReleasePendingData()
+		}
+		if m, ok := p.protocolMetrics[protocol].(ReleasableMetrics); ok {
+			m.Release()
+		}
+	}
 }

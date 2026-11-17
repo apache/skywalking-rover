@@ -17,28 +17,32 @@
 
 package protocols
 
-import v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
+import (
+	"net/http"
+
+	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
+)
 
 // TransformHTTPMethod transforms the http method to the v3.AccessLogHTTPProtocolRequestMethod
 func TransformHTTPMethod(method string) v3.AccessLogHTTPProtocolRequestMethod {
 	switch method {
-	case "GET":
+	case http.MethodGet:
 		return v3.AccessLogHTTPProtocolRequestMethod_Get
-	case "POST":
+	case http.MethodPost:
 		return v3.AccessLogHTTPProtocolRequestMethod_Post
-	case "PUT":
+	case http.MethodPut:
 		return v3.AccessLogHTTPProtocolRequestMethod_Put
-	case "DELETE":
+	case http.MethodDelete:
 		return v3.AccessLogHTTPProtocolRequestMethod_Delete
-	case "HEAD":
+	case http.MethodHead:
 		return v3.AccessLogHTTPProtocolRequestMethod_Head
-	case "OPTIONS":
+	case http.MethodOptions:
 		return v3.AccessLogHTTPProtocolRequestMethod_Options
-	case "TRACE":
+	case http.MethodTrace:
 		return v3.AccessLogHTTPProtocolRequestMethod_Trace
-	case "CONNECT":
+	case http.MethodConnect:
 		return v3.AccessLogHTTPProtocolRequestMethod_Connect
-	case "PATCH":
+	case http.MethodPatch:
 		return v3.AccessLogHTTPProtocolRequestMethod_Patch
 	}
 	http1Log.Warnf("unknown http method: %s", method)

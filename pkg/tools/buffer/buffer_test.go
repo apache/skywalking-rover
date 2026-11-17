@@ -18,10 +18,7 @@
 package buffer
 
 import (
-	"container/list"
 	"testing"
-
-	"github.com/apache/skywalking-rover/pkg/profiling/task/network/analyze/events"
 )
 
 func TestOffsetPosition(t *testing.T) {
@@ -68,14 +65,12 @@ func TestOffsetPosition(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		eventList := list.New()
-		buffer := Buffer{dataEvents: eventList}
-		var curElement *list.Element
+		events0 := newEventList()
+		buffer := Buffer{dataEvents: events0}
+		var curElement *eventElement
 		for i, e := range test.events {
-			element := eventList.PushBack(&events.SocketDataUploadEvent{
-				DataID0: uint64(i),
-				DataLen: uint16(e),
-			})
+			// (a call of e bytes, as the network profiling's event with DataLen e: its first chunk, not finished)
+			element := events0.PushBack(&testEvent{dataID: uint64(i), data: make([]byte, e), notFinished: true})
 			if i == test.current.eventIndex {
 				curElement = element
 			}
@@ -87,10 +82,10 @@ func TestOffsetPosition(t *testing.T) {
 		if offsetPosition == nil && test.result == nil {
 			continue
 		}
-		if int(offsetPosition.element.Value.(*events.SocketDataUploadEvent).DataID()) != test.result.eventIndex ||
+		if int(offsetPosition.element.Value.(*testEvent).DataID()) != test.result.eventIndex ||
 			offsetPosition.bufIndex != test.result.bufferIndex {
 			t.Fatalf("excepted: %d,%d, actual: %d,%d", test.result.eventIndex, test.result.bufferIndex,
-				offsetPosition.element.Value.(*events.SocketDataUploadEvent).DataID(), offsetPosition.bufIndex)
+				offsetPosition.element.Value.(*testEvent).DataID(), offsetPosition.bufIndex)
 		}
 	}
 }

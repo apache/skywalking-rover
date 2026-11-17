@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/textproto"
-	"strconv"
 	"strings"
 
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
@@ -63,47 +62,34 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	defer func() {
 		releasePooledReader(bufReader)
 	}()
-	tp := textproto.NewReader(bufReader)
-	resp := &http.Response{}
-	result := &Response{original: resp, req: req, reader: r}
-	result.MessageOpt = &MessageOpt{result}
 
 	headerStartPosition := buf.Position()
-	line, err := tp.ReadLine()
-	if err != nil {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("read response first line failure: %v", err)
+	var resp *http.Response
+	if !r.textprotoOnly {
+		resp = readResponseHeadFast(bufReader) //nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 	}
-	indexByte := strings.IndexByte(line, ' ')
-	if indexByte == -1 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response error: %s", line)
+	headerComplete := true
+	if resp == nil {
+		// the fast scanner was not sure about the message: parse it again from its start with textproto
+		rewindForTextproto(buf, headerStartPosition, bufReader)
+		var err error
+		//nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
+		if resp, headerComplete, err = readResponseHeadTextproto(bufReader); err != nil {
+			return nil, enums.ParseResultSkipPackage, err
+		}
 	}
-	resp.Proto = line[:indexByte]
-	resp.Status = strings.TrimLeft(line[indexByte+1:], " ")
-	statusCode := resp.Status
-	if i := strings.IndexByte(resp.Status, ' '); i != -1 {
-		statusCode = resp.Status[:i]
-	}
-	if len(statusCode) != 3 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response status code failure: %v", statusCode)
-	}
-	resp.StatusCode, err = strconv.Atoi(statusCode)
-	if err != nil || resp.StatusCode < 0 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("status code not correct: %s", statusCode)
-	}
-	var ok bool
-	if resp.ProtoMajor, resp.ProtoMinor, ok = http.ParseHTTPVersion(resp.Proto); !ok {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing http version failure: %s", resp.Proto)
-	}
-
-	mimeHeader, err := tp.ReadMIMEHeader()
-	if err != nil {
-		result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	result := &Response{original: resp, req: req, reader: r}
+	result.MessageOpt = &MessageOpt{result}
+	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	if !headerComplete {
+		// the headers could not be parsed: the response is reported without them (and without a body)
 		return result, enums.ParseResultSuccess, nil
 	}
-	resp.Header = http.Header(mimeHeader)
 
-	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
-	if readBody {
+	if !readBody {
+		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
+		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
+	} else {
 		b, r, err := result.readFullResponseBody(bufReader, buf)
 		if err != nil {
 			return nil, enums.ParseResultSkipPackage, err
@@ -116,17 +102,76 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	return result, enums.ParseResultSuccess, nil
 }
 
+// readResponseHeadTextproto parses the status line and the headers with net/textproto, it is the
+// reference behavior of readResponseHeadFast. headerComplete is false when the headers cannot be parsed,
+// the response is still returned then (without headers)
+func readResponseHeadTextproto(bufReader *bufio.Reader) (resp *http.Response, headerComplete bool, err error) {
+	tp := textproto.NewReader(bufReader)
+	resp = &http.Response{}
+	line, err := tp.ReadLine()
+	if err != nil {
+		return nil, false, fmt.Errorf("read response first line failure: %v", err)
+	}
+	indexByte := strings.IndexByte(line, ' ')
+	if indexByte == -1 {
+		return nil, false, fmt.Errorf("parsing response error: %s", line)
+	}
+	resp.Proto = line[:indexByte]
+	if resp.Status, resp.StatusCode, err = parseStatus(line[indexByte+1:]); err != nil {
+		return nil, false, err
+	}
+	var ok bool
+	if resp.ProtoMajor, resp.ProtoMinor, ok = http.ParseHTTPVersion(resp.Proto); !ok {
+		return nil, false, fmt.Errorf("parsing http version failure: %s", resp.Proto)
+	}
+
+	mimeHeader, err := tp.ReadMIMEHeader()
+	if err != nil {
+		return resp, false, nil
+	}
+	resp.Header = http.Header(mimeHeader)
+	return resp, true, nil
+}
+
 func (r *Response) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer, bufReader *bufio.Reader) {
 	endPosition := buf.OffsetPosition(-bufReader.Buffered())
 	r.headerBuffer = buf.Slice(true, start, endPosition)
 }
 
+// SetBodyBuffer sets the body of a message whose body was consumed separately (see buffer.BodyConsumer)
+func (r *Response) SetBodyBuffer(b *buffer.Buffer) {
+	r.bodyBuffer = b
+}
+
+// HasBody applies RFC 7230 3.3.3: the response to a HEAD request and a 1xx, 204 or 304 response (and
+// a 2xx response to CONNECT) never carries a body, whatever Content-Length or Transfer-Encoding say.
+// Reading a body for them would consume the next message of a keep-alive connection.
+func (r *Response) HasBody() bool {
+	if r.req != nil && r.req.Original() != nil {
+		switch r.req.Original().Method {
+		case http.MethodHead:
+			return false
+		case http.MethodConnect:
+			if r.original.StatusCode/100 == 2 {
+				return false
+			}
+		}
+	}
+	code := r.original.StatusCode
+	return code/100 != 1 && code != http.StatusNoContent && code != http.StatusNotModified
+}
+
 func (r *Response) readFullResponseBody(bodyReader *bufio.Reader, original *buffer.Buffer) (*buffer.Buffer, enums.ParseResult, error) {
+	if !r.HasBody() {
+		// rewind to the end of the headers, the next message of the connection starts there
+		original.SetPosition(original.OffsetPosition(-bodyReader.Buffered()))
+		return nil, enums.ParseResultSuccess, nil
+	}
 	length, err := r.appointedLength()
 	if err != nil {
 		return nil, enums.ParseResultSkipPackage, err
 	} else if length > 0 {
-		return r.checkBodyWithSize(original, bodyReader, length, true)
+		return r.checkBodyWithSize(original, bodyReader, length)
 	}
 
 	if r.isChunked() {

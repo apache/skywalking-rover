@@ -25,10 +25,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
 
 const ModuleName = "pprof"
+
+var log = logger.GetLogger("pprof")
 
 type Module struct {
 	config *Config
@@ -62,6 +66,15 @@ func (m *Module) Start(_ context.Context, mgr *module.Manager) error {
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// the same server carries what the agent knows about itself: the pending socket data events and
+	// the memory they hold, how long ago each partition analyzed them, and how far behind the sender
+	// is. Without it those numbers are only reachable from a heap profile.
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		if err := telemetry.Write(w); err != nil {
+			log.Warnf("writing the metrics failed: %v", err)
+		}
+	})
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

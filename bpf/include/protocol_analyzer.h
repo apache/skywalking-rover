@@ -22,10 +22,27 @@
 #define CONNECTION_PROTOCOL_UNKNOWN 0
 #define CONNECTION_PROTOCOL_HTTP1 1
 #define CONNECTION_PROTOCOL_HTTP2 2
+// the ids from 3 on belong to the protocols an override of protocol_analyzer_ext.h adds
+
+// HTTP/2 frames (RFC 7540 4.1 and 6): the header length, the frame types and the flags the BPF side reads
+#define HTTP2_FRAME_HEADER_LEN 9
+#define HTTP2_FRAME_TYPE_DATA 0x0
+#define HTTP2_FRAME_TYPE_HEADERS 0x1
+#define HTTP2_FRAME_TYPE_PRIORITY 0x2
+#define HTTP2_FRAME_TYPE_SETTINGS 0x4
+#define HTTP2_FRAME_TYPE_PING 0x6
+#define HTTP2_FRAME_TYPE_WINDOW_UPDATE 0x8
+#define HTTP2_FRAME_TYPE_CONTINUATION 0x9
+// the highest frame type RFC 7540 defines
+#define HTTP2_FRAME_TYPE_MAX HTTP2_FRAME_TYPE_CONTINUATION
+#define HTTP2_FLAG_ACK 0x1
+#define HTTP2_FLAG_PADDED 0x8
 
 #define CONNECTION_MESSAGE_TYPE_UNKNOWN 0
 #define CONNECTION_MESSAGE_TYPE_REQUEST 1
 #define CONNECTION_MESSAGE_TYPE_RESPONSE 2
+// the protocol is recognized but the message does not tell whether the sender is the client or the server
+#define CONNECTION_MESSAGE_TYPE_ANY 3
 
 // HTTP 1.x
 // request frame format: https://www.rfc-editor.org/rfc/rfc2068.html#section-5
@@ -73,14 +90,47 @@ static __inline __u32 infer_http1_message(const char* buf, size_t count) {
     return CONNECTION_MESSAGE_TYPE_UNKNOWN;
 }
 
+// http2_frame_length decodes the 24 bit length of an HTTP/2 frame header (RFC 7540 4.1)
+static __always_inline __u32 http2_frame_length(const __u8 *header) {
+    return ((__u32)header[0] << 16) | ((__u32)header[1] << 8) | header[2];
+}
+
 static bool is_http2_magic(const char *buf_src, size_t count)
 {
 	static const char magic[] = "PRI * HTTP/2";
 	char buffer[sizeof(magic)] = { 0 };
+	if (count < sizeof(magic) - 1) {
+		return false;
+	}
 	bpf_probe_read(buffer, sizeof(buffer) - 1, buf_src);
-	for (int idx = 0; idx < sizeof(magic); ++idx) {
+	for (int idx = 0; idx < sizeof(magic) - 1; ++idx) {
 		if (magic[idx] == buffer[idx])
 			continue;
+		return false;
+	}
+	return true;
+}
+
+// is_http2_settings_frame: a message starting with a SETTINGS frame on stream 0 (RFC 7540 6.5),
+// which is the first frame both endpoints send after the (client) preface
+static __inline bool is_http2_settings_frame(const char *buf, size_t count)
+{
+	static const __u8 kFrameBasicSize = HTTP2_FRAME_HEADER_LEN;
+	__u8 frame[HTTP2_FRAME_HEADER_LEN] = { 0 };
+	if (count < kFrameBasicSize) {
+		return false;
+	}
+	bpf_probe_read(frame, sizeof(frame), buf);
+	__u32 length = http2_frame_length(frame);
+	// type SETTINGS(0x4), flags only ACK(0x1) allowed, stream id 0, and a length that is a multiple of
+	// the 6 byte setting entry. The length is bounded by the default SETTINGS_MAX_FRAME_SIZE rather
+	// than by a guess at how many settings a peer sends: a client that sends more of them would
+	// otherwise not be recognized as HTTP/2 when the capture starts at its SETTINGS frame, which is
+	// the silent "no protocol" case this inference exists to avoid.
+	if (frame[3] != HTTP2_FRAME_TYPE_SETTINGS || (frame[4] & ~HTTP2_FLAG_ACK & 0xff) || (frame[5] & 0x7f) || frame[6] || frame[7] || frame[8]) {
+		return false;
+	}
+	if (length % 6 != 0 || length > 16384) {
 		return false;
 	}
 	return true;
@@ -89,8 +139,8 @@ static bool is_http2_magic(const char *buf_src, size_t count)
 // HTTP 2.x
 // frame format: https://www.rfc-editor.org/rfc/rfc7540.html#section-4.1
 static __inline __u32 infer_http2_message(const char* buf, size_t count) {
-    static const __u8 kFrameBasicSize = 0x9; // including Length, Type, Flags, Reserved, Stream Identity
-    static const __u8 kFrameTypeHeader = 0x1; // the type of the frame: https://www.rfc-editor.org/rfc/rfc7540.html#section-6.2
+    static const __u8 kFrameBasicSize = HTTP2_FRAME_HEADER_LEN; // including Length, Type, Flags, Reserved, Stream Identity
+    static const __u8 kFrameTypeHeader = HTTP2_FRAME_TYPE_HEADERS; // https://www.rfc-editor.org/rfc/rfc7540.html#section-6.2
     static const __u8 kFrameLoopCount = 5;
 
     static const __u8 kStaticTableMaxSize = 61;// https://www.rfc-editor.org/rfc/rfc7541#appendix-A
@@ -111,8 +161,15 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
     // header info
     __u8 staticInx, headerBlockFragmentOffset;
 
+    // the client connection preface (RFC 7540 3.5) is only ever sent by the client, so the message
+    // is an HTTP/2 request and the connection is recognized from its very first byte
     if (is_http2_magic(buf, count)) {
-        frameOffset = 24;
+        return CONNECTION_MESSAGE_TYPE_REQUEST;
+    }
+    // a message starting with the SETTINGS frame (server preface, or client SETTINGS when the preface
+    // was written separately): HTTP/2 for sure, but it does not tell the role
+    if (is_http2_settings_frame(buf, count)) {
+        return CONNECTION_MESSAGE_TYPE_ANY;
     }
 
     // each all frame
@@ -127,7 +184,7 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
         frameOffset += (bpf_ntohl(*(__u32 *) frame) >> 8) + kFrameBasicSize;
 
         // frametype only accept 0x00 - 0x09
-        if (frame[3] > 0x09) {
+        if (frame[3] > HTTP2_FRAME_TYPE_MAX) {
             return CONNECTION_MESSAGE_TYPE_UNKNOWN;
         }
         // is header frame
@@ -149,7 +206,7 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
 
         // locate the header block fragment offset
         headerBlockFragmentOffset = kFrameBasicSize;
-        if (frame[4] & 0x08) {  // PADDED flag is set
+        if (frame[4] & HTTP2_FLAG_PADDED) {
             headerBlockFragmentOffset += 1;
         }
         if (frame[4] & 0x20) {  // PRIORITY flag is set
@@ -180,6 +237,9 @@ static __inline __u32 infer_http2_message(const char* buf, size_t count) {
 	return CONNECTION_MESSAGE_TYPE_UNKNOWN;
 }
 
+// the protocols a build recognizes beyond HTTP/1.x and HTTP/2, see protocol_analyzer_ext.h
+#include <protocol_analyzer_ext.h>
+
 static __noinline __u32 analyze_protocol(char *buf, __u32 count, __u8 *protocol_ref) {
     __u32 protocol = CONNECTION_PROTOCOL_UNKNOWN, type = CONNECTION_MESSAGE_TYPE_UNKNOWN;
 
@@ -188,6 +248,8 @@ static __noinline __u32 analyze_protocol(char *buf, __u32 count, __u8 *protocol_
         protocol = CONNECTION_PROTOCOL_HTTP1;
     } else if ((type = infer_http2_message(buf, count)) != CONNECTION_PROTOCOL_UNKNOWN) {
         protocol = CONNECTION_PROTOCOL_HTTP2;
+    } else {
+        type = infer_extra_protocol(buf, count, &protocol);
     }
 
     if (protocol != CONNECTION_PROTOCOL_UNKNOWN) {

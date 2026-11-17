@@ -42,7 +42,12 @@
 
 // for protocol analyze need to read
 #define MAX_PROTOCOL_SOCKET_READ_LENGTH 31
-// for transmit to the user space
+// for transmit to the user space.
+// The chunk is bounded by the per-CPU scratch an event is assembled in: the kernel caps a per-CPU map
+// value at PCPU_MIN_UNIT_SIZE, 32KB, and the event is the chunk plus its header. A 60KB chunk was
+// measured and rejected: it needs a plain array for the scratch, and it made the memory of a 256KB
+// workload worse rather than better, because the receiving side reads about 10KB per socket call and
+// never fills a chunk of either size.
 #define MAX_TRANSMIT_SOCKET_READ_LENGTH 20480
 
 // unknown the connection type, not trigger the syscall connect,accept

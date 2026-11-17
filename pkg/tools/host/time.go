@@ -52,3 +52,29 @@ func Time(bpfTime uint64) time.Time {
 	timeCopy := time.Unix(BootTime.Unix(), int64(BootTime.Nanosecond()))
 	return timeCopy.Add(time.Duration(bpfTime))
 }
+
+// SameMinute reports whether two kernel timestamps fall into the same wall clock minute. The backend
+// places a record into a minute bucket by the boot time of the node plus the offset the agent sends,
+// so this is the same arithmetic, and it is what decides whether two records may be reported as one.
+func SameMinute(first, second uint64) bool {
+	bootSeconds, bootNanos := BootTime.Unix(), int64(BootTime.Nanosecond())
+	return unixMinute(bootSeconds, bootNanos, first) == unixMinute(bootSeconds, bootNanos, second)
+}
+
+// unixMinute is the minute of Time(bpfTime) since the epoch: time.Time.Add carried over the seconds,
+// and Truncate(time.Minute) is the floor of the seconds by 60, the epoch being a whole minute after
+// the zero time Truncate counts from
+func unixMinute(bootSeconds, bootNanos int64, bpfTime uint64) int64 {
+	d := int64(time.Duration(bpfTime))
+	seconds, nanos := bootSeconds+d/1e9, bootNanos+d%1e9
+	if nanos >= 1e9 {
+		seconds++
+	} else if nanos < 0 {
+		seconds--
+	}
+	minute := seconds / 60
+	if seconds%60 < 0 {
+		minute--
+	}
+	return minute
+}

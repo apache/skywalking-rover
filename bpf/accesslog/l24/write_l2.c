@@ -15,37 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// L2 of a send: __dev_queue_xmit and the device transmit tracepoints of an sk_buff of skb_transmit_detail
+
 #include "l24.h"
-#include "../common/data_args.h"
 
 struct trace_event_raw_net_dev_start_xmit {
-        struct trace_entry ent;
-        __u32 __data_loc_name;
-        __u16 queue_mapping;
-        const void *skbaddr;
-} __attribute__((aligned(8))) __attribute__((preserve_access_index)) ;
-
+    struct trace_entry ent;
+    __u32 __data_loc_name;
+    __u16 queue_mapping;
+    const void *skbaddr;
+} __attribute__((preserve_access_index));
 
 struct trace_event_raw_net_dev_xmit {
     struct trace_entry ent;
     void *skbaddr;
 } __attribute__((preserve_access_index));
 
-
+// __dev_queue_xmit(skb, sb_dev)
 SEC("kprobe/__dev_queue_xmit")
-int dev_queue_emit(struct pt_regs * ctx){
+int l24_dev_queue_xmit(struct pt_regs * ctx) {
     struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
     struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
     if (detail != NULL) {
-        detail->l2_enter_time = bpf_ktime_get_ns();
-        save_l24_tmp_args(L24_TEMP_ARGS_DEV_QUEUE_EMIT, skb);
+        __u64 now = bpf_ktime_get_ns();
+        detail->l2_enter_time = now;
+        save_l24_tmp_args(L24_TEMP_ARGS_DEV_QUEUE_XMIT, skb, now);
     }
     return 0;
 }
 
 SEC("kretprobe/__dev_queue_xmit")
-int dev_queue_emit_ret(struct pt_regs * ctx){
-    struct skb_transmit_detail *detail = get_l24_transmit_tmp_args(L24_TEMP_ARGS_DEV_QUEUE_EMIT);
+int l24_dev_queue_xmit_ret(struct pt_regs * ctx) {
+    struct l24_tmp_args_value kept = {};
+    if (!take_l24_tmp_args(L24_TEMP_ARGS_DEV_QUEUE_XMIT, &kept)) {
+        return 0;
+    }
+    // (the sk_buff may be freed by now: only the address is used, as the key)
+    struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &kept.skb);
     if (detail != NULL) {
         detail->l2_exit_time = bpf_ktime_get_ns();
     }
@@ -53,7 +59,7 @@ int dev_queue_emit_ret(struct pt_regs * ctx){
 }
 
 SEC("tracepoint/net/net_dev_start_xmit")
-int tracepoint_net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *args) {
+int l24_net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *args) {
     struct sk_buff * skb = (struct sk_buff *)args->skbaddr;
     struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
     if (detail != NULL) {
@@ -63,7 +69,7 @@ int tracepoint_net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *arg
 }
 
 SEC("tracepoint/net/net_dev_xmit")
-int tracepoint_net_dev_xmit(struct trace_event_raw_net_dev_xmit *args) {
+int l24_net_dev_xmit(struct trace_event_raw_net_dev_xmit *args) {
     struct sk_buff * skb = (struct sk_buff *)args->skbaddr;
     struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
     if (detail != NULL) {

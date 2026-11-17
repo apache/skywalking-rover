@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -66,9 +67,20 @@ func GetEBPFCollectionOptionsIfNeed(_ *ebpf.CollectionSpec) *ebpf.CollectionOpti
 	return &ebpf.CollectionOptions{Programs: ebpf.ProgramOptions{KernelTypes: spec}}
 }
 
+// KernelBTFFileEnv names a BTF file to use for the kernel types when the kernel has none (the verifier VMs of 5.5 borrow
+// the BTF of another kernel); unset in a deployment
+const KernelBTFFileEnv = "ROVER_KERNEL_BTF_FILE"
+
 // getKernelBTFAddress means get the kernel BTF file path
 func getKernelBTFAddress() (spec *btf.Spec, fromKernel bool, err error) {
 	_, err = btf.LoadKernelSpec()
+	if err != nil {
+		if path := os.Getenv(KernelBTFFileEnv); path != "" {
+			if spec, err := btf.LoadSpec(path); err == nil {
+				return spec, false, nil
+			}
+		}
+	}
 	if err == nil {
 		return nil, true, nil
 	}

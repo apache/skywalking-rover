@@ -86,6 +86,8 @@ static __always_inline void report_running_process(void *ctx) {
     // periodic discovery would have found it. User space still gets the final say and removes
     // the entry if the process turns out not to be monitorable.
     __u32 v = 1;
+    // (the hint goes first: a process is never in process_monitor_control with its slot unset, process.h)
+    process_monitor_hint_set(tgid);
     bpf_map_update_elem(&process_monitor_control, &tgid, &v, 0);
 
     struct process_execute_event event = {};
@@ -122,6 +124,8 @@ int tracepoint_sched_process_fork(struct trace_event_raw_sched_process_fork* ctx
     //
     // This has to happen for every fork, before any of the filtering below can return early.
     __u32 child = ctx->child_pid;
+    // (the positive hint of the pid goes first, process.h)
+    process_monitor_hint_unconfirm(child);
     bpf_map_delete_elem(&process_monitor_control, &child);
     bpf_map_delete_elem(&process_not_monitor, &child);
 

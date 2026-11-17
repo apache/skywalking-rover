@@ -120,6 +120,10 @@ spec:
               value: "true"
             - name: ROVER_ACCESS_LOG_FLUSH_PERIOD
               value: 1s
+            # HTTP/2 parsing needs every socket event (a lost HEADERS frame desynchronizes HPACK for the
+            # rest of the connection): a bigger per CPU perf buffer so a busy runner does not drop samples
+            - name: ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER
+              value: 16MB
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

@@ -28,6 +28,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/apache/skywalking-rover/pkg/accesslog/collector/analyze"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
@@ -47,6 +48,12 @@ import (
 )
 
 var connectionLogger = logger.GetLogger("access_log", "collector", "connection")
+
+// the kernel functions of the connection kprobe and kretprobe
+const (
+	symbolTCPConnect = "tcp_connect"
+	symbolSockAlloc  = "sock_alloc"
+)
 
 type CollectFilter interface {
 	// OnConnectEvent is used to filter the event,
@@ -77,13 +84,13 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 	if ctx.Config.ConnectionAnalyze.ParseParallels < 1 {
 		return fmt.Errorf("the parallels cannot be small than 1")
 	}
-	if ctx.Config.ConnectionAnalyze.AnalyzeParallels < 1 {
+	if ctx.Config.ConnectionAnalyze.AnalyzeParallelCount() < 1 {
 		return fmt.Errorf("the parallels cannot be small than 1")
 	}
 	if ctx.Config.ConnectionAnalyze.QueueSize < 1 {
 		return fmt.Errorf("the queue size be small than 1")
 	}
-	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallels,
+	c.eventQueue = btf.NewEventQueue("connection resolver", ctx.Config.ConnectionAnalyze.AnalyzeParallelCount(),
 		ctx.Config.ConnectionAnalyze.QueueSize, func(_ int) btf.PartitionContext {
 			return NewConnectionPartitionContext(ctx, m.FindModule(process.ModuleName).(process.K8sOperator), c.filters)
 		})
@@ -100,31 +107,27 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 	})
 	c.eventQueue.Start(ctx.RuntimeContext, ctx.BPF.Linker)
 
-	ctx.BPF.AddTracePoint("syscalls", "sys_enter_connect", ctx.BPF.TracepointEnterConnect)
-	ctx.BPF.AddTracePoint("syscalls", "sys_exit_connect", ctx.BPF.TracepointExitConnect)
-	ctx.BPF.AddTracePoint("syscalls", "sys_enter_accept", ctx.BPF.TracepointEnterAccept)
-	ctx.BPF.AddTracePoint("syscalls", "sys_exit_accept", ctx.BPF.TracepointExitAccept)
-	ctx.BPF.AddTracePoint("syscalls", "sys_enter_accept4", ctx.BPF.TracepointEnterAccept)
-	ctx.BPF.AddTracePoint("syscalls", "sys_exit_accept4", ctx.BPF.TracepointExitAccept)
-	ctx.BPF.AddTracePoint("syscalls", "sys_enter_close", ctx.BPF.TracepointEnterClose)
-	ctx.BPF.AddTracePoint("syscalls", "sys_exit_close", ctx.BPF.TracepointExitClose)
+	// (the trampoline twins where the kernel runs them, pkg/accesslog/bpf/attach.go)
+	b := ctx.BPF
+	b.AddSyscall("connect", b.TracepointEnterConnect, b.TracepointExitConnect, b.FentryEnterConnect, b.FexitExitConnect)
+	b.AddSyscall("accept", b.TracepointEnterAccept, b.TracepointExitAccept, b.FentryEnterAccept, b.FexitExitAccept)
+	b.AddSyscall("accept4", b.TracepointEnterAccept, b.TracepointExitAccept, b.FentryEnterAccept4, b.FexitExitAccept4)
+	b.AddSyscall("close", b.TracepointEnterClose, b.TracepointExitClose, b.FentryEnterClose, b.FexitExitClose)
 
 	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
-		"tcp_connect": ctx.BPF.TcpConnect,
+		symbolTCPConnect: ctx.BPF.TcpConnect,
 	})
 	ctx.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{
-		"sock_alloc": ctx.BPF.SockAllocRet,
+		symbolSockAlloc: ctx.BPF.SockAllocRet,
 	})
 	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
 		"ip4_datagram_connect": ctx.BPF.Ip4UdpDatagramConnect,
 	})
 
-	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"__nf_conntrack_hash_insert": ctx.BPF.NfConntrackHashInsert,
-	})
-	_ = ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{
-		"nf_confirm": ctx.BPF.NfConfirm,
-	})
+	// the NAT address of a connect: fexit __nf_conntrack_confirm, or the kprobes (pkg/accesslog/bpf/nat.go)
+	if err := b.AddNATHooks(); err != nil {
+		connectionLogger.Debugf("the NAT address hooks are not attached: %v", err)
+	}
 	return nil
 }
 
@@ -152,6 +155,10 @@ func (c *ConnectionPartitionContext) Start(context.Context) {
 func (c *ConnectionPartitionContext) Consume(data interface{}) {
 	switch event := data.(type) {
 	case *events.SocketConnectEvent:
+		if event.Pad0 == 1 {
+			// the connection filter of the BPF side filtered the connection (bpf/accesslog/include/connection_filter.h)
+			return
+		}
 		connectionLogger.Debugf("receive connect event, connection ID: %d, randomID: %d, "+
 			"pid: %d, fd: %d, role: %s: func: %s, family: %d, success: %d, conntrack exist: %t",
 			event.ConID, event.RandomID, event.PID, event.SocketFD, enums.ConnectionRole(event.Role), enums.SocketFunctionName(event.FuncName),
@@ -184,6 +191,8 @@ func (c *ConnectionPartitionContext) Consume(data interface{}) {
 		}
 		forwarder.SendConnectEvent(c.context, event, socketPair)
 	case *events.SocketCloseEvent:
+		// the h2c payload summaries of the connection are drained by the next flush
+		analyze.NoteH2CConnectionClosed(event.ConnectionID, event.RandomID)
 		connectionLogger.Debugf("receive close event, connection ID: %d, randomID: %d, pid: %d, fd: %d",
 			event.ConnectionID, event.RandomID, event.PID, event.SocketFD)
 		wapperedEvent := c.context.ConnectionMgr.OnConnectionClose(event)

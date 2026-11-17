@@ -1,0 +1,41 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A metric that carries at least one real data point. The query window starts before the
+# traffic did and its last bucket is still being aggregated, so the value list always mixes
+# populated entries with empty ones - hence the two alternatives below.
+#
+# Every field of an entry has to be spelled out, `owner` included: the `contains` action
+# matches an expected entry against an actual one by exact equality, so an omitted key is a
+# mismatch and not a wildcard.
+type: TIME_SERIES_VALUES
+results:
+  {{- contains .results }}
+  - metric:
+      labels: []
+    values:
+      {{- contains .values }}
+      - id: {{ notEmpty .id }}
+        owner: null
+        value: {{ .value }}
+        traceid: null
+      - id: {{ notEmpty .id }}
+        owner: null
+        value: null
+        traceid: null
+      {{- end}}
+  {{- end}}
+error: null
+debuggingtrace: null

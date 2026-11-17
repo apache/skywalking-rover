@@ -18,89 +18,202 @@
 package collector
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/common"
-	"github.com/apache/skywalking-rover/pkg/module"
+	"fmt"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+
+	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
+	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
+	"github.com/apache/skywalking-rover/pkg/logger"
+	"github.com/apache/skywalking-rover/pkg/module"
+	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
+
+var l24Log = logger.GetLogger("access_log", "collector", "l24")
 
 const (
-	kprobeIPRcv              = "ip_rcv"
-	kprobeIPListRcv          = "ip_list_rcv"
-	kprobeTCPV4Rcv           = "tcp_v4_rcv"
-	kprobeTCPV6Rcv           = "tcp_v6_rcv"
-	kprobeTCPSendmsg         = "tcp_sendmsg"
-	kprobeIPQueueXmit        = "__ip_queue_xmit"
-	kprobeNeighResolveOutput = "neigh_resolve_output"
-	kprobeNfHookSlow         = "nf_hook_slow"
-	kprobeDevQueueXmit       = "__dev_queue_xmit"
+	// l24StoreCapacity bounds the details kept: some 200 bytes each with the map, so about 40MB when it is full
+	l24StoreCapacity = 200000
+	// the details live l24TTLFlushes flush periods (at least l24MinTTL) until a kernel log takes them, and one flush
+	// period after that
+	l24TTLFlushes = 3
+	l24MinTTL     = 5 * time.Second
+	// l24QueuePerCPUBuffer is the per-CPU perf buffer of the l24 events (152 bytes each)
+	l24QueuePerCPUBuffer = 512 * 1024
 )
 
-var l24CollectorsInstance = NewL24Collector()
-
+// L24Collector collects the L2 to L4 details of the socket calls (access_log.kernel_metrics.l2_l3): it attaches the
+// programs of bpf/accesslog/l24 and keeps the events they send in the store the kernel transfer logs take them from
+// (events.L24Store, pkg/accesslog/forwarder/transfer.go). With the switch off it does nothing.
 type L24Collector struct {
+	store *events.L24Store
 }
 
 func NewL24Collector() *L24Collector {
 	return &L24Collector{}
 }
 
-func (c *L24Collector) Start(mgr *module.Manager, context *common.AccessLogContext) error {
-	c.startWrite(mgr, context)
-	c.startRead(mgr, context)
+// l24Hook is an l24 program and the kernel function or tracepoint it is attached to
+type l24Hook struct {
+	// program is its name in the object
+	program string
+	// kind: kprobe, kretprobe or tracepoint ("group/name" in symbol)
+	kind   string
+	symbol string
+	prog   *ebpf.Program
+}
+
+// the kinds of the l24 hooks
+const (
+	l24KindKprobe     = "kprobe"
+	l24KindKretprobe  = "kretprobe"
+	l24KindTracepoint = "tracepoint"
+)
+
+// the kernel functions the l24 hooks probe on entry and on return
+const (
+	l24SymbolIPQueueXmit        = "__ip_queue_xmit"
+	l24SymbolDevQueueXmit       = "__dev_queue_xmit"
+	l24SymbolNeighResolveOutput = "neigh_resolve_output"
+	l24SymbolNfHookSlow         = "nf_hook_slow"
+	l24SymbolIPRcv              = "ip_rcv"
+	l24SymbolIPListRcv          = "ip_list_rcv"
+	l24SymbolTCPV4Rcv           = "tcp_v4_rcv"
+	l24SymbolTCPV6Rcv           = "tcp_v6_rcv"
+)
+
+// l24Hooks are the hooks of bpf/accesslog/l24 with the programs of the loader. None is required: a hook the
+// kernel does not have (the static functions ip_rcv_finish and ip_local_deliver_finish are inlined by some
+// builds, ip_list_rcv and ip_sublist_rcv_finish are 4.19+) only leaves its metrics at 0.
+//
+//nolint:goconst // each program name is written once here, its other occurrence is the generated (unexported) bpfProg constant of pkg/accesslog/bpf
+func l24Hooks(b *bpf.Loader) []l24Hook {
+	return []l24Hook{
+		// write: L4
+		{"l24_tcp_sendmsg", l24KindKprobe, symbolTCPSendmsg, b.L24TcpSendmsg},
+		{"l24_tcp_sendmsg_ret", l24KindKretprobe, symbolTCPSendmsg, b.L24TcpSendmsgRet},
+		{"l24_tcp_transmit_skb", l24KindKprobe, "__tcp_transmit_skb", b.L24TcpTransmitSkb},
+		{"l24_tcp_retransmit_skb", l24KindTracepoint, "tcp/tcp_retransmit_skb", b.L24TcpRetransmitSkb},
+		// write: L3
+		{"l24_ip_queue_xmit", l24KindKprobe, l24SymbolIPQueueXmit, b.L24IpQueueXmit},
+		{"l24_ip_queue_xmit_ret", l24KindKretprobe, l24SymbolIPQueueXmit, b.L24IpQueueXmitRet},
+		{"l24_ip_local_out", l24KindKprobe, "__ip_local_out", b.L24IpLocalOut},
+		{"l24_ip_output", l24KindKprobe, "ip_output", b.L24IpOutput},
+		{"l24_ip_finish_output2", l24KindKprobe, "ip_finish_output2", b.L24IpFinishOutput2},
+		{"l24_neigh_resolve_output", l24KindKprobe, l24SymbolNeighResolveOutput, b.L24NeighResolveOutput},
+		{"l24_neigh_resolve_output_ret", l24KindKretprobe, l24SymbolNeighResolveOutput, b.L24NeighResolveOutputRet},
+		// netfilter
+		{"l24_nf_hook_slow", l24KindKprobe, l24SymbolNfHookSlow, b.L24NfHookSlow},
+		{"l24_nf_hook_slow_ret", l24KindKretprobe, l24SymbolNfHookSlow, b.L24NfHookSlowRet},
+		// write: L2
+		{"l24_dev_queue_xmit", l24KindKprobe, l24SymbolDevQueueXmit, b.L24DevQueueXmit},
+		{"l24_dev_queue_xmit_ret", l24KindKretprobe, l24SymbolDevQueueXmit, b.L24DevQueueXmitRet},
+		{"l24_net_dev_start_xmit", l24KindTracepoint, "net/net_dev_start_xmit", b.L24NetDevStartXmit},
+		{"l24_net_dev_xmit", l24KindTracepoint, "net/net_dev_xmit", b.L24NetDevXmit},
+		// read: L2
+		{"l24_netif_receive_skb", l24KindTracepoint, "net/netif_receive_skb", b.L24NetifReceiveSkb},
+		{"l24_skb_copy_datagram_iovec", l24KindTracepoint, "skb/skb_copy_datagram_iovec", b.L24SkbCopyDatagramIovec},
+		// read: L3
+		{"l24_ip_rcv", l24KindKprobe, l24SymbolIPRcv, b.L24IpRcv},
+		{"l24_ip_rcv_ret", l24KindKretprobe, l24SymbolIPRcv, b.L24IpRcvRet},
+		{"l24_ip_list_rcv", l24KindKprobe, l24SymbolIPListRcv, b.L24IpListRcv},
+		{"l24_ip_list_rcv_ret", l24KindKretprobe, l24SymbolIPListRcv, b.L24IpListRcvRet},
+		{"l24_ip_rcv_finish", l24KindKprobe, "ip_rcv_finish", b.L24IpRcvFinish},
+		{"l24_ip_sublist_rcv_finish", l24KindKprobe, "ip_sublist_rcv_finish", b.L24IpSublistRcvFinish},
+		{"l24_ip_local_deliver", l24KindKprobe, "ip_local_deliver", b.L24IpLocalDeliver},
+		{"l24_ip_local_deliver_finish", l24KindKprobe, "ip_local_deliver_finish", b.L24IpLocalDeliverFinish},
+		// read: L4
+		{"l24_tcp_v4_rcv", l24KindKprobe, l24SymbolTCPV4Rcv, b.L24TcpV4Rcv},
+		{"l24_tcp_v4_rcv_ret", l24KindKretprobe, l24SymbolTCPV4Rcv, b.L24TcpV4RcvRet},
+		{"l24_tcp_v6_rcv", l24KindKprobe, l24SymbolTCPV6Rcv, b.L24TcpV6Rcv},
+		{"l24_tcp_v6_rcv_ret", l24KindKretprobe, l24SymbolTCPV6Rcv, b.L24TcpV6RcvRet},
+	}
+}
+
+// l24TTL is how long the details of a call wait for its kernel log: a few flush periods, as the kernel logs of a
+// flush are built at its end
+func l24TTL(flushPeriod time.Duration) time.Duration {
+	return max(l24TTLFlushes*flushPeriod, l24MinTTL)
+}
+
+func (c *L24Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error {
+	if !ctx.Config.KernelMetrics.L2L3 || !ctx.BPF.KernelMetricsL2L3() {
+		return nil
+	}
+	flushPeriod, err := time.ParseDuration(ctx.Config.Flush.Period)
+	if err != nil || flushPeriod <= 0 {
+		flushPeriod = time.Second
+	}
+	c.store = events.NewL24Store(l24StoreCapacity, l24TTL(flushPeriod), flushPeriod)
+	c.store.StartSweeper(flushPeriod)
+	registerL24Telemetry(c.store)
+	events.SetL24Store(c.store)
+
+	// the events first: a program attached before would send events nobody reads
+	store := c.store
+	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.SocketL24Queue, func(data interface{}) {
+		event := data.(*events.SocketL24Event)
+		store.Put(events.L24Key{ConnectionID: event.ConnectionID, RandomID: event.RandomID, DataID: event.DataID},
+			&event.Metrics)
+	}, l24QueuePerCPUBuffer, 1, func() interface{} {
+		// one goroutine reads the ring and the store copies the details: one event serves every read
+		return &events.SocketL24Event{}
+	})
+
+	attached, failed := 0, 0
+	for _, h := range l24Hooks(ctx.BPF) {
+		p := h.prog
+		if p == nil || !ctx.BPF.L24ProgramLoaded(h.program) {
+			failed++
+			l24Log.Warnf("the L2/L3 kernel metrics program %s is not loaded, %s %s is not traced", h.program, h.kind, h.symbol)
+			continue
+		}
+		if err := attachL24Hook(ctx, h, p); err != nil {
+			failed++
+			l24Log.Warnf("cannot attach the L2/L3 kernel metrics program %s to %s %s, its metrics stay 0: %v",
+				h.program, h.kind, h.symbol, err)
+			continue
+		}
+		attached++
+	}
+	l24Log.Infof("L2/L3 kernel metrics: %d hooks attached, %d not", attached, failed)
 	return nil
 }
 
-func (c *L24Collector) startRead(_ *module.Manager, context *common.AccessLogContext) {
-	// l2
-	context.BPF.AddTracePoint("net", "netif_receive_skb", context.BPF.TracepointNetifReceiveSkb)
-
-	// l3
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeIPRcv: context.BPF.IpRcv})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeIPRcv: context.BPF.IpRcvRet})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_rcv_finish": context.BPF.IpRcvFinish})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_local_deliver": context.BPF.IpLocalDeliver})
-	// it's not exist in old kernel versions
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{kprobeIPListRcv: context.BPF.IpListRcv})
-	_ = context.BPF.AddLinkOrError(link.Kretprobe, map[string]*ebpf.Program{kprobeIPListRcv: context.BPF.IpListRcvRet})
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"ip_sublist_rcv_finish": context.BPF.IpSublistRcvFinish})
-	_ = context.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"ip_local_deliver_finish": context.BPF.IpLocalDeliverFinish})
-
-	// l4
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeTCPV4Rcv: context.BPF.TcpV4Rcv})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeTCPV4Rcv: context.BPF.TcpV4RcvRet})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeTCPV6Rcv: context.BPF.TcpV6Rcv})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeTCPV6Rcv: context.BPF.TcpV6RcvRet})
+func attachL24Hook(ctx *common.AccessLogContext, h l24Hook, p *ebpf.Program) error {
+	switch h.kind {
+	case l24KindKprobe:
+		return ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{h.symbol: p})
+	case l24KindKretprobe:
+		return ctx.BPF.AddLinkOrError(link.Kretprobe, map[string]*ebpf.Program{h.symbol: p})
+	case l24KindTracepoint:
+		for i := 0; i < len(h.symbol); i++ {
+			if h.symbol[i] == '/' {
+				return ctx.BPF.AddTracePointOrError(h.symbol[:i], h.symbol[i+1:], p)
+			}
+		}
+	}
+	return fmt.Errorf("unknown hook %s %s", h.kind, h.symbol)
 }
 
-func (c *L24Collector) startWrite(_ *module.Manager, context *common.AccessLogContext) {
-	// l4
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeTCPSendmsg: context.BPF.TcpSendmsg})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeTCPSendmsg: context.BPF.TcpSendmsgRet})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"__tcp_transmit_skb": context.BPF.TcpTransmitSkb})
-	context.BPF.AddTracePoint("tcp", "tcp_retransmit_skb", context.BPF.TracepointTcpRetransmitSkb)
-	context.BPF.AddTracePoint("skb", "kfree_skb", context.BPF.KfreeSkb)
-
-	// l3
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeIPQueueXmit: context.BPF.IpQueueXmit})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeIPQueueXmit: context.BPF.IpQueueXmitRet})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"__ip_local_out": context.BPF.IpLocal})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_output": context.BPF.IpOutput})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{"ip_finish_output2": context.BPF.IpFinishOutput2})
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeNeighResolveOutput: context.BPF.NeighResolveOutput})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeNeighResolveOutput: context.BPF.NeighResolveOutputRet})
-
-	// netlink
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeNfHookSlow: context.BPF.NfHookSlow})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeNfHookSlow: context.BPF.NfHookSlowRet})
-
-	// l2
-	context.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{kprobeDevQueueXmit: context.BPF.DevQueueEmit})
-	context.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{kprobeDevQueueXmit: context.BPF.DevQueueEmitRet})
-	context.BPF.AddTracePoint("net", "net_dev_start_xmit", context.BPF.TracepointNetDevStartXmit)
-	context.BPF.AddTracePoint("net", "net_dev_xmit", context.BPF.TracepointNetDevXmit)
+func registerL24Telemetry(store *events.L24Store) {
+	telemetry.Register("rover_kernel_metrics_l2_l3_entries",
+		"The L2/L3 details of socket calls waiting for their kernel logs", telemetry.Gauge,
+		func() float64 { return float64(store.Len()) })
+	telemetry.Register("rover_kernel_metrics_l2_l3_dropped_total",
+		"The L2/L3 details of socket calls dropped because the store was full (their kernel logs have no L2/L3 metrics)",
+		telemetry.Counter, func() float64 { return float64(store.Dropped()) })
+	telemetry.Register("rover_kernel_metrics_l2_l3_expired_total",
+		"The L2/L3 details of socket calls removed after their time", telemetry.Counter,
+		func() float64 { return float64(store.Expired()) })
 }
 
 func (c *L24Collector) Stop() {
+	if c.store != nil {
+		c.store.Stop()
+		events.SetL24Store(nil)
+	}
 }

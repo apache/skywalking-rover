@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,13 +48,12 @@ import (
 var (
 	// ZTunnelProcessFinderInterval is the interval to find ztunnel process
 	ZTunnelProcessFinderInterval = time.Second * 30
-	// ztunnelMappingQueuePerCPUBufferPages / ztunnelMappingQueueMinParallels tune the ztunnel mapping
-	// perf queue so the doubled(track_outbound + ConnectionResult) event stream is drained promptly:
-	// a large per-CPU ring plus one reader goroutine per CPU keep the delivery latency well within
-	// the resolution-defer window(measured via the open->resolution latency buckets), instead of the
-	// events backing up and arriving after a short connection has already flushed the raw ClusterIP.
+	// ztunnelMappingQueuePerCPUBufferPages sizes the ztunnel mapping perf queue so the
+	// doubled(track_outbound + ConnectionResult) event stream is drained promptly: a large per-CPU
+	// ring keeps the delivery latency well within the resolution-defer window(measured via the
+	// open->resolution latency buckets), instead of the events backing up and arriving after a short
+	// connection has already flushed the raw ClusterIP.
 	ztunnelMappingQueuePerCPUBufferPages = 16
-	ztunnelMappingQueueMinParallels      = 4
 	// ZTunnelTrackBoundSymbolPrefix is the prefix of the symbol name to track outbound connections in ztunnel process
 	// ztunnel::proxy::connection_manager::ConnectionManager::track_outbound
 	ZTunnelTrackBoundSymbolPrefix = "_ZN7ztunnel5proxy18connection_manager17ConnectionManager14track_outbound"
@@ -297,13 +295,13 @@ func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error
 	// NOTE: even if the ztunnel process not found at startup, still needs to register
 	// the event reader and the finder ticker, the ztunnel process could start later
 	// This queue now carries TWO events per connection(track_outbound + ConnectionResult::new), so
-	// a single reader with the default 1-page buffer falls behind under a high connection rate(the
-	// extra waypoint hop): the mapping events are then read tens of seconds late, after the
-	// connection has already flushed with the raw ClusterIP - the dominant residual "-|service|-"
-	// cause. Give it a larger per-CPU buffer and a few reader goroutines so mappings are delivered
-	// promptly, within the connection's resolution-defer window.
+	// a reader with the default 1-page buffer falls behind under a high connection rate(the extra
+	// waypoint hop): the mapping events are then read tens of seconds late, after the connection has
+	// already flushed with the raw ClusterIP - the dominant residual "-|service|-" cause. The fix is
+	// the larger per-CPU buffer; extra reader goroutines are not one, because the library serializes
+	// the reads of a ring (see Linker.ReadEventAsyncWithBufferSize).
 	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelLbSocketMappingEventQueue, z.handleMappingEvent,
-		os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+		os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, 1, func() interface{} {
 			return &events.ZTunnelSocketMappingEvent{}
 		})
 	go func() {
@@ -350,7 +348,7 @@ func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error
 	// only when this path cannot cover the ztunnel build on this node(see ztunnelIdentitySource).
 	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelConnectionResultEventQueue, func(data interface{}) {
 		z.identitySource.HandleEvent(data.(*events.ZTunnelConnectionResultEvent))
-	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, 1, func() interface{} {
 		return &events.ZTunnelConnectionResultEvent{}
 	})
 	// the COMPACT queue carries the lean event the probe ships once user space has pushed the
@@ -358,7 +356,7 @@ func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error
 	// instead of ~520, so a busy ztunnel loses far fewer samples under perf-buffer pressure
 	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelConnectionResultCompactEventQueue, func(data interface{}) {
 		z.identitySource.HandleCompactEvent(data.(*events.ZTunnelConnectionResultCompactEvent))
-	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, ztunnelMappingQueueParallels(), func() interface{} {
+	}, os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, 1, func() interface{} {
 		return &events.ZTunnelConnectionResultCompactEvent{}
 	})
 	return nil
@@ -438,7 +436,7 @@ func (z *Collector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ 
 	// resolve the peer identity(DST_* for outbound, PEER_* for inbound) and carry it in the
 	// attachment Addition alongside the real destination; a nil addition simply attaches none
 	addition := z.buildConnectionAddition(connection, address)
-	connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
+	connection.ReplaceAttachment(&v3.ConnectionAttachment{
 		Environment: &v3.ConnectionAttachment_ZTunnel{
 			ZTunnel: &v3.ZTunnelAttachmentEnvironment{
 				RealDestinationIp: address.IP,
@@ -447,7 +445,7 @@ func (z *Collector) ReadyToFlushConnection(connection *common.ConnectionInfo, _ 
 				Addition:          addition,
 			},
 		},
-	}
+	})
 	// diagnostic: record how long this connection took from open to resolution, to LOCATE the
 	// late-mapping-event problem(a mass in the >=15s bucket = events delivered too slowly)
 	if z.alc != nil && z.alc.ConnectionMgr != nil {
@@ -532,11 +530,8 @@ func (z *Collector) isDstIdentityPending(connection *common.ConnectionInfo) bool
 	if (id != nil && id.Cluster != "") || lineSeen {
 		if id != nil {
 			// REBUILD the attachment with the identity filled instead of mutating the shared Addition
-			// slice in place: the sender goroutine may be marshaling this same
-			// *ZTunnelAttachmentEnvironment from an already-dispatched batch, and an in-place
-			// slice-header write would be a torn read for it. A whole-pointer swap(the same pattern as
-			// rebuildRPCConnectionWithTLSModeAndProtocol) is safe.
-			connection.RPCConnection.Attachment = &v3.ConnectionAttachment{
+			// slice in place: the sender goroutine may be marshaling it from an already-dispatched batch
+			connection.ReplaceAttachment(&v3.ConnectionAttachment{
 				Environment: &v3.ConnectionAttachment_ZTunnel{
 					ZTunnel: &v3.ZTunnelAttachmentEnvironment{
 						RealDestinationIp: ztun.GetRealDestinationIp(),
@@ -545,7 +540,7 @@ func (z *Collector) isDstIdentityPending(connection *common.ConnectionInfo) bool
 						Addition:          identityToKVs("DST", id),
 					},
 				},
-			}
+			})
 		}
 		return false
 	}
@@ -621,15 +616,6 @@ func (z *Collector) UnresolvedReason(connection *common.ConnectionInfo) string {
 // retroResolve pushes a just-cached source mapping to any connection still held in the manager for
 // that source, so a late mapping event does not miss the connection's flush(see RetroResolveBySrc).
 // It nil-guards the context so unit tests that construct a bare collector do not panic.
-// ztunnelMappingQueueParallels is the reader-goroutine count for the mapping perf queue: one per
-// CPU(floored at ztunnelMappingQueueMinParallels) so the doubled event stream is drained in parallel.
-func ztunnelMappingQueueParallels() int {
-	if n := runtime.NumCPU(); n > ztunnelMappingQueueMinParallels {
-		return n
-	}
-	return ztunnelMappingQueueMinParallels
-}
-
 func (z *Collector) retroResolve(srcIP string, srcPort uint16) {
 	if z.alc == nil || z.alc.ConnectionMgr == nil {
 		return

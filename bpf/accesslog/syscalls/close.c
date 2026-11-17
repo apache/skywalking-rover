@@ -20,6 +20,7 @@
 #include "socket_opts.h"
 #include "../process/process.h"
 #include "../common/connection.h"
+#include "../common/sys_attach.h"
 
 static __inline void process_close_sock(void* ctx, __u64 id, struct sock_close_args_t *args, int ret) {
     __u32 tgid = (__u32)(id >> 32);
@@ -30,28 +31,50 @@ static __inline void process_close_sock(void* ctx, __u64 id, struct sock_close_a
     submit_close_connection(ctx, tgid, args->fd, args->start_nacs, ret);
 }
 
-SEC("tracepoint/syscalls/sys_enter_close")
-int tracepoint_enter_close(struct syscall_trace_enter *ctx) {
+static __always_inline int sys_enter_close(void *ctx, __u64 fd) {
     uint64_t id = bpf_get_current_pid_tgid();
     if (tgid_should_trace(id >> 32) == false) {
         return 0;
     }
 
     struct sock_close_args_t close_args = {};
-    close_args.fd = (__u32)ctx->args[0];
+    close_args.fd = (__u32)fd;
     close_args.start_nacs = bpf_ktime_get_ns();
     bpf_map_update_elem(&closing_args, &id, &close_args, 0);
 	return 0;
 }
 
-SEC("tracepoint/syscalls/sys_exit_close")
-int tracepoint_exit_close(struct syscall_trace_exit *ctx) {
+SEC("tracepoint/syscalls/sys_enter_close")
+int tracepoint_enter_close(struct syscall_trace_enter *ctx) {
+    return sys_enter_close(ctx, TP_ARG(ctx, 0));
+}
+
+SYS_FENTRY(close)
+int fentry_enter_close(__u64 *ctx) {
+    struct sys_attach_regs *regs = sys_attach_regs(ctx);
+    if (regs == NULL) {
+        return 0;
+    }
+    return sys_enter_close(ctx, SYS_ARG0(regs));
+}
+
+static __always_inline int sys_exit_close(void *ctx, long ret) {
     __u64 id = bpf_get_current_pid_tgid();
     struct sock_close_args_t *close_args = bpf_map_lookup_elem(&closing_args, &id);
     if (close_args) {
-        process_close_sock(ctx, id, close_args, (int)ctx->ret);
+        process_close_sock(ctx, id, close_args, (int)ret);
+        // (only the thread's own enter puts its entry: one the lookup did not find is not there to delete)
+        bpf_map_delete_elem(&closing_args, &id);
     }
-
-    bpf_map_delete_elem(&closing_args, &id);
 	return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_close")
+int tracepoint_exit_close(struct syscall_trace_exit *ctx) {
+    return sys_exit_close(ctx, TP_RET(ctx));
+}
+
+SYS_FEXIT(close)
+int fexit_exit_close(__u64 *ctx) {
+    return sys_exit_close(ctx, SYS_RET(ctx));
 }

@@ -1,0 +1,31 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- contains . }}
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "GET:/h2c/items" }}
+  name: GET:/h2c/items
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/h2c/items" }}
+  name: POST:/h2c/items
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "GET:/h2c/missing" }}
+  name: GET:/h2c/missing
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/Unary" }}
+  name: POST:/e2e.E2EService/Unary
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/Fail" }}
+  name: POST:/e2e.E2EService/Fail
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/ServerStream" }}
+  name: POST:/e2e.E2EService/ServerStream
+- id: {{ b64enc "http2-server.default" }}.1_{{ b64enc "POST:/e2e.E2EService/ClientStream" }}
+  name: POST:/e2e.E2EService/ClientStream
+{{- end }}

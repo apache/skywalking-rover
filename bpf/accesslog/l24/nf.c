@@ -15,40 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "api.h"
+// the netfilter hooks an sk_buff of a send or of a receive goes through: their count and time
+
 #include "l24.h"
 
+// nf_hook_slow(skb, state, e, s)
 SEC("kprobe/nf_hook_slow")
-int nf_hook_slow(struct pt_regs * ctx) {
+int l24_nf_hook_slow(struct pt_regs * ctx) {
     struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
-	struct skb_transmit_detail *transmit_detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
-	if (transmit_detail != NULL) {
-	    transmit_detail->enter_nf_time = bpf_ktime_get_ns();
-	    save_l24_tmp_args(L24_TEMP_ARGS_TRANSMIT_NF_HOOK_SLOW, skb);
-	    return 0;
-	}
-	struct skb_receive_detail *recv_detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
-	if (recv_detail != NULL) {
-        recv_detail->enter_nf_time = bpf_ktime_get_ns();
-        save_l24_tmp_args(L24_TEMP_ARGS_RCV_NF_HOOK_SLOW, skb);
-        return 0;
+    if (bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb) != NULL ||
+        bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb) != NULL) {
+        save_l24_tmp_args(L24_TEMP_ARGS_NF_HOOK_SLOW, skb, bpf_ktime_get_ns());
     }
-	return 0;
+    return 0;
 }
 
 SEC("kretprobe/nf_hook_slow")
-int nf_hook_slow_ret(struct pt_regs * ctx) {
-    struct skb_transmit_detail *transmit_detail = get_l24_transmit_tmp_args(L24_TEMP_ARGS_TRANSMIT_NF_HOOK_SLOW);
-    if (transmit_detail != NULL) {
-        transmit_detail->total_nf_count++;
-        transmit_detail->total_nf_time = bpf_ktime_get_ns() - transmit_detail->enter_nf_time;
+int l24_nf_hook_slow_ret(struct pt_regs * ctx) {
+    struct l24_tmp_args_value kept = {};
+    if (!take_l24_tmp_args(L24_TEMP_ARGS_NF_HOOK_SLOW, &kept)) {
         return 0;
     }
-    struct skb_receive_detail* rcv_detail = get_l24_rcv_tmp_args(L24_TEMP_ARGS_RCV_NF_HOOK_SLOW);
-    if (rcv_detail != NULL) {
-        rcv_detail->total_nf_count++;
-        rcv_detail->total_nf_time = bpf_ktime_get_ns() - rcv_detail->enter_nf_time;
+    __u64 duration = bpf_ktime_get_ns() - kept.start_time;
+    struct skb_transmit_detail *transmit = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &kept.skb);
+    if (transmit != NULL) {
+        transmit->total_nf_count++;
+        transmit->total_nf_time += duration;
         return 0;
     }
-	return 0;
+    struct skb_receive_detail *receive = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &kept.skb);
+    if (receive != NULL) {
+        receive->total_nf_count++;
+        receive->total_nf_time += duration;
+    }
+    return 0;
 }

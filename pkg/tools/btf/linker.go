@@ -26,6 +26,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/x86/x86asm"
@@ -83,6 +84,38 @@ type Linker struct {
 
 	linkedUProbes map[string]bool
 	linkMutex     sync.Mutex
+
+	// queueReader is how the rings of the event queues are read, see SetEventQueueReaderOptions
+	queueReader EventQueueReaderOptions
+}
+
+// EventQueueReaderOptions control how an EventQueue reads its perf rings. The zero value reads every
+// event as it arrives and hands it to its partition on its own, which is what the other readers do.
+type EventQueueReaderOptions struct {
+	// WakeupEvents wakes the reader once a per CPU ring holds this many events instead of for every event;
+	// the rings are flushed every FlushPeriod, so no event waits longer than that. 0 wakes for every event.
+	WakeupEvents int
+	// FlushPeriod is how often the rings are flushed when WakeupEvents is set, and the longest a partial
+	// batch waits when the ring never runs empty; defaultReaderFlushPeriod when 0
+	FlushPeriod time.Duration
+	// BatchSize hands the events to the partitions in batches of up to this many, collected until the ring
+	// is drained or FlushPeriod has passed, instead of one by one. 0 or 1 hands them one by one.
+	BatchSize int
+}
+
+const defaultReaderFlushPeriod = time.Second
+
+// SetEventQueueReaderOptions sets how the event queues started from now on read their rings
+func (m *Linker) SetEventQueueReaderOptions(o EventQueueReaderOptions) {
+	m.queueReader = o
+}
+
+// readerOptions is how one perf ring is read
+type readerOptions struct {
+	wakeupEvents int
+	flushPeriod  time.Duration
+	// drained is called whenever every event the ring held has been handed over
+	drained func()
 }
 
 func NewLinker() *Linker {
@@ -100,7 +133,7 @@ type UProbeExeFile struct {
 
 func (m *Linker) AddLink(linkF LinkFunc, symbolWithPrograms map[string]*ebpf.Program) {
 	if e := m.AddLinkOrError(linkF, symbolWithPrograms); e != nil {
-		m.errors = multierror.Append(m.errors, e)
+		m.AppendError(e)
 	}
 }
 
@@ -120,10 +153,10 @@ func (m *Linker) AddLinkOrError(linkF LinkFunc, symbolWithPrograms map[string]*e
 		for s := range symbolWithPrograms {
 			symbolNames = append(symbolNames, s)
 		}
-		return multierror.Append(m.errors, fmt.Errorf("open %s error: %v", symbolNames, err))
+		return fmt.Errorf("open %s error: %v", symbolNames, err)
 	}
 	log.Debugf("attach to the kprobe: %s", realSym)
-	m.closers = append(m.closers, lk)
+	m.addCloser(lk)
 	return nil
 }
 
@@ -160,64 +193,236 @@ func (m *Linker) AddTracePoint(sys, name string, p *ebpf.Program) {
 	}
 }
 
+// AddTracePointOrError is AddTracePoint for a tracepoint that may not attach: the error is returned, not kept
+func (m *Linker) AddTracePointOrError(sys, name string, p *ebpf.Program) error {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
+	l, err := link.Tracepoint(sys, name, p, nil)
+	if err != nil {
+		return fmt.Errorf("open %s/%s error: %v", sys, name, err)
+	}
+	m.closers = append(m.closers, l)
+	return nil
+}
+
+// AddTracingOrError attaches a fentry/fexit program at the function it was loaded for (a BPF trampoline)
+func (m *Linker) AddTracingOrError(p *ebpf.Program) error {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
+	l, err := link.AttachTracing(link.TracingOptions{Program: p})
+	if err != nil {
+		return err
+	}
+	m.closers = append(m.closers, l)
+	return nil
+}
+
+// AddRawTracePointOrError attaches a raw tracepoint program
+func (m *Linker) AddRawTracePointOrError(name string, p *ebpf.Program) error {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
+	l, err := link.AttachRawTracepoint(link.RawTracepointOptions{Name: name, Program: p})
+	if err != nil {
+		return err
+	}
+	m.closers = append(m.closers, l)
+	return nil
+}
+
+// AppendError keeps an error for HasError
+func (m *Linker) AppendError(err error) {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
+	m.errors = multierror.Append(m.errors, err)
+}
+
 func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, dataSupplier func() interface{}) {
 	m.ReadEventAsyncWithBufferSize(emap, bufReader, os.Getpagesize(), 1, dataSupplier)
 }
 
+// ReadEventAsyncWithBufferSize reads the ring with one goroutine. parallels is deprecated: the library
+// serializes the reads of a ring, so more than one reader only costs a hand-off per event and delivers the
+// events of a connection out of order.
 func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
 	parallels int, dataSupplier func() interface{}) {
-	rd, err := perf.NewReader(emap, perCPUBuffer)
-	if err != nil {
-		m.errors = multierror.Append(m.errors, fmt.Errorf("open ring buffer error: %v", err))
-		return
-	}
-	if parallels < 1 {
-		m.errors = multierror.Append(m.errors, fmt.Errorf("parallels rading count must bigger than 1"))
-		return
-	}
-	m.closers = append(m.closers, rd)
-
-	recordBuilder := newPerfRecordBuilder(dataSupplier())
-	for i := 0; i < parallels; i++ {
-		m.asyncReadEvent(rd, emap, recordBuilder, dataSupplier, bufReader)
-	}
+	m.readEventAsync(emap, bufReader, perCPUBuffer, parallels, dataSupplier, readerOptions{})
 }
 
+var warnParallelsOnce sync.Once
+
+func (m *Linker) readEventAsync(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
+	parallels int, dataSupplier func() interface{}, opts readerOptions) {
+	if parallels > 1 {
+		warnParallelsOnce.Do(func() {
+			log.Warnf("parse_parallels %d is ignored: every ring is read by one goroutine, the library serializes the reads", parallels)
+		})
+	}
+	rd, err := perf.NewReaderWithOptions(emap, perCPUBuffer, perf.ReaderOptions{WakeupEvents: opts.wakeupEvents})
+	if err != nil {
+		m.AppendError(fmt.Errorf("open ring buffer error: %v", err))
+		return
+	}
+	m.addCloser(rd)
+
+	// the sizing event is only measured, never delivered: it must be given back or it holds one
+	// pooled buffer and one unit of the event accounting for the lifetime of the process
+	sizingEvent := dataSupplier()
+	recordBuilder := newPerfRecordBuilder(sizingEvent)
+	discardEvent(sizingEvent)
+	if opts.flushPeriod <= 0 {
+		opts.flushPeriod = defaultReaderFlushPeriod
+	}
+	if opts.wakeupEvents > 0 {
+		// a ring is only woken up for every wakeupEvents events: flush it periodically, so the events of
+		// little traffic are delivered within the flush period
+		go func() {
+			ticker := time.NewTicker(opts.flushPeriod)
+			defer ticker.Stop()
+			for range ticker.C {
+				if err := rd.Flush(); err != nil {
+					if errors.Is(err, perf.ErrClosed) || errors.Is(err, os.ErrClosed) {
+						return
+					}
+					// a flush that fails for another reason is tried again the next period: the events of little
+					// traffic would wait for the wakeup count otherwise
+					log.Debugf("flush the ring of %s error: %v", emap.String(), err)
+				}
+			}
+		}()
+	}
+	m.asyncReadEvent(rd, emap, recordBuilder, dataSupplier, bufReader, opts.drained, opts.flushPeriod)
+}
+
+// drainClock bounds how long the events handed over since the last drain may wait when the ring never
+// runs empty: tick tells every drainClockCheckEvery events that it is worth asking expired
+type drainClock struct {
+	period time.Duration
+	last   time.Time
+	events int
+}
+
+const drainClockCheckEvery = 64
+
+func (c *drainClock) tick() bool {
+	c.events++
+	return c.events%drainClockCheckEvery == 0
+}
+
+func (c *drainClock) expired(now time.Time) bool {
+	return now.Sub(c.last) >= c.period
+}
+
+func (c *drainClock) reset(now time.Time) {
+	c.last = now
+	c.events = 0
+}
+
+// asyncReadEvent reads the ring and hands every event to bufReader. With drained (batching), it reads on
+// without blocking while the ring holds events, and calls drained once it is empty, before it blocks
+// again, and at least every maxDelay while it never runs empty.
+//
+//nolint:gocyclo,funlen // the per-event read loop of the ring, its cases are the outcomes of one read
 func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *perfRecordBuilder,
-	dataSupplier func() interface{}, bufReader RingBufferReader) {
+	dataSupplier func() interface{}, bufReader RingBufferReader, drained func(), maxDelay time.Duration) {
+	batching := drained != nil
 	go func() {
+		clock := &drainClock{period: maxDelay, last: time.Now()}
+		// the events of the ring are parsed one after another by this goroutine only, and no event keeps
+		// the reader, so one reader serves all of them
+		sampleReader := &BytesReader{}
+		mapName := emap.String()
+		handOver := func(now time.Time) {
+			drained()
+			clock.reset(now)
+		}
+		// the deadline of a read that must not block: the reader returns what the rings hold, then
+		// os.ErrDeadlineExceeded
+		past := time.Unix(1, 0)
+		blocking, deadlineBlocking := true, true
 		for {
+			if batching && blocking != deadlineBlocking {
+				if blocking {
+					rd.SetDeadline(time.Time{})
+				} else {
+					rd.SetDeadline(past)
+				}
+				deadlineBlocking = blocking
+			}
 			record := recordPool.GetRecord()
 			err := rd.ReadInto(record)
 			if err != nil {
 				recordPool.PutRecord(record)
 				if errors.Is(err, perf.ErrClosed) {
+					if batching {
+						drained()
+					}
 					return
+				}
+				if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, perf.ErrFlushed) {
+					// every event the rings held has been read
+					if batching {
+						handOver(time.Now())
+						blocking = true
+					}
+					continue
 				}
 				log.Warnf("read from %s ringbuffer error: %v", emap.String(), err)
 				continue
 			}
+			blocking = false
 
 			if record.LostSamples != 0 {
 				// accumulate and report in an aggregated, periodic summary instead of logging
 				// every burst on its own (see lostsamples.go).
-				recordLostSamples(emap.String(), record.LostSamples)
+				recordLostSamples(mapName, record.LostSamples)
 				recordPool.PutRecord(record)
 				continue
 			}
 
-			data := dataSupplier()
+			// a batch of several events (per-CPU batching of HTTP/2 call records): each one is routed on its own
+			if splitSample(mapName, record.RawSample, bufReader) {
+				recordPool.PutRecord(record)
+				if batching && clock.tick() {
+					if now := time.Now(); clock.expired(now) {
+						handOver(now)
+					}
+				}
+				continue
+			}
+
+			var data interface{}
+			if shed, supply := shedSample(mapName, record.RawSample); shed {
+				// sent without its data under memory pressure: what a refused event is, without the copy,
+				// and what it still says of its call goes on when the consumer takes it
+				recordDroppedByLimit(mapName, record.RawSample)
+				if supply != nil {
+					data = supply()
+				}
+				if data == nil {
+					recordPool.PutRecord(record)
+					continue
+				}
+			} else if data = dataSupplier(); data == nil {
+				// the consumer refused the event (e.g. the memory protection of the socket data buffers is active)
+				recordDroppedByLimit(mapName, record.RawSample)
+				recordPool.PutRecord(record)
+				continue
+			}
 			if r, ok := data.(EventReader); ok {
-				sampleReader := NewReader(record.RawSample)
+				sampleReader.Reset(record.RawSample)
 				r.ReadFrom(sampleReader)
 				if readErr := sampleReader.HasError(); readErr != nil {
-					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), readErr)
+					lossEpoch.Add(1) // the event is lost to the consumers
+					discardEvent(data)
 					recordPool.PutRecord(record)
 					continue
 				}
 			} else {
 				if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, data); err != nil {
 					log.Warnf("parsing data from %s, raw size: %d, ringbuffer error: %v", emap.String(), len(record.RawSample), err)
+					lossEpoch.Add(1) // the event is lost to the consumers
+					discardEvent(data)
 					recordPool.PutRecord(record)
 					continue
 				}
@@ -226,6 +431,12 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *per
 			bufReader(data)
 
 			recordPool.PutRecord(record)
+			// the rings may never run empty under steady traffic: hand over what waits at least every maxDelay
+			if batching && clock.tick() {
+				if now := time.Now(); clock.expired(now) {
+					handOver(now)
+				}
+			}
 		}
 	}()
 }
@@ -233,7 +444,7 @@ func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *per
 func (m *Linker) OpenUProbeExeFile(path string) *UProbeExeFile {
 	executable, err := link.OpenExecutable(path)
 	if err != nil {
-		m.errors = multierror.Append(m.errors, fmt.Errorf("cannot found the execute file: %s, error: %v", path, err))
+		m.AppendError(fmt.Errorf("cannot found the execute file: %s, error: %v", path, err))
 		return &UProbeExeFile{
 			found: false,
 		}
@@ -280,11 +491,11 @@ func (u *UProbeExeFile) AddLinkWithType(symbol string, enter bool, p *ebpf.Progr
 	}
 	lk, err := u.addLinkWithType0(symbol, enter, p, 0)
 	if err != nil {
-		u.linker.errors = multierror.Append(u.linker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
+		u.linker.AppendError(fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
 			u.addr, symbol, u.parseEnterOrExitString(enter), err))
 	} else if lk != nil {
 		log.Debugf("attach to the uprobe, file: %s, symbol: %s, type: %s", u.addr, symbol, u.parseEnterOrExitString(enter))
-		u.linker.closers = append(u.linker.closers, lk)
+		u.linker.addCloser(lk)
 	}
 }
 
@@ -345,12 +556,12 @@ func (u *UProbeExeFile) AddGoLinkWithType(symbol string, enter bool, p *ebpf.Pro
 
 	links, err := u.addGoExitLink0(symbol, p, elfFile)
 	if err != nil {
-		u.linker.errors = multierror.Append(u.linker.errors, fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
+		u.linker.AppendError(fmt.Errorf("file: %s, symbol: %s, type: %s, error: %v",
 			u.addr, symbol, u.parseEnterOrExitString(enter), err))
 	} else {
 		log.Debugf("attach to the go uprobe, file: %s, symbol: %s, type: %s", u.addr, symbol, u.parseEnterOrExitString(enter))
 		for _, l := range links {
-			u.linker.closers = append(u.linker.closers, l)
+			u.linker.addCloser(l)
 		}
 	}
 }
@@ -426,14 +637,26 @@ func (u *UProbeExeFile) parseEnterOrExitString(enter bool) string {
 	return "exit"
 }
 
+// addCloser keeps what Close closes; the uprobes of a process may attach while a reader opens
+func (m *Linker) addCloser(c io.Closer) {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
+	m.closers = append(m.closers, c)
+}
+
 func (m *Linker) HasError() error {
+	m.linkMutex.Lock()
+	defer m.linkMutex.Unlock()
 	return m.errors
 }
 
 func (m *Linker) Close() error {
 	var err error
 	m.closeOnce.Do(func() {
-		for _, l := range m.closers {
+		m.linkMutex.Lock()
+		closers := m.closers
+		m.linkMutex.Unlock()
+		for _, l := range closers {
 			if e := l.Close(); e != nil {
 				err = multierror.Append(err, e)
 			}
@@ -445,6 +668,19 @@ func (m *Linker) Close() error {
 type perfRecordBuilder struct {
 	dataSize int
 	pool     sync.Pool
+}
+
+// EventDiscarder is implemented by an event that holds a resource the reader must give back when it
+// drops the event instead of delivering it, such as the pooled buffer of a socket data event.
+type EventDiscarder interface {
+	Discard()
+}
+
+// discardEvent gives back whatever an undelivered event holds
+func discardEvent(data interface{}) {
+	if discarder, ok := data.(EventDiscarder); ok {
+		discarder.Discard()
+	}
 }
 
 func newPerfRecordBuilder(data interface{}) *perfRecordBuilder {

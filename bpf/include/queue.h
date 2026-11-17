@@ -24,6 +24,10 @@
 		__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);\
 	} name SEC(".maps");
 
+// rover_data_heap is the scratch an event is assembled in before it is submitted, one entry per CPU.
+// It stays a per-CPU array: the kernel bounds such a value by PCPU_MIN_UNIT_SIZE, 32KB, which is what
+// bounds the upload chunk, and a plain array indexed by the processor id was measured without finding
+// a workload that pays for the larger chunk it would allow.
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(max_entries, 1);
