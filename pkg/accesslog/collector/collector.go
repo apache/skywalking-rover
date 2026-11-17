@@ -33,11 +33,11 @@ func Collectors() []Collector {
 	// so it is built once and used in both slots.
 	ztunnelCollector := ztunnel.NewCollector(ztunnel.ZTunnelIPMappingExpireDuration)
 	return []Collector{
-		l24CollectorsInstance,
 		transferCollectInstance,
 		NewConnectionCollector([]CollectFilter{ztunnelCollector}),
 		tlsCollectInstance,
 		processCollectInstance,
 		ztunnelCollector,
+		NewL24Collector(),
 	}
 }

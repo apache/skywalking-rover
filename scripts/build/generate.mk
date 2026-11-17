@@ -21,6 +21,14 @@ generate: export BPF_CLANG := $(CONTAINER_COMMAND_CLANG)
 generate: export BPF_CFLAGS := $(CONTAINER_COMMAND_CFLAGS)
 generate: export REPO_ROOT := $(REPODIR)
 generate:
+	@# the product hooks of the access log come from the include path an agent passes (BPF_ACCESSLOG_CFLAGS); a copy
+	@# of them in bpf/accesslog/include (left by an older agent build) would silently replace the defaults of rover
+	@for f in protocol_analyzer_ext.h connection_filter_rule.h; do \
+		if [ -e $(REPODIR)/bpf/accesslog/include/$$f ]; then \
+			echo "bpf/accesslog/include/$$f overrides the default bpf/include/$$f: remove it (an agent passes its hooks with BPF_ACCESSLOG_CFLAGS=-I<dir>)" >&2; \
+			exit 1; \
+		fi; \
+	done
 	cd ./ && TARGET=$(if $(findstring x86_64,$(shell uname -m)),amd64,arm64) go generate ./...
 
 # Usually works for generate ebpf ELF file on Mac OS or windows

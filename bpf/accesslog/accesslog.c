@@ -41,7 +41,10 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 #include "syscalls/transfer.c"
 #include "syscalls/close.c"
 
-// network l2-l4 monitoring
+// the L4 counters of a send (tcp_sendmsg)
+#include "syscalls/tcp_sendmsg.c"
+
+// the L2 to L4 details (access_log.kernel_metrics.l2_l3): stubs unless the switch is on
 #include "l24/write_l4.c"
 #include "l24/write_l3.c"
 #include "l24/write_l2.c"

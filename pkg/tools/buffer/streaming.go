@@ -19,7 +19,6 @@ package buffer
 
 import (
 	"bytes"
-	"container/list"
 	"strconv"
 	"strings"
 
@@ -47,14 +46,16 @@ func (r *Buffer) SetPosition(pos *Position) {
 type BodyConsumer struct {
 	Remaining int64 // body bytes still to consume (Content-Length mode)
 	events    []SocketDataBuffer
-	uploaded  map[uint64]int64 // uploaded bytes per data id, to account truncated socket calls
-	virtual   int64            // body bytes the kernel transferred but BPF did not upload
+	uploaded  uploadCounter // uploaded bytes per data id, to account truncated socket calls
+	virtual   int64         // body bytes the kernel transferred but BPF did not upload
 
 	// direction of the message the body belongs to; data of the other direction can never be part of
 	// the body, so reaching it means an event of this direction was lost and the body is given up
 	direction enums.SocketDataDirection
 	// aborted is set when the body was given up (the data of the body cannot be followed anymore)
 	aborted bool
+	// lastDataID is the largest data id of the message consumed so far (its head and body)
+	lastDataID uint64
 
 	// chunked transfer encoding: the framing is parsed as the bytes arrive
 	chunked        bool
@@ -90,11 +91,12 @@ func NewChunkedBodyConsumer(before *Buffer) *BodyConsumer {
 // bytes of the same message before the body (the headers): their uploaded bytes count towards the
 // truncation accounting of the socket calls they belong to.
 func NewBodyConsumer(length int64, before *Buffer) *BodyConsumer {
-	c := &BodyConsumer{Remaining: length, uploaded: make(map[uint64]int64)}
+	c := &BodyConsumer{Remaining: length}
 	if before != nil {
 		for _, e := range before.TotalBuffer() {
-			c.uploaded[e.DataID()] += int64(e.BufferLen())
+			c.uploaded.add(e.DataID(), int64(e.BufferLen()))
 			c.direction = e.Direction()
+			c.lastDataID = max(c.lastDataID, e.DataID())
 		}
 	}
 	return c
@@ -103,11 +105,51 @@ func NewBodyConsumer(length int64, before *Buffer) *BodyConsumer {
 // uploadedBytesOf returns the bytes BPF uploaded for the whole socket call the event belongs to. The
 // buffer counts them while the events are appended, which is exact even when the message starts in a
 // later chunk of the call; the consumer's own accounting is only the fallback.
-func (c *BodyConsumer) uploadedBytesOf(r *Buffer, ev SocketDataBuffer) int64 {
-	if v := r.UploadedBytes(ev.DataID()); v > c.uploaded[ev.DataID()] {
+func (c *BodyConsumer) uploadedBytesOf(r *Buffer, element *eventElement, ev SocketDataBuffer) int64 {
+	r.rlock()
+	v := r.uploadedBytesAt(element, ev)
+	r.runlock()
+	if v > c.uploaded.get(ev.DataID()) {
 		return v
 	}
-	return c.uploaded[ev.DataID()]
+	return c.uploaded.get(ev.DataID())
+}
+
+// uploadCounter sums bytes per data id as a map[uint64]int64 would, without allocating while it counts
+// only a few socket calls, the usual case of one message: those are kept inline, the others in the map
+type uploadCounter struct {
+	ids   [4]uint64
+	bytes [4]int64
+	n     int
+	more  map[uint64]int64
+}
+
+func (u *uploadCounter) add(dataID uint64, n int64) {
+	for i := 0; i < u.n; i++ {
+		if u.ids[i] == dataID {
+			u.bytes[i] += n
+			return
+		}
+	}
+	if u.n < len(u.ids) {
+		u.ids[u.n], u.bytes[u.n] = dataID, n
+		u.n++
+		return
+	}
+	if u.more == nil {
+		u.more = make(map[uint64]int64)
+	}
+	u.more[dataID] += n
+}
+
+// get returns the bytes counted for the data id, 0 when none were
+func (u *uploadCounter) get(dataID uint64) int64 {
+	for i := 0; i < u.n; i++ {
+		if u.ids[i] == dataID {
+			return u.bytes[i]
+		}
+	}
+	return u.more[dataID]
 }
 
 // abort gives the body up: the bytes that were never seen are reported as transferred but not
@@ -119,6 +161,40 @@ func (c *BodyConsumer) abort() {
 		c.Remaining = 0
 	}
 	c.done = true
+}
+
+// ChunkedFraming follows the framing of a chunked body over its bytes exactly as the consumer of a
+// chunked body parses it, for a reader that only needs to know where the body ends
+type ChunkedFraming struct {
+	c BodyConsumer
+}
+
+// NewChunkedFraming starts following a chunked body
+func NewChunkedFraming() *ChunkedFraming {
+	f := &ChunkedFraming{}
+	f.c.chunked = true
+	return f
+}
+
+// Feed parses the next bytes of the body; it returns how many belong to the body, all of them unless
+// it ended inside them, and whether it ended (after the last chunk and the trailers, or at framing the
+// consumer gives up on)
+func (f *ChunkedFraming) Feed(data []byte) (consumed int, done bool) {
+	return f.c.parseChunked(data, 0), f.c.done
+}
+
+// SkipData follows n bytes of chunk data the framing does not read (a call BPF uploaded without its
+// content), false when they are not all chunk data
+func (f *ChunkedFraming) SkipData(n int64) bool {
+	if f.c.done || f.c.chunkState != chunkData || n > f.c.chunkRemaining {
+		return false
+	}
+	f.c.chunkRemaining -= n
+	f.c.dataBytes += n
+	if f.c.chunkRemaining == 0 {
+		f.c.chunkState, f.c.chunkCRLF = chunkDataCRLF, 0
+	}
+	return true
 }
 
 // isOtherDirection reports whether the event cannot belong to the body because it is data of the
@@ -145,11 +221,25 @@ func (c *BodyConsumer) Consume(r *Buffer) bool {
 			return false
 		}
 		if c.isOtherDirection(ev) {
+			if prev := ev.PrevDataID(); prev > c.lastDataID && prev < ev.DataID() {
+				// the upload in front of it, by its previous data id, is a call of this message that has not
+				// come yet (a run of skipped body calls BPF uploads after it, see bpf/accesslog/syscalls/h1.h,
+				// or a call in the per CPU buffer of another CPU): it sorts in front of this event
+				return false
+			}
 			// an event of this message was lost: the next data on the connection belongs to the other
 			// direction, consuming it as body would desynchronize the parser for the whole connection
 			log.Debugf("give up the pending body, the next event belongs to the other direction, data id: %d", ev.DataID())
 			c.abort()
 			return true
+		}
+		if IsPayloadSkipped(ev) && ev.BufferLen() == 0 {
+			// a socket call BPF uploaded without its content because it lies inside the body
+			// (skip_http1_body_payload_bpf): its bytes count with its size, and it stays a call of the message
+			if !c.consumeSkipped(r, element, ev) {
+				return true
+			}
+			continue
 		}
 		from := r.current.bufIndex
 		avail := int64(ev.BufferLen() - from)
@@ -162,17 +252,18 @@ func (c *BodyConsumer) Consume(r *Buffer) bool {
 		}
 		to := from + int(take)
 		c.Remaining -= take
-		c.uploaded[ev.DataID()] += take
+		c.lastDataID = max(c.lastDataID, ev.DataID())
+		c.uploaded.add(ev.DataID(), take)
 		c.keep(ev, from, to)
 		if to < ev.BufferLen() {
 			// the body ends inside this event, the rest belongs to the next message
 			r.current.bufIndex = to
-			r.head = r.current.Clone()
+			r.setHead(r.current.element, r.current.bufIndex)
 			return c.Remaining <= 0
 		}
 		// the event is fully consumed: account a truncated socket call, then release the event
 		if ev.IsFinished() && ev.HaveReduceDataAfterChunk() {
-			if missing := int64(ev.TotalSize()) - c.uploadedBytesOf(r, ev); missing > 0 {
+			if missing := int64(ev.TotalSize()) - c.uploadedBytesOf(r, element, ev); missing > 0 {
 				if missing > c.Remaining {
 					missing = c.Remaining
 				}
@@ -182,10 +273,34 @@ func (c *BodyConsumer) Consume(r *Buffer) bool {
 		}
 		r.eventLocker.Lock()
 		next := r.removeElement0(element)
-		r.head = &Position{element: next, bufIndex: 0}
-		r.current = r.head.Clone()
+		r.setHead(next, 0)
+		r.resetCurrent()
 		r.eventLocker.Unlock()
 	}
+	return true
+}
+
+// consumeSkipped consumes a socket call uploaded without its content (PayloadSkippedBuffer) as TotalSize
+// body bytes the kernel transferred but BPF did not upload, and keeps it as a metadata copy for the
+// kernel log details: a call that BPF coalesced from several (one event for a run of calls of the body)
+// is one detail with their summed counters. A call larger than the rest of the body means that BPF framed
+// the messages differently: the body is given up (false), as when an event of it was lost.
+func (c *BodyConsumer) consumeSkipped(r *Buffer, element *eventElement, ev SocketDataBuffer) bool {
+	size := int64(ev.TotalSize())
+	if size > c.Remaining || r.current.bufIndex != 0 {
+		log.Debugf("give up the pending body, a call uploaded without its content runs past it, data id: %d", ev.DataID())
+		c.abort()
+		return false
+	}
+	c.Remaining -= size
+	c.virtual += size
+	c.lastDataID = max(c.lastDataID, ev.DataID())
+	c.keepWhole(ev)
+	r.eventLocker.Lock()
+	next := r.removeElement0(element)
+	r.setHead(next, 0)
+	r.resetCurrent()
+	r.eventLocker.Unlock()
 	return true
 }
 
@@ -202,22 +317,56 @@ func (c *BodyConsumer) consumeChunked(r *Buffer) bool {
 			return false
 		}
 		if c.isOtherDirection(ev) {
+			if prev := ev.PrevDataID(); prev > c.lastDataID && prev < ev.DataID() {
+				// a call of this message has not come yet, see Consume
+				return false
+			}
 			log.Debugf("give up the pending chunked body, the next event belongs to the other direction, data id: %d", ev.DataID())
+			c.abort()
+			return true
+		}
+		if IsPayloadSkipped(ev) && ev.BufferLen() == 0 && r.current.bufIndex == 0 && c.chunkState == chunkData &&
+			int64(ev.TotalSize()) <= c.chunkRemaining {
+			// a call BPF uploaded without its content because it lies wholly inside the data of a chunk
+			// (skip_http1_body_payload_bpf): counted as the data bytes it carries
+			size := int64(ev.TotalSize())
+			c.dataBytes += size
+			c.chunkRemaining -= size
+			if c.chunkRemaining == 0 {
+				c.chunkState, c.chunkCRLF = chunkDataCRLF, 0
+			}
+			c.lastDataID = max(c.lastDataID, ev.DataID())
+			c.keepWhole(ev)
+			r.eventLocker.Lock()
+			next := r.removeElement0(element)
+			r.setHead(next, 0)
+			r.resetCurrent()
+			r.eventLocker.Unlock()
+			continue
+		}
+		if IsPayloadSkipped(ev) {
+			// the framing cannot be parsed without the bytes; the decoder never skips a chunked body, and BPF
+			// only the data of a chunk: a call BPF skipped elsewhere was framed otherwise by BPF (after a lost
+			// event)
+			if IsBodyPayloadSkipped(ev) {
+				bodySkipConflicts.Add(1)
+			}
 			c.abort()
 			return true
 		}
 		from := r.current.bufIndex
 		to := c.parseChunked(ev.BufferData(), from)
-		c.uploaded[ev.DataID()] += int64(to - from)
+		c.lastDataID = max(c.lastDataID, ev.DataID())
+		c.uploaded.add(ev.DataID(), int64(to-from))
 		c.keep(ev, from, to)
 		if to < ev.BufferLen() {
 			r.current.bufIndex = to
-			r.head = r.current.Clone()
+			r.setHead(r.current.element, r.current.bufIndex)
 			return c.done
 		}
 		// the event is fully consumed: a truncated socket call loses bytes of the framing or data
 		if ev.IsFinished() && ev.HaveReduceDataAfterChunk() {
-			if missing := int64(ev.TotalSize()) - c.uploadedBytesOf(r, ev); missing > 0 {
+			if missing := int64(ev.TotalSize()) - c.uploadedBytesOf(r, element, ev); missing > 0 {
 				if c.chunkState == chunkData && missing < c.chunkRemaining {
 					c.chunkRemaining -= missing
 					c.virtual += missing
@@ -230,8 +379,8 @@ func (c *BodyConsumer) consumeChunked(r *Buffer) bool {
 		}
 		r.eventLocker.Lock()
 		next := r.removeElement0(element)
-		r.head = &Position{element: next, bufIndex: 0}
-		r.current = r.head.Clone()
+		r.setHead(next, 0)
+		r.resetCurrent()
 		r.eventLocker.Unlock()
 	}
 	return true
@@ -308,6 +457,15 @@ func indexByteFrom(data []byte, from int, b byte) int {
 	return -1
 }
 
+// keepWhole keeps a call without content as a call of the body, for the kernel log details
+func (c *BodyConsumer) keepWhole(ev SocketDataBuffer) {
+	var meta = ev
+	if copier, ok := ev.(MetadataCopier); ok {
+		meta = copier.CopyMetadata()
+	}
+	c.events = append(c.events, meta)
+}
+
 func (c *BodyConsumer) keep(ev SocketDataBuffer, from, to int) {
 	if to <= from {
 		return
@@ -330,7 +488,8 @@ func (c *BodyConsumer) Body(original *Buffer) *Buffer {
 		// a buffer without events would make LastSocketBuffer()/FirstSocketBuffer() nil for the callers
 		return nil
 	}
-	dataEvents := list.New()
+	dataEvents := newEventList()
+	dataEvents.reserve(len(c.events))
 	for _, e := range c.events {
 		dataEvents.PushBack(e)
 	}

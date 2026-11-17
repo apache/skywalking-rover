@@ -64,7 +64,66 @@ volatile __u32 cgroup_filter_enabled;
 
 volatile __u32 ztunnel_process_pid;
 
+// process_monitor_hint: slot tgid % PROCESS_MONITOR_HINT_SLOTS is set to 1 before a process is ever put into
+// process_monitor_control (by user space, pkg/accesslog/bpf Loader.MonitorProcess, and by report_running_process), and is
+// never cleared. A slot that is 0 proves that no process of the slot was ever monitored: the lookup of
+// process_monitor_control would not find it, and no thread of it holds an entry in socket_data_args either (only the
+// enter of a monitored process puts one, common/data_args.h). An array is looked up without a hash (the verifier
+// inlines it): the untraced processes of the host (ztunnel on the request path, ...) run the syscall and socket
+// programs on every call and miss both hash maps on every one. Processes that share a slot with a monitored one, or
+// whose slot a dead monitored one set, look the maps up as before.
+#define PROCESS_MONITOR_HINT_SLOTS 65536
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, PROCESS_MONITOR_HINT_SLOTS);
+	__type(key, __u32);
+	__type(value, __u32);
+} process_monitor_hint SEC(".maps");
+
+// The positive state: user space writes tgid | PROCESS_MONITOR_HINT_POS into the slot once it put the process
+// into process_monitor_control, and turns it back to 1 (maybe) before it deletes the process from it, as the fork of a
+// child that reuses a dead monitored tgid does (process.c): a slot that holds the tgid with the bit proves that the tgid
+// is in process_monitor_control, so the enter of a monitored process needs no lookup. Another process of the slot sees
+// a value that is not its own: it looks the map up. report_running_process only ever writes the maybe state.
+#define PROCESS_MONITOR_HINT_POS 0x80000000
+
+// process_may_be_monitored is false when the process was never monitored (see process_monitor_hint)
+static __always_inline bool process_may_be_monitored(__u32 tgid) {
+    __u32 slot = tgid & (PROCESS_MONITOR_HINT_SLOTS - 1);
+    __u32 *hint = bpf_map_lookup_elem(&process_monitor_hint, &slot);
+    return hint == NULL || *hint != 0;
+}
+
+// process_monitor_hint_unconfirm turns the positive state of the tgid back to maybe (before a delete from
+// process_monitor_control)
+static __always_inline void process_monitor_hint_unconfirm(__u32 tgid) {
+    __u32 slot = tgid & (PROCESS_MONITOR_HINT_SLOTS - 1);
+    __u32 *hint = bpf_map_lookup_elem(&process_monitor_hint, &slot);
+    if (hint != NULL && *hint == (tgid | PROCESS_MONITOR_HINT_POS)) {
+        *hint = 1;
+    }
+}
+
+static __always_inline void process_monitor_hint_set(__u32 tgid) {
+    __u32 slot = tgid & (PROCESS_MONITOR_HINT_SLOTS - 1);
+    __u32 *hint = bpf_map_lookup_elem(&process_monitor_hint, &slot);
+    if (hint != NULL && *hint == 0) {
+        *hint = 1;
+    }
+}
+
 static __inline bool tgid_should_trace(__u32 tgid) {
+    __u32 slot = tgid & (PROCESS_MONITOR_HINT_SLOTS - 1);
+    __u32 *hint = bpf_map_lookup_elem(&process_monitor_hint, &slot);
+    if (hint != NULL) {
+        __u32 v = *hint;
+        if (v == 0) {
+            return false;
+        }
+        if (v == (tgid | PROCESS_MONITOR_HINT_POS)) {
+            return true;
+        }
+    }
     __u32 *val = bpf_map_lookup_elem(&process_monitor_control, &tgid);
     if (!val) {
         return false;

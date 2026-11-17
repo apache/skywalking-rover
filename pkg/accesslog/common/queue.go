@@ -35,11 +35,6 @@ import (
 
 var log = logger.GetLogger("access_log", "common")
 
-type KernelLog interface {
-	Type() LogType
-	Event() events.Event
-}
-
 type ProtocolLog interface {
 	RelateKernelLogs() []events.SocketDetail
 	ProtocolLog() *v3.AccessLogProtocolLogs

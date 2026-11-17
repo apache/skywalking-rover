@@ -84,35 +84,61 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	defer func() {
 		releasePooledReader(bufReader)
 	}()
-	tp := textproto.NewReader(bufReader)
-	req := &http.Request{}
+
+	headerStartPosition := buf.Position()
+	var req *http.Request
+	if !r.textprotoOnly {
+		req = readRequestHeadFast(bufReader)
+	}
+	if req == nil {
+		// the fast scanner was not sure about the message: parse it again from its start with textproto
+		rewindForTextproto(buf, headerStartPosition, bufReader)
+		var err error
+		if req, err = readRequestHeadTextproto(bufReader); err != nil {
+			return nil, enums.ParseResultSkipPackage, err
+		}
+	}
 	result := &Request{original: req, reader: r}
 	result.MessageOpt = &MessageOpt{result}
 
-	headerStartPosition := buf.Position()
+	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	if !readBody {
+		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
+		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
+	} else {
+		b, r, err := result.readFullBody(bufReader, buf)
+		if err != nil {
+			return nil, enums.ParseResultSkipPackage, err
+		} else if r != enums.ParseResultSuccess {
+			return nil, r, nil
+		}
+		result.bodyBuffer = b
+	}
+
+	return result, enums.ParseResultSuccess, nil
+}
+
+// readRequestHeadTextproto parses the request line and the headers with net/textproto, it is the
+// reference behaviour of readRequestHeadFast
+func readRequestHeadTextproto(bufReader *bufio.Reader) (*http.Request, error) {
+	tp := textproto.NewReader(bufReader)
+	req := &http.Request{}
 	line, err := tp.ReadLine()
 	if err != nil {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("read request first lint failure: %v", err)
+		return nil, fmt.Errorf("read request first lint failure: %v", err)
 	}
 	method, rest, ok1 := strings.Cut(line, " ")
 	requestURI, proto, ok2 := strings.Cut(rest, " ")
 	if !ok1 || !ok2 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("the first line is not request: %s", line)
+		return nil, fmt.Errorf("the first line is not request: %s", line)
 	}
 
-	isRequest := false
-	for _, m := range requestMethods {
-		if method == m {
-			isRequest = true
-			break
-		}
-	}
-	if !isRequest {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("is not request: %s", method)
+	if fastRequestMethod(method) == "" {
+		return nil, fmt.Errorf("is not request: %s", method)
 	}
 	major, minor, ok := http.ParseHTTPVersion(proto)
 	if !ok {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("the protocol version cannot be identity: %s", proto)
+		return nil, fmt.Errorf("the protocol version cannot be identity: %s", proto)
 	}
 	justAuthority := req.Method == methodConnect && !strings.HasPrefix(requestURI, "/")
 	if justAuthority {
@@ -120,7 +146,7 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	}
 	uri, err := url.ParseRequestURI(requestURI)
 	if err != nil {
-		return nil, enums.ParseResultSkipPackage, err
+		return nil, err
 	}
 	req.Method, req.URL, req.RequestURI = method, uri, requestURI
 	req.Proto, req.ProtoMajor, req.ProtoMinor = proto, major, minor
@@ -128,7 +154,7 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	// header reader
 	mimeHeader, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, enums.ParseResultSkipPackage, err
+		return nil, err
 	}
 	req.Header = http.Header(mimeHeader)
 
@@ -136,23 +162,7 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 	if req.Host == "" {
 		req.Host = req.Header.Get("Host")
 	}
-
-	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
-	if !readBody {
-		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
-		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
-	}
-	if readBody {
-		if b, r, err := result.readFullBody(bufReader, buf); err != nil {
-			return nil, enums.ParseResultSkipPackage, err
-		} else if r != enums.ParseResultSuccess {
-			return nil, r, nil
-		} else {
-			result.bodyBuffer = b
-		}
-	}
-
-	return result, enums.ParseResultSuccess, nil
+	return req, nil
 }
 
 func (r *Request) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer, bufReader *bufio.Reader) {

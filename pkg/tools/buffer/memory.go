@@ -18,251 +18,103 @@
 package buffer
 
 import (
-	"bufio"
 	"fmt"
-	"math"
 	"os"
-	"path/filepath"
 	"runtime/debug"
-	"runtime/metrics"
 	"strconv"
-	"strings"
-	"sync"
 	"sync/atomic"
-	"time"
-
-	"github.com/docker/go-units"
 
 	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
 )
 
-// memory protection state (see the comment in buffer.go)
+// The memory protection keeps the socket data events held in memory within max_memory_percent of the
+// memory the agent can be allocated (memory_limit.go): the bytes the events in use hold (their pooled
+// buffers plus a per event overhead) are known exactly and for free, so AcquireEvent refuses a new event
+// as long as they are at the budget. That is all: what the events cost is what the analysis cannot keep
+// up with, the rest of the process is small and steady.
 var (
-	memoryThreshold        atomic.Int64 // bytes, 0: protection off
-	memoryUsage            atomic.Int64 // last sampled usage, bytes
-	memoryProtectionActive atomic.Bool
-	memorySamplerOnce      sync.Once
-	memorySampleInterval   = 500 * time.Millisecond
+	memoryLimitBytes atomic.Int64 // the memory the agent can be allocated, 0: unknown
+	memoryBudget     atomic.Int64 // bytes the events in use may hold, 0: protection off
+	// eventOverhead is what one event in use costs besides its pooled buffer: the event itself and the
+	// list element that holds it. The default is the rover's own event, which embeds the 20KB array.
+	eventOverhead   atomic.Int64
+	droppedByBudget atomic.Int64
 )
 
-// cgroupMemory locates the memory usage and limit files of the cgroup this process runs in. The cgroup
-// path comes from /proc/self/cgroup, so it also works when the host's /sys is mounted into the container.
-type cgroupMemory struct {
-	usageFile, limitFile string
-	// statFile holds the memory breakdown; the reclaimable page cache is subtracted from the usage so
-	// the protection reacts to the working set (what the OOM killer accounts) and not to file cache
-	statFile    string
-	inactiveKey string
+const (
+	// eventBookkeepingBytes: the list element and the interface that keep an event in a connection buffer
+	eventBookkeepingBytes = 64
+	// embeddedEventSize is the Go size class of an event that embeds the 20KB upload array
+	embeddedEventSize = 21760
+
+	defaultMaxMemoryPercent = 80
+	// goSoftLimitPercent is the Go soft memory limit the agent sets, percent of its memory limit: the
+	// events may hold max_memory_percent of it, and without the soft limit the GC lets the heap grow to
+	// twice what is live (GOGC=100), past the limit
+	goSoftLimitPercent = 90
+)
+
+// setMemoryLimit and lookupEnv are the runtime and the environment, replaced by the tests
+var (
+	setMemoryLimit = debug.SetMemoryLimit
+	lookupEnv      = os.LookupEnv
+)
+
+// applyGoSoftLimit sets the Go soft memory limit to goSoftLimitPercent of the memory limit, once at
+// startup, unless GOMEMLIMIT is set: that is the user's choice
+func applyGoSoftLimit(limit int64) string {
+	if v, set := lookupEnv("GOMEMLIMIT"); set && v != "" {
+		return fmt.Sprintf("Go memory limit kept at GOMEMLIMIT=%s", v)
+	}
+	soft := limit * goSoftLimitPercent / 100
+	setMemoryLimit(soft)
+	return fmt.Sprintf("Go memory limit set to %d MB (%d%%)", soft>>20, goSoftLimitPercent)
 }
 
-func detectCgroupMemory() *cgroupMemory {
-	f, err := os.Open("/proc/self/cgroup")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var v2Path, v1Path string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		parts := strings.SplitN(scanner.Text(), ":", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		switch {
-		case parts[0] == "0" && parts[1] == "":
-			v2Path = parts[2]
-		case strings.Contains(","+parts[1]+",", ",memory,"):
-			v1Path = parts[2]
-		}
-	}
-	candidates := make([]cgroupMemory, 0, 4)
-	if v2Path != "" {
-		candidates = append(candidates, newCgroupV2(filepath.Join("/sys/fs/cgroup", v2Path)))
-	}
-	if v1Path != "" {
-		candidates = append(candidates, newCgroupV1(filepath.Join("/sys/fs/cgroup/memory", v1Path)))
-	}
-	// the container's own cgroup root (when /sys/fs/cgroup is namespaced)
-	candidates = append(candidates, newCgroupV2("/sys/fs/cgroup"), newCgroupV1("/sys/fs/cgroup/memory"))
-	for i := range candidates {
-		if _, err := readCgroupValue(candidates[i].usageFile); err == nil {
-			return &candidates[i]
-		}
-	}
-	return nil
+func init() {
+	eventOverhead.Store(embeddedEventSize + eventBookkeepingBytes)
 }
 
-func newCgroupV2(dir string) cgroupMemory {
-	return cgroupMemory{
-		usageFile: filepath.Join(dir, "memory.current"), limitFile: filepath.Join(dir, "memory.max"),
-		statFile: filepath.Join(dir, "memory.stat"), inactiveKey: "inactive_file",
-	}
+// MemoryConfig is the configuration of the memory protection
+type MemoryConfig struct {
+	// MaxPercent: the events in use may hold this percent of the memory limit (0 disables the protection)
+	MaxPercent int
+	// EventSize: the size of one socket data event struct, 0 for an event that embeds the 20KB array
+	EventSize int
 }
 
-func newCgroupV1(dir string) cgroupMemory {
-	return cgroupMemory{
-		usageFile: filepath.Join(dir, "memory.usage_in_bytes"), limitFile: filepath.Join(dir, "memory.limit_in_bytes"),
-		statFile: filepath.Join(dir, "memory.stat"), inactiveKey: "total_inactive_file",
-	}
+// EnableMemoryProtection discovers the memory limit and sets the budget. It returns a description of
+// what was configured, or an error when no limit could be determined (the protection then stays off).
+func EnableMemoryProtection(cfg MemoryConfig) (string, error) {
+	return enableMemoryProtection(cfg, defaultLimitDiscovery().discover())
 }
 
-// workingSet is the cgroup usage without the reclaimable page cache, the same definition the kubelet
-// uses: file cache the agent produced by reading binaries, BTF or /proc must not trigger the protection
-func (c *cgroupMemory) workingSet() (int64, error) {
-	usage, err := readCgroupValue(c.usageFile)
-	if err != nil {
-		return 0, err
+func enableMemoryProtection(cfg MemoryConfig, found memoryLimit) (string, error) {
+	if cfg.EventSize > 0 {
+		eventOverhead.Store(int64(cfg.EventSize) + eventBookkeepingBytes)
 	}
-	if inactive := c.readStat(c.inactiveKey); inactive > 0 && inactive < usage {
-		usage -= inactive
+	memoryLimitBytes.Store(found.limit)
+	if found.limit <= 0 {
+		memoryBudget.Store(0)
+		return "", fmt.Errorf("no memory limit found (no cgroup limit, no /proc/meminfo): memory protection disabled")
 	}
-	return usage, nil
+	percent := cfg.MaxPercent
+	if percent > 100 {
+		percent = defaultMaxMemoryPercent
+	}
+	budget := found.limit * int64(percent) / 100
+	memoryBudget.Store(budget)
+	return fmt.Sprintf("limit %d MB from %s, the socket data events may hold %d MB (%d%%), %s",
+		found.limit>>20, found.source, budget>>20, percent, applyGoSoftLimit(found.limit)), nil
 }
 
-func (c *cgroupMemory) readStat(key string) int64 {
-	data, err := os.ReadFile(c.statFile)
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		name, value, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok || name != key {
-			continue
-		}
-		v, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return v
-	}
-	return 0
-}
-
-// readCgroupValue returns the value of a cgroup memory file; "max" (no limit) is reported as 0
-func readCgroupValue(file string) (int64, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return 0, err
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "max" {
-		return 0, nil
-	}
-	v, err := strconv.ParseInt(text, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	// cgroup v1 reports "no limit" as a huge number
-	if v >= math.MaxInt64/2 {
-		return 0, nil
-	}
-	return v, nil
-}
-
-// goHeapUsage is the usage source when the limit comes from GOMEMLIMIT (or no cgroup accounting is
-// available): the live heap plus everything outside the heap (stacks, metadata, ...). The total runtime
-// memory is not usable here, because under GOMEMLIMIT the GC deliberately lets the heap grow up to the
-// limit before collecting, so the protection would trip on garbage instead of on live data.
-func goHeapUsage() int64 {
-	samples := []metrics.Sample{
-		{Name: "/memory/classes/total:bytes"},
-		{Name: "/memory/classes/heap/released:bytes"},
-		{Name: "/gc/heap/live:bytes"},
-		{Name: "/memory/classes/heap/objects:bytes"},
-		{Name: "/memory/classes/heap/unused:bytes"},
-		{Name: "/memory/classes/heap/free:bytes"},
-	}
-	metrics.Read(samples)
-	value := func(i int) (int64, bool) {
-		if samples[i].Value.Kind() != metrics.KindUint64 {
-			return 0, false
-		}
-		return int64(samples[i].Value.Uint64()), true
-	}
-	total, ok := value(0)
-	if !ok {
-		return 0
-	}
-	released, _ := value(1)
-	live, liveOK := value(2)
-	objects, objectsOK := value(3)
-	unused, unusedOK := value(4)
-	free, freeOK := value(5)
-	if liveOK && objectsOK && unusedOK && freeOK {
-		// replace the heap classes by the live heap, keep stacks / metadata / other
-		if usage := total - objects - unused - free - released + live; usage > 0 {
-			return usage
-		}
-	}
-	return total - released
-}
-
-// EnableMemoryProtection drops new socket data events while the process memory usage is at or above
-// `percent` of its memory limit (the cgroup limit, or GOMEMLIMIT when the cgroup has none). An absolute
-// threshold in bytes overrides the percentage when it is positive. It returns a description of what was
-// configured, or an error when no limit could be determined (the protection then stays off).
-func EnableMemoryProtection(percent int, absolute int64) (string, error) {
-	cg := detectCgroupMemory()
-	var limit int64
-	source := ""
-	if cg != nil {
-		if v, err := readCgroupValue(cg.limitFile); err == nil && v > 0 {
-			limit, source = v, "cgroup limit "+cg.limitFile
-		}
-	}
-	if limit == 0 {
-		if v := debug.SetMemoryLimit(-1); v > 0 && v < math.MaxInt64 {
-			limit, source = v, "GOMEMLIMIT"
-			// the threshold is a share of the Go runtime limit, so the usage must be the Go runtime's
-			// own usage: comparing it against the cgroup usage (page cache, BPF maps, other processes
-			// of the cgroup) would keep the protection permanently active
-			cg = nil
-		}
-	}
-	threshold := absolute
-	if threshold <= 0 {
-		if limit == 0 {
-			memoryThreshold.Store(0)
-			hint := ""
-			if cg == nil {
-				// a container that mounts the host's /sys over /sys sees the host cgroup tree, where the
-				// path of /proc/self/cgroup ("/" under a private cgroup namespace) is the root cgroup and
-				// has no memory accounting at all
-				hint = ", the cgroup of the process could not be read (the host /sys may be mounted over" +
-					" /sys): set GOMEMLIMIT or the absolute max_memory instead"
-			}
-			return "", fmt.Errorf("no memory limit found (no cgroup limit, no GOMEMLIMIT)%s: memory protection disabled", hint)
-		}
-		if percent <= 0 || percent > 100 {
-			percent = 90
-		}
-		threshold = limit * int64(percent) / 100
-	}
-	memoryThreshold.Store(threshold)
-	memorySamplerOnce.Do(func() { go sampleMemory(cg) })
-	usageSource := "go runtime live heap"
-	if cg != nil {
-		usageSource = "cgroup working set " + cg.usageFile
-	}
-	return fmt.Sprintf("threshold %d MB (%d%% of %d MB, %s), usage from %s", threshold>>20, percent, limit>>20, source, usageSource), nil
-}
-
-// EnableMemoryProtectionFromConfig applies the configuration values (percent of the limit, optional
-// absolute size such as "1GB") and logs the outcome
-func EnableMemoryProtectionFromConfig(percent int, absolute string) {
-	var abs int64
-	if strings.TrimSpace(absolute) != "" {
-		if v, err := units.RAMInBytes(absolute); err == nil {
-			abs = v
-		} else {
-			log.Warnf("invalid max_memory %q: %v", absolute, err)
-		}
-	}
-	if percent <= 0 && abs <= 0 {
-		log.Infof("memory protection disabled (max_memory_percent %d, max_memory %q)", percent, absolute)
+// EnableMemoryProtectionFromConfig applies the configuration and logs the outcome
+func EnableMemoryProtectionFromConfig(cfg MemoryConfig) {
+	if cfg.MaxPercent <= 0 {
+		log.Infof("memory protection disabled (max_memory_percent %d)", cfg.MaxPercent)
 		return
 	}
-	desc, err := EnableMemoryProtection(percent, abs)
+	desc, err := EnableMemoryProtection(cfg)
 	if err != nil {
 		log.Warnf("%v", err)
 		return
@@ -270,51 +122,62 @@ func EnableMemoryProtectionFromConfig(percent int, absolute string) {
 	log.Infof("memory protection enabled: %s", desc)
 }
 
-// minForcedGCInterval bounds how often the sampler may force a full collection: it is a stop-the-world
-// GC plus a scavenge, and the usage hovering around the threshold would otherwise trigger one every
-// sample exactly while the agent is already saturated
-const minForcedGCInterval = 10 * time.Second
+// InflightBytes is the memory held by the socket data events in use: their pooled buffers plus the
+// overhead of each event. A compact record (ChargeRecord) has its own size in bytesInUse and only the
+// bookkeeping of an event besides. Derived from the counters, so it costs nothing on the event path.
+func InflightBytes() int64 {
+	v := inflightBytes()
+	if v < 0 {
+		return 0
+	}
+	return v
+}
 
-func sampleMemory(cg *cgroupMemory) {
-	var lastForcedGC time.Time
-	for {
-		var usage int64
-		if cg != nil {
-			if v, err := cg.workingSet(); err == nil {
-				usage = v
-			}
-		}
-		if usage == 0 {
-			usage = goHeapUsage()
-		}
-		if applyMemorySample(usage) && time.Since(lastForcedGC) >= minForcedGCInterval {
-			// give the released buffers back to the OS so the sampled usage follows the real one and
-			// the protection is released again instead of staying on until the next GC cycle
-			debug.FreeOSMemory()
-			lastForcedGC = time.Now()
-		}
-		time.Sleep(memorySampleInterval)
+// SetEventSize sets the size of the socket data event struct the memory protection charges an event in use
+// besides its buffer (MemoryConfig.EventSize) and returns the size it had, for the tests that compare runs
+// with compact records (charged CompactRecordSize) and with the events they stand for
+func SetEventSize(size int) int {
+	old := eventOverhead.Swap(int64(size) + eventBookkeepingBytes)
+	return int(old - eventBookkeepingBytes)
+}
+
+// ChargeEmbeddedEvent charges an admitted event (AcquireEvent) whose struct embeds its data, of structSize bytes (the
+// network profiling's event, which embeds the 20KB upload array), what its struct holds beyond the event overhead every
+// event in use is charged: the overhead is the size of the access log's event when the access log set it
+// (MemoryConfig.EventSize), far below such a struct. It returns the bytes charged (0 when the overhead covers the
+// struct, as by default), which the event gives back with RefundEmbeddedEvent when it is released: the overhead may
+// change in between (SetEventSize).
+func ChargeEmbeddedEvent(structSize int) int {
+	extra := int64(structSize) + eventBookkeepingBytes - eventOverhead.Load()
+	if extra <= 0 {
+		return 0
+	}
+	bytesInUse.Add(extra)
+	return int(extra)
+}
+
+// RefundEmbeddedEvent gives back what ChargeEmbeddedEvent charged an event, before its release (ReleaseEvent)
+func RefundEmbeddedEvent(charged int) {
+	if charged > 0 {
+		bytesInUse.Add(-int64(charged))
 	}
 }
 
-// applyMemorySample records the sampled usage and switches the protection on or off; it reports
-// whether the protection has just been activated
-func applyMemorySample(usage int64) bool {
-	memoryUsage.Store(usage)
-	threshold := memoryThreshold.Load()
-	active := threshold > 0 && usage >= threshold
-	if memoryProtectionActive.Swap(active) == active {
-		return false
-	}
-	if active {
-		log.Warnf("memory protection active: usage %d MB reached the threshold %d MB, new socket data events "+
-			"are dropped; %d events are still held by the analysis (%d MB)",
-			usage>>20, threshold>>20, eventsInUse.Load(), bytesInUse.Load()>>20)
-		return true
-	}
-	log.Infof("memory protection released: usage %d MB is below the threshold %d MB, %d events held by the analysis",
-		usage>>20, threshold>>20, eventsInUse.Load())
-	return false
+// inflightBytes is InflightBytes before it is clamped at 0
+func inflightBytes() int64 {
+	records := recordsInUse.Load()
+	return bytesInUse.Load() + (eventsInUse.Load()-records)*eventOverhead.Load() + records*eventBookkeepingBytes
+}
+
+// MemoryBudget is the bytes the socket data events in use may hold, 0 when the protection is off
+func MemoryBudget() int64 {
+	return memoryBudget.Load()
+}
+
+// SetMemoryBudget sets the budget in bytes (0 turns the protection off), for the tests of the packages
+// that drive the protection; the agent sizes the budget in EnableMemoryProtection
+func SetMemoryBudget(budget int64) {
+	memoryBudget.Store(budget)
 }
 
 // the agent cannot be operated on a heap profile: these are the numbers that say whether the
@@ -325,7 +188,7 @@ func init() {
 		telemetry.Gauge, func() float64 { return float64(eventsInUse.Load()) })
 	telemetry.Register("rover_socket_data_bytes_in_use",
 		"Bytes the socket data events held by the analysis occupy, which the variable length upload "+
-			"makes different from the event count times the chunk size",
+			"makes different from the event count times the chunk size; a compact HTTP/2 record counts its own size",
 		telemetry.Gauge, func() float64 { return float64(bytesInUse.Load()) })
 	telemetry.Register("rover_socket_data_events_accepted_total",
 		"Socket data events taken from the kernel: the analysis cost follows this, not the bytes",
@@ -333,24 +196,41 @@ func init() {
 	telemetry.Register("rover_socket_data_bytes_total",
 		"Bytes of socket data appended to a connection buffer, which against the event count is the average event",
 		telemetry.Counter, func() float64 { return float64(acceptedBytes.Load()) })
+	telemetry.RegisterSeries("rover_socket_data_buffers_taken_total",
+		"Pooled socket data buffers taken, by size class: against rover_socket_data_bytes_total this "+
+			"says how much of a class the payloads of that class actually use",
+		telemetry.Counter, func() []telemetry.Sample {
+			samples := make([]telemetry.Sample, len(bufferClasses))
+			for i, class := range bufferClasses {
+				samples[i] = telemetry.Sample{
+					Labels: map[string]string{"class": strconv.Itoa(class)},
+					Value:  float64(buffersTakenByClass[i].Load()),
+				}
+			}
+			return samples
+		})
 	telemetry.Register("rover_socket_data_events_expired_total",
 		"Socket data events released by the expiry rather than by an analyzer, so their message never completed",
 		telemetry.Counter, func() float64 { return float64(expiredEvents.Load()) })
-	telemetry.Register("rover_socket_data_events_dropped_total",
-		"Socket data events refused because the memory protection was active",
-		telemetry.Counter, func() float64 { return float64(droppedByLimit.Load()) })
-	telemetry.Register("rover_memory_usage_bytes",
-		"Memory usage of the process as the memory protection measures it",
-		telemetry.Gauge, func() float64 { return float64(memoryUsage.Load()) })
-	telemetry.Register("rover_memory_threshold_bytes",
-		"Usage at which new socket data events are dropped, 0 when the protection is off",
-		telemetry.Gauge, func() float64 { return float64(memoryThreshold.Load()) })
-	telemetry.Register("rover_memory_protection_active",
-		"1 while the memory protection is dropping new socket data events",
-		telemetry.Gauge, func() float64 {
-			if memoryProtectionActive.Load() {
-				return 1
+	telemetry.RegisterSeries("rover_socket_data_events_dropped_total",
+		"Socket data events refused by the memory protection: the events in use held the memory budget",
+		telemetry.Counter, func() []telemetry.Sample {
+			return []telemetry.Sample{
+				{Labels: map[string]string{"reason": "memory"}, Value: float64(droppedByBudget.Load())},
 			}
-			return 0
 		})
+	telemetry.Register("rover_socket_data_records_in_use",
+		"Compact HTTP/2 call records held by the analysis (part of rover_socket_data_events_in_use), each "+
+			"charged its own size instead of the event overhead",
+		telemetry.Gauge, func() float64 { return float64(recordsInUse.Load()) })
+	telemetry.Register("rover_socket_data_inflight_bytes",
+		"Memory held by the socket data events in use (pooled buffers plus the per event overhead)",
+		telemetry.Gauge, func() float64 { return float64(InflightBytes()) })
+	telemetry.Register("rover_socket_data_inflight_budget_bytes",
+		"Memory the socket data events in use may hold (max_memory_percent of the memory limit), 0 when "+
+			"the protection is off",
+		telemetry.Gauge, func() float64 { return float64(memoryBudget.Load()) })
+	telemetry.Register("rover_memory_limit_bytes",
+		"Memory the agent can be allocated (its cgroup limit, else the memory of the host), 0 when unknown",
+		telemetry.Gauge, func() float64 { return float64(memoryLimitBytes.Load()) })
 }

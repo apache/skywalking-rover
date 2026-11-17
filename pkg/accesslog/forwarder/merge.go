@@ -98,7 +98,7 @@ func mergeReadOperation(dst, src *v3.AccessLogKernelReadOperation) bool {
 		dst.GetL2Metrics().GetIfindex() != src.GetL2Metrics().GetIfindex() {
 		return false
 	}
-	dst.EndTime = laterTimestamp(dst.GetEndTime(), src.GetEndTime())
+	dst.EndTime = mergeEndTime(dst.GetEndTime(), src.GetEndTime())
 	if src.L2Metrics != nil {
 		if dst.L2Metrics == nil {
 			dst.L2Metrics = src.L2Metrics
@@ -137,7 +137,7 @@ func mergeWriteOperation(dst, src *v3.AccessLogKernelWriteOperation) bool {
 		dst.GetL2Metrics().GetIfindex() != src.GetL2Metrics().GetIfindex() {
 		return false
 	}
-	dst.EndTime = laterTimestamp(dst.GetEndTime(), src.GetEndTime())
+	dst.EndTime = mergeEndTime(dst.GetEndTime(), src.GetEndTime())
 	if src.L4Metrics != nil {
 		if dst.L4Metrics == nil {
 			dst.L4Metrics = src.L4Metrics
@@ -208,6 +208,22 @@ func sameMinute(first, second *v3.EBPFTimestamp) bool {
 	return host.Time(firstOffset).Truncate(time.Minute).Equal(host.Time(secondOffset).Truncate(time.Minute))
 }
 
+// mergeEndTime returns the later of both end times. When both are offsets the later offset is copied
+// into dst: a pointer to src would keep the whole bundle of the merged log alive (kernelReadLog).
+func mergeEndTime(dst, src *v3.EBPFTimestamp) *v3.EBPFTimestamp {
+	later := laterTimestamp(dst, src)
+	if later == dst {
+		return dst
+	}
+	dstOffset, ok := dst.GetTimestamp().(*v3.EBPFTimestamp_Offset)
+	if !ok || dstOffset.Offset == nil {
+		return later
+	}
+	// later is src, which is an offset
+	dstOffset.Offset.Offset = later.GetOffset().GetOffset()
+	return dst
+}
+
 func laterTimestamp(first, second *v3.EBPFTimestamp) *v3.EBPFTimestamp {
 	firstOffset, firstOK := offsetOf(first)
 	secondOffset, secondOK := offsetOf(second)
@@ -226,4 +242,64 @@ func offsetOf(timestamp *v3.EBPFTimestamp) (uint64, bool) {
 		return 0, false
 	}
 	return offset.Offset.GetOffset(), true
+}
+
+// transferMergeFields are, per metrics message of a TransferLog (see TransferLog.Metrics), the field numbers
+// TryMergeKernelLog sums when it folds the message of one log into the other's: every counter and duration,
+// never the interface index, which must be equal for the logs to merge
+var transferMergeFields = [2][3][]int{
+	// read: L2, L3, L4
+	{{2, 3, 4, 5}, {1, 2, 3, 4, 5}, {1}},
+	// write: L4 (its loss package metrics, field 4, are not in a TransferLog), L3, L2
+	{{1, 2, 3, 5}, {1, 2, 3, 5, 6, 7, 8}, {1, 3, 4, 5}},
+}
+
+// transferIfindex is the interface index of the log, what GetL2Metrics().GetIfindex() returns for its message:
+// field 1 of the read L2 metrics, field 2 of the write L2 metrics, 0 without L2 metrics
+func transferIfindex(t *TransferLog) uint64 {
+	if t.Write {
+		if !t.HasMetrics[2] {
+			return 0
+		}
+		return uint64(uint32(t.Metrics[2][2]))
+	}
+	if !t.HasMetrics[0] {
+		return 0
+	}
+	return uint64(uint32(t.Metrics[0][1]))
+}
+
+// TryMergeTransferLog is TryMergeKernelLog for the logs as TransferLog values: it folds src into dst and
+// reports whether it did, leaving dst what the message TryMergeKernelLog folds the message of src into
+// encodes to. Both carry their times as offsets, as the messages a KernelLogBuilder builds do.
+func TryMergeTransferLog(dst, src *TransferLog) bool {
+	if dst.Write != src.Write || dst.Syscall != src.Syscall ||
+		!host.Time(dst.StartTime).Truncate(time.Minute).Equal(host.Time(src.StartTime).Truncate(time.Minute)) ||
+		transferIfindex(dst) != transferIfindex(src) {
+		return false
+	}
+	if src.EndTime > dst.EndTime {
+		dst.EndTime = src.EndTime
+	}
+	operation := 0
+	if dst.Write {
+		operation = 1
+	}
+	for i := range src.HasMetrics {
+		if !src.HasMetrics[i] {
+			continue
+		}
+		if !dst.HasMetrics[i] {
+			dst.HasMetrics[i], dst.Metrics[i] = true, src.Metrics[i]
+			continue
+		}
+		for _, f := range transferMergeFields[operation][i] {
+			dst.Metrics[i][f] += src.Metrics[i][f]
+		}
+		if !dst.Write && i == 0 {
+			// the read L2 package count is a uint32 in the message, so its sum wraps at 32 bits
+			dst.Metrics[0][2] = uint64(uint32(dst.Metrics[0][2]))
+		}
+	}
+	return true
 }

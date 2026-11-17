@@ -19,7 +19,10 @@ package events
 
 import (
 	"fmt"
+	"unsafe"
 
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -37,12 +40,71 @@ type SocketDataUploadEvent struct {
 	DataID0      uint64
 	PrevDataID0  uint64
 	TotalSize0   uint64
-	Buffer       [20480]byte
+	// PayloadSkipped is set by the shared upload code (bpf/include/socket_data_event.h), never by the
+	// network profiling, which does not follow h2c frames
+	PayloadSkipped0 uint8
+	Buffer          [20480]byte
+
+	// what the memory protection charged the event for its embedded array (buffer.ChargeEmbeddedEvent), given
+	// back on its release
+	embeddedCharge int
+}
+
+// socketDataUploadEventSize is the size class of the event (the 20KB array embedded), which the memory protection
+// charges an event in use
+const socketDataUploadEventSize = 21760
+
+var _ = [socketDataUploadEventSize - unsafe.Sizeof(SocketDataUploadEvent{})]struct{}{}
+
+// ReadFrom decodes the event as the network profiling submits it (bpf/include/socket_data_event.h): the BPF side
+// sends the header and only the data_len bytes of the buffer that are used (offsetof(buffer) + data_len), so a
+// fixed-size decode of the whole struct (binary.Read) fails for every event shorter than the buffer. The fields are
+// read in the order of the struct, packed as binary.Read reads them; the buffer bytes behind DataLen keep whatever
+// they held.
+func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
+	s.Protocol0 = enums.ConnectionProtocol(r.ReadUint8())
+	s.HaveReduce = r.ReadUint8()
+	s.Direction0 = enums.SocketDataDirection(r.ReadUint8())
+	s.Finished = r.ReadUint8()
+	s.Sequence0 = r.ReadUint16()
+	s.DataLen = r.ReadUint16()
+	s.StartTime0 = r.ReadUint64()
+	s.EndTime0 = r.ReadUint64()
+	s.ConnectionID = r.ReadUint64()
+	s.RandomID = r.ReadUint64()
+	s.DataID0 = r.ReadUint64()
+	s.PrevDataID0 = r.ReadUint64()
+	s.TotalSize0 = r.ReadUint64()
+	s.PayloadSkipped0 = r.ReadUint8()
+	if _, sample := r.(*btf.BytesReader); !sample {
+		// the reader measures the event once (no sample) to size the records it reads the samples into: the whole
+		// array, so a record holds any sample without growing
+		r.ReadUint8Array(s.Buffer[:], len(s.Buffer))
+		return
+	}
+	// a real event (admitted by buffer.AcquireEvent): charged its embedded array, once
+	if s.embeddedCharge == 0 {
+		s.embeddedCharge = buffer.ChargeEmbeddedEvent(socketDataUploadEventSize)
+	}
+	if int(s.DataLen) > len(s.Buffer) {
+		s.DataLen = uint16(len(s.Buffer))
+	}
+	// a sample shorter than its data_len sets the error of the reader: the event is dropped as a broken one
+	r.ReadUint8Array(s.Buffer[:s.DataLen], int(s.DataLen))
+}
+
+// Discard gives back what an event the reader does not deliver holds (a broken sample, the sizing event): its
+// admission and the charge of its array
+func (s *SocketDataUploadEvent) Discard() {
+	buffer.ReleaseEvent(s.ReleaseBuffer())
 }
 
 // ReleaseBuffer: the array is embedded in the event, there is no separately pooled buffer to give back
 // (handing out an interior pointer would put memory of a live event into the pool)
 func (s *SocketDataUploadEvent) ReleaseBuffer() []byte {
+	// (called once, by the release of the event: the charge of the embedded array goes with it)
+	buffer.RefundEmbeddedEvent(s.embeddedCharge)
+	s.embeddedCharge = 0
 	return nil
 }
 

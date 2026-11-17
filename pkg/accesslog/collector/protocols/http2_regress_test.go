@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"golang.org/x/net/http2"
@@ -143,7 +144,7 @@ func TestHTTP2TruncatedSocketCallResync(t *testing.T) {
 		DataLen: uint16(len(truncated) / 4), StartTime0: bpfNow(), EndTime0: bpfNow(), Finished: 1, HaveReduce: 1,
 		ConnectionID: 1, RandomID: 1, DataID0: c.dataID, PrevDataID0: c.dataID - 1, TotalSize0: uint64(len(truncated)),
 	}
-	copy(ev.Buffer[:], truncated[:len(truncated)/4])
+	ev.Buffer = buffer.AdmittedEventData(truncated[:len(truncated)/4])
 	c.conn.AppendData(ev)
 
 	// the next socket call carries a complete request/response pair for another stream
@@ -187,8 +188,14 @@ func TestHTTP2DataFrameLengthIsBounded(t *testing.T) {
 	c.feed(enums.SocketDataDirectionEgress, server.take(), 0)
 	c.analyze()
 
-	if len(c.analyzer.streams) != 1 || c.analyzer.streams[0].req[":path"] != "/after-garbage" {
-		t.Fatalf("the parser must resynchronize instead of waiting for the bogus DATA frame: %+v, framingErr=%d",
-			c.analyzer.streams, c.metrics().FramingErrors)
+	// resynchronized: nothing waits for the bogus frame. The bytes it went past are no frame the parser can
+	// tell, so they may have held a header block: the request direction is no longer decoded (its decoder may be
+	// wrong), and the request after it is not reported.
+	if c.metrics().PendingDataLength() != 0 || c.metrics().FramingErrors != 1 {
+		t.Fatalf("the parser must resynchronize instead of waiting for the bogus DATA frame: pending %d, framingErr=%d",
+			c.metrics().PendingDataLength(), c.metrics().FramingErrors)
+	}
+	if !c.metrics().headerDesync[enums.SocketDataDirectionIngress] || len(c.analyzer.streams) != 0 {
+		t.Fatalf("the request direction must be header-desynced: %v, streams %+v", c.metrics().headerDesync, c.analyzer.streams)
 	}
 }

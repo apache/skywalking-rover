@@ -15,88 +15,61 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "l24.h"
-#include "../common/data_args.h"
-#include "../common/sock.h"
+// L4 of a send: the time in tcp_sendmsg, the sk_buffs __tcp_transmit_skb sends and the retransmits, while the thread is
+// in a socket call. (The role of the socket is taken by the tcp_sendmsg program of syscalls/tcp_sendmsg.c.)
 
-struct trace_event_raw_kfree_skb {
+#include "l24.h"
+
+struct trace_event_raw_tcp_event_sk_skb {
     struct trace_entry ent;
-    void *skbaddr;
-    void *location;
+    const void *skbaddr;
 } __attribute__((preserve_access_index));
 
 SEC("kprobe/tcp_sendmsg")
-int tcp_sendmsg(struct pt_regs* ctx) {
+int l24_tcp_sendmsg(struct pt_regs* ctx) {
     __u64 id = bpf_get_current_pid_tgid();
-    struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
+    struct sock_data_args_t *data_args = socket_data_args_get(&id);
     if (data_args != NULL) {
+        l24_args_own(data_args);
         data_args->enter_l4_time = bpf_ktime_get_ns();
-
-        // getting the socket role is client or server
-        struct sock *sk = (void *)PT_REGS_PARM1(ctx);
-        data_args->sk_role = get_sock_role(data_args->sk_role, sk);
-    }
-    return 0;
-};
-
-SEC("kretprobe/tcp_sendmsg")
-int tcp_sendmsg_ret(struct pt_regs* ctx) {
-    __u64 id = bpf_get_current_pid_tgid();
-    struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
-    if (data_args != NULL) {
-        data_args->exit_l4_time = bpf_ktime_get_ns();
-    }
-    return 0;
-};
-
-SEC("kprobe/tcp_transmit_skb")
-int tcp_transmit_skb(struct pt_regs* ctx) {
-    __u64 id = bpf_get_current_pid_tgid();
-    struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
-    if (data_args != NULL) {
-        struct sk_buff *skb = (void *)PT_REGS_PARM2(ctx);
-        data_args->package_count++;
-        data_args->total_package_size += _(skb->len);
-    }
-    return 0;
-};
-
-SEC("tracepoint/tcp/tcp_retransmit_skb")
-int tracepoint_tcp_retransmit_skb() {
-    __u64 id = bpf_get_current_pid_tgid();
-    struct sock_data_args_t *data_args = bpf_map_lookup_elem(&socket_data_args, &id);
-    if (data_args != NULL) {
-        data_args->retransmit_package_count++;
     }
     return 0;
 }
 
-#define UPDATE_LOSS_PACKAGE(detail, loc, count, location) \
-    if ((detail)->loc == 0) { \
-        (detail)->loc = (__u64)(location); \
-        (detail)->count = 1; \
-        return 0; \
-    } else if ((detail)->loc == (__u64)(location)) { \
-        (detail)->count++; \
-        return 0; \
+SEC("kretprobe/tcp_sendmsg")
+int l24_tcp_sendmsg_ret(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    struct sock_data_args_t *data_args = socket_data_args_get(&id);
+    if (data_args != NULL) {
+        l24_args_own(data_args);
     }
+    if (data_args != NULL && data_args->enter_l4_time != 0) {
+        data_args->l4_duration += bpf_ktime_get_ns() - data_args->enter_l4_time;
+        data_args->enter_l4_time = 0;
+    }
+    return 0;
+}
 
-SEC("tracepoint/skb/kfree_skb")
-int kfree_skb(struct trace_event_raw_kfree_skb *args) {
-    struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
-    if (skb == NULL) {
-        return 0;
+// __tcp_transmit_skb(sk, skb, clone_it, gfp_mask, rcv_nxt)
+SEC("kprobe/__tcp_transmit_skb")
+int l24_tcp_transmit_skb(struct pt_regs* ctx) {
+    __u64 id = bpf_get_current_pid_tgid();
+    struct sock_data_args_t *data_args = socket_data_args_get(&id);
+    if (data_args != NULL) {
+        struct sk_buff *skb = (void *)PT_REGS_PARM2(ctx);
+        l24_args_own(data_args);
+        data_args->l4_transmit_package_count++;
+        data_args->l4_transmit_package_size += _(skb->len);
     }
-    void* location = args->location;
-    if (location == NULL) {
-        return 0;
-    }
-    struct skb_transmit_detail *detail = bpf_map_lookup_elem(&sk_buff_transmit_detail_map, &skb);
-    if (detail != NULL) {
-        UPDATE_LOSS_PACKAGE(detail, loss_package_location1, loss_package_count1, location);
-        UPDATE_LOSS_PACKAGE(detail, loss_package_location2, loss_package_count2, location);
-        UPDATE_LOSS_PACKAGE(detail, loss_package_location3, loss_package_count3, location);
-        UPDATE_LOSS_PACKAGE(detail, loss_package_location4, loss_package_count4, location);
+    return 0;
+}
+
+SEC("tracepoint/tcp/tcp_retransmit_skb")
+int l24_tcp_retransmit_skb(struct trace_event_raw_tcp_event_sk_skb *args) {
+    __u64 id = bpf_get_current_pid_tgid();
+    struct sock_data_args_t *data_args = socket_data_args_get(&id);
+    if (data_args != NULL && data_args->retransmit_package_count < 0xff) {
+        data_args->retransmit_package_count++;
     }
     return 0;
 }

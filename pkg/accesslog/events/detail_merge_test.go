@@ -25,13 +25,12 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
 
-func detail(start, end uint64, ifIndex uint32, name enums.SocketFunctionName, packages uint32, size uint64) *SocketDetailEvent {
-	return &SocketDetailEvent{
+func detail(start, end uint64, name enums.SocketFunctionName, packages uint32, size uint64) *SocketDataUploadEvent {
+	return &SocketDataUploadEvent{
 		ConnectionID: 1, RandomID: 2, DataID0: start,
-		StartTime: start, EndTime: end,
-		L4Duration: end - start, L4PackageCount: packages, L4TotalPackageSize: size,
-		L3NetFilterCount: 1, L3NetFilterDuration: 5,
-		IfIndex: ifIndex, FunctionName: name,
+		StartTime0: start, EndTime0: end,
+		L4PackageCount: packages, L4TotalPackageSize: size,
+		FunctionName: uint32(name),
 	}
 }
 
@@ -39,17 +38,17 @@ func detail(start, end uint64, ifIndex uint32, name enums.SocketFunctionName, pa
 // becomes one record whose counters are the sum of all of them.
 func TestMergeDetailsOfOneMessage(t *testing.T) {
 	details := []SocketDetail{
-		detail(1000, 2000, 3, enums.SocketFunctionNameRead, 170, 20480),
-		detail(3000, 4000, 3, enums.SocketFunctionNameRead, 171, 20480),
-		detail(5000, 6000, 3, enums.SocketFunctionNameRead, 172, 10240),
+		detail(1000, 2000, enums.SocketFunctionNameRead, 170, 20480),
+		detail(3000, 4000, enums.SocketFunctionNameRead, 171, 20480),
+		detail(5000, 6000, enums.SocketFunctionNameRead, 172, 10240),
 	}
 	merged := MergeDetails(details)
 	if len(merged) != 1 {
 		t.Fatalf("expected one record, got %d", len(merged))
 	}
-	got := merged[0].(*SocketDetailEvent)
-	if got.StartTime != 1000 || got.EndTime != 6000 {
-		t.Errorf("times = %d-%d, want the first start and the last end 1000-6000", got.StartTime, got.EndTime)
+	got := merged[0].(*SocketDataUploadEvent)
+	if got.StartTime0 != 1000 || got.EndTime0 != 6000 {
+		t.Errorf("times = %d-%d, want the first start and the last end 1000-6000", got.StartTime0, got.EndTime0)
 	}
 	// the package count of one syscall does not fit in the kernel width, the sum of three never would
 	if got.L4PackageCount != 513 {
@@ -58,25 +57,18 @@ func TestMergeDetailsOfOneMessage(t *testing.T) {
 	if got.L4TotalPackageSize != 51200 {
 		t.Errorf("package size = %d, want 51200", got.L4TotalPackageSize)
 	}
-	if got.L4Duration != 3000 {
-		t.Errorf("l4 duration = %d, want the sum 3000", got.L4Duration)
-	}
-	// the backend reads the duration only when the count is positive: they must be summed together
-	if got.L3NetFilterCount != 3 || got.L3NetFilterDuration != 15 {
-		t.Errorf("net filter = %d in %d, want 3 in 15", got.L3NetFilterCount, got.L3NetFilterDuration)
-	}
 }
 
 // TestMergeDetailsKeepsTheOriginals guards the reason the merge copies: one socket call can carry the
 // end of a message and the start of the next, so its detail belongs to two protocol logs.
 func TestMergeDetailsKeepsTheOriginals(t *testing.T) {
-	shared := detail(1000, 2000, 1, enums.SocketFunctionNameRead, 10, 1024)
-	details := []SocketDetail{shared, detail(3000, 4000, 1, enums.SocketFunctionNameRead, 11, 2048)}
+	shared := detail(1000, 2000, enums.SocketFunctionNameRead, 10, 1024)
+	details := []SocketDetail{shared, detail(3000, 4000, enums.SocketFunctionNameRead, 11, 2048)}
 	merged := MergeDetails(details)
 	if len(merged) != 1 {
 		t.Fatalf("expected one record, got %d", len(merged))
 	}
-	if shared.L4PackageCount != 10 || shared.L4TotalPackageSize != 1024 || shared.EndTime != 2000 {
+	if shared.L4PackageCount != 10 || shared.L4TotalPackageSize != 1024 || shared.EndTime0 != 2000 {
 		t.Fatalf("the first detail was modified in place: %+v", shared)
 	}
 }
@@ -90,25 +82,21 @@ func TestMergeDetailsKeepsGroupsApart(t *testing.T) {
 		want    int
 	}{
 		{"syscall change", []SocketDetail{
-			detail(1000, 2000, 1, enums.SocketFunctionNameRead, 1, 10),
-			detail(3000, 4000, 1, enums.SocketFunctionNameWrite, 1, 10),
-		}, 2},
-		{"interface change", []SocketDetail{
-			detail(1000, 2000, 1, enums.SocketFunctionNameRead, 1, 10),
-			detail(3000, 4000, 2, enums.SocketFunctionNameRead, 1, 10),
+			detail(1000, 2000, enums.SocketFunctionNameRead, 1, 10),
+			detail(3000, 4000, enums.SocketFunctionNameWrite, 1, 10),
 		}, 2},
 		{"minute boundary", []SocketDetail{
-			detail(minute-1000, minute-500, 1, enums.SocketFunctionNameRead, 1, 10),
-			detail(minute+1000, minute+2000, 1, enums.SocketFunctionNameRead, 1, 10),
+			detail(minute-1000, minute-500, enums.SocketFunctionNameRead, 1, 10),
+			detail(minute+1000, minute+2000, enums.SocketFunctionNameRead, 1, 10),
 		}, 2},
 		{"same minute", []SocketDetail{
-			detail(minute+1000, minute+2000, 1, enums.SocketFunctionNameRead, 1, 10),
-			detail(minute+3000, minute+4000, 1, enums.SocketFunctionNameRead, 1, 10),
+			detail(minute+1000, minute+2000, enums.SocketFunctionNameRead, 1, 10),
+			detail(minute+3000, minute+4000, enums.SocketFunctionNameRead, 1, 10),
 		}, 1},
 		{"read write read keeps the order", []SocketDetail{
-			detail(1000, 2000, 1, enums.SocketFunctionNameRead, 1, 10),
-			detail(3000, 4000, 1, enums.SocketFunctionNameWrite, 1, 10),
-			detail(5000, 6000, 1, enums.SocketFunctionNameRead, 1, 10),
+			detail(1000, 2000, enums.SocketFunctionNameRead, 1, 10),
+			detail(3000, 4000, enums.SocketFunctionNameWrite, 1, 10),
+			detail(5000, 6000, enums.SocketFunctionNameRead, 1, 10),
 		}, 3},
 	}
 	for _, test := range tests {
@@ -125,7 +113,7 @@ func TestMergeDetailsTotalsAreKept(t *testing.T) {
 	var wantPackages uint32
 	var wantSize uint64
 	for i := uint64(0); i < 16; i++ {
-		details = append(details, detail(1000*i, 1000*i+500, 7, enums.SocketFunctionNameReadv, 200, 20480))
+		details = append(details, detail(1000*i, 1000*i+500, enums.SocketFunctionNameReadv, 200, 20480))
 		wantPackages += 200
 		wantSize += 20480
 	}

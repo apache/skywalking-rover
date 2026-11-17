@@ -54,6 +54,15 @@ func NewReader(sample []byte) Reader {
 	}
 }
 
+// Reset makes the reader read the sample from its start, so one reader can parse every event of a
+// goroutine instead of allocating one per event
+func (r *BytesReader) Reset(sample []byte) {
+	r.Sample = sample
+	r.CurrentOffset = 0
+	r.sampleLen = len(sample)
+	r.err = nil
+}
+
 // HasError is there have error when reading buffer
 func (r *BytesReader) HasError() error {
 	return r.err
@@ -97,6 +106,20 @@ func (r *BytesReader) ReadUint8Array(a []uint8, size int) {
 		return
 	}
 	copy(a, read)
+}
+
+// Peek returns the next size bytes of the sample without moving on, nil when the sample is shorter.
+// The bytes belong to the sample: they are only valid until the reader is reset.
+func (r *BytesReader) Peek(size int) []byte {
+	if r.err != nil || size < 0 || r.sampleLen < r.CurrentOffset+size {
+		return nil
+	}
+	return r.Sample[r.CurrentOffset : r.CurrentOffset+size]
+}
+
+// Skip moves on by size bytes without reading them
+func (r *BytesReader) Skip(size int) {
+	_, _ = r.read(size)
 }
 
 func (r *BytesReader) read(size int) ([]byte, error) {

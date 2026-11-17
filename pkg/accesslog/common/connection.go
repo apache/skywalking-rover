@@ -19,6 +19,7 @@ package common //nolint:revive // package name is acceptable in this context
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sort"
@@ -36,14 +37,14 @@ import (
 	"github.com/apache/skywalking-rover/pkg/process/api"
 	"github.com/apache/skywalking-rover/pkg/process/finders/kubernetes"
 	"github.com/apache/skywalking-rover/pkg/tools"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/ip"
 	"github.com/apache/skywalking-rover/pkg/tools/path"
+	"github.com/apache/skywalking-rover/pkg/tools/shardmap"
 
 	"github.com/cilium/ebpf"
-
-	cmap "github.com/orcaman/concurrent-map"
 
 	"k8s.io/apimachinery/pkg/util/cache"
 
@@ -141,7 +142,7 @@ type ProcessListener interface {
 type ConnectionManager struct {
 	moduleMgr   *module.Manager
 	processOP   process.Operator
-	connections cmap.ConcurrentMap
+	connections *shardmap.Map[ConnectionKey, *ConnectionInfo]
 	// localIPWithPid cache all local monitoring process bind IP address
 	// for checking the remote address is local or not
 	localIPWithPid map[string]int32
@@ -149,8 +150,18 @@ type ConnectionManager struct {
 	monitoringProcesses   map[int32][]api.ProcessInterface
 	monitoringProcessLock sync.RWMutex
 	// monitoring process map in BPF
-	processMonitorMap   *ebpf.Map
+	processMonitorMap *ebpf.Map
+	// processMonitorHint is set for a process before it is put into processMonitorMap (bpf.MonitorProcessHint)
+	processMonitorHint  *ebpf.Map
 	activeConnectionMap *ebpf.Map
+	// h2cStreamMap follows the frames of a cleartext HTTP/2 active connection (drop_h2c_unused_frame,
+	// skip_h2c_data_payload): its entry goes with the active connection
+	h2cStreamMap *ebpf.Map
+	// the h2c and HTTP/1 switches as the BPF side has them (a switch it could not be given is off), see
+	// setupH2CFrames; only when one is on does h2cStreamMap have entries
+	dropH2CUnusedFrame, skipH2CDataPayload, skipHTTP1BodyPayload bool
+	// summarizeH2CPayload: summarize_h2c_payload as the BPF side has it
+	summarizeH2CPayload bool
 	// processNotMonitorMap and cgroupAllowlistMap are the two ways the fork/exec tracepoints decide
 	// what to skip; which one is in force is settled once at startup, see processExecuteMonitorReady
 	processNotMonitorMap *ebpf.Map
@@ -212,6 +223,28 @@ func (c *ConnectionManager) RegisterNewFlushListener(listener FlusherListener) {
 	c.flushListeners = append(c.flushListeners, listener)
 }
 
+// ConnectionKey identifies a connection by its connection ID and random ID. It is the key of the
+// connection maps looked up for every event, so it is a plain value that needs no allocation.
+type ConnectionKey struct {
+	ConnectionID uint64
+	RandomID     uint64
+}
+
+func NewConnectionKey(conID, ranID uint64) ConnectionKey {
+	return ConnectionKey{ConnectionID: conID, RandomID: ranID}
+}
+
+// Hash mixes both IDs, the connection ID alone is the pid and fd so it spreads badly over the shards
+func (k ConnectionKey) Hash() uint32 {
+	h := k.ConnectionID*0x9E3779B97F4A7C15 ^ k.RandomID*0xC2B2AE3D27D4EB4F
+	return uint32(h ^ h>>32)
+}
+
+// String is the "connectionID_randomID" form the connection used to be keyed (and logged) by
+func (k ConnectionKey) String() string {
+	return fmt.Sprintf("%d_%d", k.ConnectionID, k.RandomID)
+}
+
 type ConnectionInfo struct {
 	ConnectionID       uint64
 	RandomID           uint64
@@ -234,6 +267,37 @@ type ConnectionInfo struct {
 	// genuinely un-resolvable remote is not delayed forever and a long-lived connection is
 	// not re-deferred on every log.
 	ResolutionDeadline *time.Time
+	// rpcLock serializes the copy-on-write replacements of RPCConnection: the runner rebuilds it with a
+	// new TLS mode or protocol while a ztunnel mapping may replace its attachment from another goroutine,
+	// and neither may lose the other's change
+	rpcLock sync.Mutex
+}
+
+// ReplaceAttachment sets the attachment of the connection (on a copy, see updateRPCConnection)
+func (c *ConnectionInfo) ReplaceAttachment(attachment *v3.ConnectionAttachment) {
+	c.updateRPCConnection(func(conn *v3.AccessLogConnection) bool {
+		conn.Attachment = attachment
+		return true
+	})
+}
+
+// updateRPCConnection replaces RPCConnection with a copy changed by update, unless update returns false.
+// The message may be shared with a batch the sender is marshaling, so it is never modified in place.
+func (c *ConnectionInfo) updateRPCConnection(update func(conn *v3.AccessLogConnection) bool) {
+	c.rpcLock.Lock()
+	defer c.rpcLock.Unlock()
+	original := c.RPCConnection
+	updated := &v3.AccessLogConnection{
+		Local:      original.Local,
+		Remote:     original.Remote,
+		Role:       original.Role,
+		TlsMode:    original.TlsMode,
+		Protocol:   original.Protocol,
+		Attachment: original.Attachment,
+	}
+	if update(updated) {
+		c.RPCConnection = updated
+	}
 }
 
 func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *bpf.Loader, filter MonitorFilter) *ConnectionManager {
@@ -254,11 +318,13 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 	mgr := &ConnectionManager{
 		moduleMgr:                  moduleMgr,
 		processOP:                  moduleMgr.FindModule(process.ModuleName).(process.Operator),
-		connections:                cmap.New(),
+		connections:                shardmap.New[ConnectionKey, *ConnectionInfo](),
 		localIPWithPid:             make(map[string]int32),
 		monitoringProcesses:        make(map[int32][]api.ProcessInterface),
 		processMonitorMap:          bpfLoader.ProcessMonitorControl,
+		processMonitorHint:         bpfLoader.ProcessMonitorHint,
 		activeConnectionMap:        bpfLoader.ActiveConnectionMap,
+		h2cStreamMap:               bpfLoader.H2cStreamMap,
 		processNotMonitorMap:       bpfLoader.ProcessNotMonitor,
 		cgroupAllowlistMap:         bpfLoader.CgroupMonitorAllowlist,
 		processVerdicts:            cache.NewExpiring(),
@@ -272,6 +338,10 @@ func NewConnectionManager(config *Config, moduleMgr *module.Manager, bpfLoader *
 		resolutionGracePeriod:      resolutionGraceFor(flushPeriod),
 	}
 	mgr.setupProcessExecuteMonitor(bpfLoader)
+	mgr.dropH2CUnusedFrame, mgr.skipH2CDataPayload = setupH2CFrames(config, bpfLoader)
+	mgr.summarizeH2CPayload = setupH2CSummary(config, bpfLoader, mgr.skipH2CDataPayload)
+	mgr.skipHTTP1BodyPayload = setupHTTP1BodySkip(config, bpfLoader)
+	setupEventReader(config, bpfLoader)
 	return mgr
 }
 
@@ -412,7 +482,12 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 						continue
 					}
 
-					// if the connection is not existed, then delete it
+					// if the connection is not existed, then delete it: unless the fd was reused meanwhile, by a
+					// connection of another random id whose entry it now is
+					var current ActiveConnection
+					if err := c.activeConnectionMap.Lookup(conID, &current); err != nil || current.RandomID != activateConn.RandomID {
+						continue
+					}
 					if err := c.activeConnectionMap.Delete(conID); err != nil {
 						if !errors.Is(err, ebpf.ErrKeyNotExist) {
 							log.Warnf("failed to delete the active connection, pid: %d, fd: %d, connection ID: %d, random ID: %d, error: %v",
@@ -422,6 +497,10 @@ func (c *ConnectionManager) Start(ctx context.Context, accessLogContext *AccessL
 					}
 					log.Debugf("deleted the active connection as not exist in file system, pid: %d, fd: %d, connection ID: %d, random ID: %d",
 						pid, fd, conID, activateConn.RandomID)
+					// the BPF side never sees the close of this fd, so it never removes the entry itself
+					if c.dropH2CUnusedFrame || c.skipH2CDataPayload {
+						c.deleteH2CState(conID, activateConn.RandomID)
+					}
 
 					// building and send the close event
 					wapperedEvent := c.OnConnectionClose(&events.SocketCloseEvent{
@@ -611,10 +690,9 @@ func (c *ConnectionManager) GetExcludeNamespaces() []string {
 }
 
 func (c *ConnectionManager) Find(event events.Event) *ConnectionInfo {
-	connectionKey := fmt.Sprintf("%d_%d", event.GetConnectionID(), event.GetRandomID())
-	data, exist := c.connections.Get(connectionKey)
+	connectionKey := NewConnectionKey(event.GetConnectionID(), event.GetRandomID())
+	connection, exist := c.connections.Get(connectionKey)
 	if exist {
-		connection := data.(*ConnectionInfo)
 		c.connectionPostHandle(connection, event)
 		return connection
 	}
@@ -819,9 +897,8 @@ func (c *ConnectionManager) startUnresolvedRemoteReporter(ctx context.Context) {
 // closes the window where a short connection's mapping event lands between its flush cycles or
 // just as it would flush, which is the dominant residual "-|service|-" cause under high load.
 func (c *ConnectionManager) RetroResolveBySrc(srcIP string, srcPort uint16) {
-	c.connections.IterCb(func(_ string, v interface{}) {
-		connection, ok := v.(*ConnectionInfo)
-		if !ok || connection.Socket == nil || connection.RPCConnection == nil {
+	c.connections.IterCb(func(_ ConnectionKey, connection *ConnectionInfo) {
+		if connection == nil || connection.Socket == nil || connection.RPCConnection == nil {
 			return
 		}
 		// only an unresolved client(outbound) leg for this exact source is a candidate - it gets the
@@ -874,18 +951,21 @@ func (c *ConnectionManager) connectionPostHandle(connection *ConnectionInfo, eve
 
 // According to https://github.com/golang/protobuf/issues/1609
 // if the message is modified during marshaling, it may cause the error when send the message to the backend
-// so, we need to clone the message and change it before sending it to the channel
+// so, we need to clone the message and change it before sending it to the channel.
+// Nothing changes for almost every event, and then the message is kept.
 func (c *ConnectionManager) rebuildRPCConnectionWithTLSModeAndProtocol(connection *ConnectionInfo,
 	tls v3.AccessLogConnectionTLSMode, protocol v3.AccessLogProtocolType) {
-	original := connection.RPCConnection
-	connection.RPCConnection = &v3.AccessLogConnection{
-		Local:      original.Local,
-		Remote:     original.Remote,
-		Role:       original.Role,
-		TlsMode:    tls,
-		Protocol:   protocol,
-		Attachment: original.Attachment,
+	// checked before taking the lock: ReplaceAttachment never changes the TLS mode or the protocol
+	if original := connection.RPCConnection; original.TlsMode == tls && original.Protocol == protocol {
+		return
 	}
+	connection.updateRPCConnection(func(conn *v3.AccessLogConnection) bool {
+		if conn.TlsMode == tls && conn.Protocol == protocol {
+			return false
+		}
+		conn.TlsMode, conn.Protocol = tls, protocol
+		return true
+	})
 }
 
 func (c *ConnectionManager) ProcessIsMonitor(pid uint32) bool {
@@ -906,7 +986,7 @@ func (c *ConnectionManager) ProcessIsDetectBy(pid uint32, detectType api.Process
 }
 
 func (c *ConnectionManager) buildConnection(event *events.SocketConnectEvent, socket *ip.SocketPair,
-	local, remote *v3.ConnectionAddress, conKey string) *ConnectionInfo {
+	local, remote *v3.ConnectionAddress, conKey ConnectionKey) *ConnectionInfo {
 	var role v32.DetectPoint
 	switch socket.Role {
 	case enums.ConnectionRoleClient:
@@ -1141,9 +1221,17 @@ func (c *ConnectionManager) RecheckAllProcesses(processes map[int32][]api.Proces
 func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor bool) {
 	var err error
 	if monitor {
-		err = c.processMonitorMap.Update(pid, uint32(1), ebpf.UpdateAny)
+		// the hint of the process goes first, its positive state last (bpf/accesslog/process/process.h)
+		if err = bpf.MonitorProcessHint(c.processMonitorHint, uint32(pid)); err == nil {
+			if err = c.processMonitorMap.Update(pid, uint32(1), ebpf.UpdateAny); err == nil {
+				err = bpf.ConfirmMonitorProcessHint(c.processMonitorHint, uint32(pid))
+			}
+		}
 	} else {
-		err = c.processMonitorMap.Delete(pid)
+		// the positive state goes before the process leaves the map
+		if err = bpf.UnconfirmMonitorProcessHint(c.processMonitorHint, uint32(pid)); err == nil {
+			err = c.processMonitorMap.Delete(pid)
+		}
 	}
 	if err != nil {
 		if !monitor && errors.Is(err, ebpf.ErrKeyNotExist) {
@@ -1159,11 +1247,10 @@ func (c *ConnectionManager) updateMonitorStatusForProcess(pid int32, monitor boo
 func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 	// delete all connections which marked as deletable
 	// all deletable connection events been sent
-	deletableConnections := make(map[string]*ConnectionInfo)
+	deletableConnections := make(map[ConnectionKey]*ConnectionInfo)
 	now := time.Now()
-	c.connections.IterCb(func(key string, v interface{}) {
-		con, ok := v.(*ConnectionInfo)
-		if !ok || con == nil {
+	c.connections.IterCb(func(key ConnectionKey, con *ConnectionInfo) {
+		if con == nil {
 			return
 		}
 		// already mark as deletable or process not monitoring
@@ -1194,10 +1281,9 @@ func (c *ConnectionManager) OnBuildConnectionLogFinished() {
 
 func (c *ConnectionManager) SkipAllDataAnalyzeAndDowngradeProtocol(conID, ranID uint64) {
 	// setting connection protocol is break
-	connectionKey := fmt.Sprintf("%d_%d", conID, ranID)
-	data, exist := c.connections.Get(connectionKey)
+	connectionKey := NewConnectionKey(conID, ranID)
+	connection, exist := c.connections.Get(connectionKey)
 	if exist {
-		connection := data.(*ConnectionInfo)
 		connection.ProtocolBreak = true
 	} else {
 		// setting to the protocol break map for encase the runner not starting building logs
@@ -1243,4 +1329,195 @@ type ActiveConnection struct {
 	// PAD for make sure it have same size when marshal data to the BPF
 	PAD0 uint8
 	PAD1 uint32
+}
+
+// DropH2CUnusedFrame tells whether the BPF side drops the h2c socket calls that carry only unused frames
+// (access_log.protocol_analyze.drop_h2c_unused_frame, as it was applied)
+func (c *ConnectionManager) DropH2CUnusedFrame() bool {
+	return c != nil && c.dropH2CUnusedFrame
+}
+
+// SkipH2CDataPayload tells whether the BPF side uploads the h2c socket calls inside a DATA payload without
+// their content (access_log.protocol_analyze.skip_h2c_data_payload, as it was applied)
+func (c *ConnectionManager) SkipH2CDataPayload() bool {
+	return c != nil && c.skipH2CDataPayload
+}
+
+// SetH2CSwitches sets the switches as SkipH2CDataPayload and DropH2CUnusedFrame report them, for a
+// manager built without the BPF side (tests of the analyzers)
+func (c *ConnectionManager) SetH2CSwitches(drop, skip bool) {
+	c.dropH2CUnusedFrame, c.skipH2CDataPayload = drop, skip
+}
+
+// setupH2CFrames passes access_log.protocol_analyze.drop_h2c_unused_frame and skip_h2c_data_payload to
+// the BPF side and returns the switches as it has them. It runs before any program is attached, so the
+// BPF side never sees a switch change under a connection.
+func setupH2CFrames(config *Config, bpfLoader *bpf.Loader) (drop, skip bool) {
+	drop = setBPFSwitch(bpfLoader.DropH2cUnusedFrame, config != nil && config.ProtocolAnalyze.DropH2CUnusedFrame,
+		"cannot enable dropping the unused h2c frames, every socket call is uploaded",
+		"dropping the socket calls of cleartext HTTP/2 connections that carry only unused frames")
+	skip = setBPFSwitch(bpfLoader.SkipH2cDataPayload, config != nil && config.ProtocolAnalyze.SkipH2CDataPayload,
+		"cannot enable skipping the h2c DATA payloads, every socket call is uploaded with its content",
+		"uploading the socket calls of cleartext HTTP/2 connections that lie inside a DATA payload without their content")
+	setupH2CBatch(config, bpfLoader, skip)
+	return drop, skip
+}
+
+// SummarizeH2CPayload tells whether the BPF side summarises the h2c socket calls inside a DATA payload instead
+// of sending them (access_log.protocol_analyze.summarize_h2c_payload, as it was applied)
+func (c *ConnectionManager) SummarizeH2CPayload() bool {
+	return c != nil && c.summarizeH2CPayload
+}
+
+// setupH2CSummary passes access_log.protocol_analyze.summarize_h2c_payload to the BPF side, with the boot
+// time it splits the summaries at the wall clock minutes by. It only applies on top of the batching (whose
+// records carry the summaries) with the kernel log merge on (a summary is the merged detail of its calls), and
+// only with a BPF side that has it. It runs before any program is attached.
+func setupH2CSummary(config *Config, bpfLoader *bpf.Loader, skip bool) bool {
+	if bpfLoader.SummarizeH2cPayload == nil || bpfLoader.BatchH2cRecords == nil {
+		return false
+	}
+	want := config != nil && config.ProtocolAnalyze.SummarizeH2CPayload && config.ProtocolAnalyze.BatchH2CRecords &&
+		skip && config.Flush.MergeKernelLogs
+	if want && config.KernelMetrics.L2L3 {
+		// a summary is the merged detail of its calls, which has no L2 to L4 details: the calls are sent on their own
+		log.Warnf("summarize_h2c_payload is off with access_log.kernel_metrics.l2_l3: a summary carries no L2 to L4 metrics")
+		want = false
+	}
+	if want {
+		var batching uint32
+		if err := bpfLoader.BatchH2cRecords.Get(&batching); err != nil || batching == 0 {
+			want = false
+		}
+	}
+	if want {
+		if err := bpfLoader.BootTimeUnixNs.Set(uint64(host.BootTime.UnixNano())); err != nil {
+			log.Warnf("cannot pass the boot time to the BPF side, the h2c DATA payload is not summarised: %v", err)
+			want = false
+		}
+	}
+	return setBPFSwitch(bpfLoader.SummarizeH2cPayload, want,
+		"cannot enable summarising the h2c DATA payload, the skipped calls are sent on their own",
+		"summarising the socket calls of cleartext HTTP/2 connections that lie inside a DATA payload per stream")
+}
+
+// setupH2CBatch passes access_log.protocol_analyze.batch_h2c_records to the BPF side: the skipped and
+// tail-cut h2c calls are then sent as compact records in per-CPU batches. It only applies with the DATA
+// payload skipping (which produces those calls) and the kernel log merge on, and only with a BPF side that
+// has the batching (the rover's has not: its loader has no such variable). With it on, the idle kick that
+// flushes the batches once a second is started; a batching that cannot be kicked is not turned on, so a
+// batch never waits for traffic that may not come.
+func setupH2CBatch(config *Config, bpfLoader *bpf.Loader, skip bool) {
+	want := config != nil && config.ProtocolAnalyze.BatchH2CRecords && skip && config.Flush.MergeKernelLogs
+	if bpfLoader.BatchH2cRecords == nil {
+		if want {
+			log.Warnf("batch_h2c_records is on but the BPF side has no batching, every socket call is sent on its own")
+		}
+		return
+	}
+	if want {
+		if err := startH2CBatchKick(bpfLoader); err != nil {
+			log.Warnf("cannot start the idle kick of the h2c call batches, the batching stays off: %v", err)
+			want = false
+		}
+	}
+	setBPFSwitch(bpfLoader.BatchH2cRecords, want,
+		"cannot enable batching the h2c call records, every socket call is sent on its own",
+		"sending the skipped and tail-cut socket calls of cleartext HTTP/2 connections as per-CPU batches of records")
+}
+
+// SkipHTTP1BodyPayloadBPF tells whether the BPF side uploads the HTTP/1 socket calls inside a Content-Length
+// body without their content (access_log.protocol_analyze.skip_http1_body_payload_bpf, as it was applied)
+func (c *ConnectionManager) SkipHTTP1BodyPayloadBPF() bool {
+	return c != nil && c.skipHTTP1BodyPayload
+}
+
+// setupHTTP1BodySkip passes access_log.protocol_analyze.skip_http1_body_payload_bpf to the BPF side, with
+// the coalescing of the skipped calls of a body when the kernel logs are merged
+// (access_log.flush.merge_kernel_logs) and the boot time the coalescing keeps the minutes of the kernel
+// logs with, and returns the switch as the BPF side has it. It runs before any program is attached.
+func setupHTTP1BodySkip(config *Config, bpfLoader *bpf.Loader) bool {
+	want := config != nil && config.ProtocolAnalyze.SkipHTTP1BodyPayloadBPF
+	if want {
+		if err := bpfLoader.BootTimeUnixNs.Set(uint64(host.BootTime.UnixNano())); err != nil {
+			log.Warnf("cannot pass the boot time to the BPF side, the HTTP/1 body calls are uploaded with their content: %v", err)
+			want = false
+		}
+	}
+	skip := setBPFSwitch(bpfLoader.SkipHttp1BodyPayload, want,
+		"cannot enable skipping the HTTP/1 bodies, every socket call is uploaded with its content",
+		"uploading the socket calls of cleartext HTTP/1 connections that lie inside a Content-Length body without their content")
+	setBPFSwitch(bpfLoader.CoalesceHttp1BodyPayload, skip && config.Flush.MergeKernelLogs,
+		"cannot enable coalescing the skipped HTTP/1 body calls, each is uploaded on its own",
+		"uploading the consecutive skipped socket calls of an HTTP/1 body as one event (merge_kernel_logs)")
+	return skip
+}
+
+// setBPFSwitch sets a BPF global switch and returns whether it is on: a switch that cannot be set is off
+func setBPFSwitch(v *ebpf.Variable, want bool, failed, enabled string) bool {
+	if err := v.Set(boolToUint32(want)); err != nil {
+		if want {
+			log.Warnf("%s: %v", failed, err)
+		}
+		return false
+	}
+	if want {
+		log.Infof("%s", enabled)
+	}
+	return want
+}
+
+func boolToUint32(b bool) uint32 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// deleteH2CState removes the h2c frame state of a connection whose close the BPF side never sees, unless it is the
+// state of a connection that reused the fd (h2c_stream_t starts with the random id of its connection)
+func (c *ConnectionManager) deleteH2CState(conID, randomID uint64) {
+	value := make([]byte, c.h2cStreamMap.ValueSize())
+	if err := c.h2cStreamMap.Lookup(conID, value); err != nil {
+		return
+	}
+	if len(value) >= 8 && binary.LittleEndian.Uint64(value) != randomID {
+		return
+	}
+	if err := c.h2cStreamMap.Delete(conID); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		log.Warnf("failed to delete the h2c state of the connection, connection ID: %d, error: %v", conID, err)
+	}
+}
+
+// setupEventReader passes access_log.event_reader to the event queues, which start after this
+func setupEventReader(config *Config, bpfLoader *bpf.Loader) {
+	if config == nil {
+		return
+	}
+	r := config.EventReader
+	options := btf.EventQueueReaderOptions{WakeupEvents: r.WakeupEvents, BatchSize: r.BatchSize}
+	if r.FlushPeriod != "" {
+		if d, err := time.ParseDuration(r.FlushPeriod); err == nil {
+			options.FlushPeriod = d
+		} else {
+			log.Warnf("invalid access_log.event_reader.flush_period %q: %v", r.FlushPeriod, err)
+		}
+	}
+	bpfLoader.SetEventQueueReaderOptions(options)
+	flush := options.FlushPeriod
+	if flush <= 0 {
+		flush = time.Second // the reader's default
+	}
+	var readerDelay time.Duration
+	if options.WakeupEvents > 0 {
+		readerDelay += flush
+	}
+	if options.BatchSize > 1 {
+		readerDelay += flush
+	}
+	deliveryDelayReader.Store(int64(readerDelay))
+	if options.WakeupEvents > 0 || options.BatchSize > 1 {
+		log.Infof("the event queues wake up for every %d events (flushed every %s) and hand over batches of up to %d",
+			options.WakeupEvents, options.FlushPeriod, options.BatchSize)
+	}
 }

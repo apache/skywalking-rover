@@ -140,6 +140,8 @@ struct sk_buff {
     unsigned int data_len;
     unsigned char		*head,
                         *data;
+    // the conntrack entry of the packet and its state (struct nf_conn * | enum ip_conntrack_info, NFCT_PTRMASK)
+    long unsigned int _nfct;
 } __attribute__((preserve_access_index));
 
 struct net {

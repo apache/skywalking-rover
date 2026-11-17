@@ -18,13 +18,8 @@
 package protocols
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
-	"github.com/apache/skywalking-rover/pkg/logger"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"github.com/apache/skywalking-rover/pkg/tools/tracing"
-
-	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
 
 type ProtocolManager struct {
@@ -56,6 +51,18 @@ type PendingDataMetrics interface {
 	ReleasePendingData()
 }
 
+// DataAppendObserver is implemented by the metrics of a protocol that follow the events appended to the
+// connection buffer; DataAppended runs after the event was appended
+type DataAppendObserver interface {
+	DataAppended(data buffer.SocketDataBuffer)
+}
+
+// ReleasableMetrics is implemented by the metrics of a protocol that hold something outside the
+// connection, released when the connection is removed
+type ReleasableMetrics interface {
+	Release()
+}
+
 type AnalyzeHelper struct {
 	ProtocolBreak bool
 }
@@ -64,65 +71,4 @@ type Protocol interface {
 	ForProtocol() enums.ConnectionProtocol
 	GenerateConnection(connectionID, randomID uint64) ProtocolMetrics
 	Analyze(connection *PartitionConnection, helper *AnalyzeHelper) error
-}
-
-func AppendSocketDetailsFromBuffer(result []events.SocketDetail, buf *buffer.Buffer, dataIDRange *buffer.DataIDRange,
-	allDetailInclude bool) ([]events.SocketDetail, *buffer.DataIDRange, bool) {
-	// a previous buffer was already incomplete: keep propagating the incompleteness.
-	if !allDetailInclude {
-		return result, dataIDRange, false
-	}
-	// a nil buffer means this part of the message is legitimately absent (a request without body,
-	// or a response that ends the stream on the HEADERS frame such as 204/304/redirect or a gRPC
-	// trailers-only response): skip it rather than treating the whole message as incomplete.
-	if buf == nil {
-		return result, dataIDRange, true
-	}
-	details := buf.BuildDetails()
-	if details == nil || details.Len() == 0 {
-		return result, dataIDRange, false
-	}
-	currentDataIDRange := buf.BuildTotalDataIDRange()
-	if !currentDataIDRange.IsIncludeAllDetails(details) {
-		return result, dataIDRange, false
-	}
-	for e := details.Front(); e != nil; e = e.Next() {
-		if len(result) > 0 && result[len(result)-1] == e.Value {
-			continue
-		}
-		result = append(result, e.Value.(events.SocketDetail))
-	}
-	if dataIDRange == nil {
-		return result, currentDataIDRange, true
-	}
-	return result, dataIDRange.Append(currentDataIDRange), true
-}
-
-// DataIDRangeBounds returns the from/to data id bounds of the range, or (0, 0) when it is nil, so
-// callers can build an error message without dereferencing a possibly-nil range.
-func DataIDRangeBounds(dataIDRange *buffer.DataIDRange) (from, to uint64) {
-	if dataIDRange != nil {
-		from, to = dataIDRange.From, dataIDRange.To
-	}
-	return
-}
-
-func AnalyzeTraceInfo(fetcher func(key string) string, protocolLog *logger.Logger) *v3.AccessLogTraceInfo {
-	context, err := tracing.AnalyzeTracingContext(func(key string) string {
-		return fetcher(key)
-	})
-	if err != nil {
-		protocolLog.Warnf("analyze tracing context error: %v", err)
-		return nil
-	}
-	if context == nil {
-		return nil
-	}
-
-	return &v3.AccessLogTraceInfo{
-		TraceId:        context.TraceID(),
-		TraceSegmentId: context.TraceSegmentID(),
-		SpanId:         context.SpanID(),
-		Provider:       context.Provider().AccessLogType,
-	}
 }
