@@ -27,10 +27,10 @@ import (
 	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"github.com/apache/skywalking-rover/pkg/tools/host"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
+	"golang.org/x/sys/unix"
 )
 
 // ---- test harness -------------------------------------------------------------------------------
@@ -48,18 +48,22 @@ type recordingAnalyzer struct {
 }
 
 func (a *recordingAnalyzer) HandleWholeStream(_ *PartitionConnection, s *HTTP2Streaming) error {
-	cp := func(m map[string]string) map[string]string {
-		out := make(map[string]string, len(m))
-		for k, v := range m {
-			out[k] = v
-		}
-		return out
-	}
 	a.streams = append(a.streams, recordedStream{
-		req: cp(s.ReqHeader), resp: cp(s.RespHeader), status: s.Status,
+		req: http2KeptHeaders(&s.ReqHeader), resp: http2KeptHeaders(&s.RespHeader), status: s.Status,
 		reqBody: s.ReqBodyBuffer.DataSize(), respBody: s.RespBodyBuffer.DataSize(), reqHeaderBytes: s.ReqHeaderBuffer.DataSize(),
 	})
 	return nil
+}
+
+// http2KeptHeaders returns the fields HTTP2Headers keeps as a map
+func http2KeptHeaders(h *HTTP2Headers) map[string]string {
+	out := make(map[string]string)
+	for key := http2HeaderKey(0); key < http2HeaderKeyCount; key++ {
+		if h.has(key) {
+			out[http2HeaderNames[key]] = h.values[key]
+		}
+	}
+	return out
 }
 
 func (a *recordingAnalyzer) OnProtocolBreak(*PartitionConnection, *HTTP2Metrics) {}
@@ -72,6 +76,8 @@ type http2TestConn struct {
 	analyzer *recordingAnalyzer
 	conn     *PartitionConnection
 	dataID   uint64
+	// blocks are all the fields of every header block decoded per direction, in order
+	blocks [3][]map[string]string
 }
 
 func newHTTP2TestConn(t *testing.T) *http2TestConn {
@@ -85,11 +91,34 @@ func newHTTP2TestConn(t *testing.T) *http2TestConn {
 		protocolAnalyzer: map[enums.ConnectionProtocol]Protocol{enums.ConnectionProtocolHTTP2: proto},
 		protocolMetrics:  map[enums.ConnectionProtocol]ProtocolMetrics{enums.ConnectionProtocolHTTP2: proto.GenerateConnection(1, 1)},
 	}
-	return &http2TestConn{t: t, proto: proto, analyzer: analyzer, conn: conn}
+	c := &http2TestConn{t: t, proto: proto, analyzer: analyzer, conn: conn}
+	c.tapHeaderBlocks()
+	return c
 }
 
+// tapHeaderBlocks records every field the HPACK decoders emit (HTTP2Headers keeps only some of them)
+func (c *http2TestConn) tapHeaderBlocks() {
+	m := c.metrics()
+	for _, d := range []enums.SocketDataDirection{enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress} {
+		headers := &m.headerBlocks[d]
+		m.decoders[d].SetEmitFunc(func(f hpack.HeaderField) {
+			if headers.Empty() {
+				// the first field after handleHeaderBlock reset the headers: a new block
+				c.blocks[d] = append(c.blocks[d], make(map[string]string))
+			}
+			headers.emit(f)
+			c.blocks[d][len(c.blocks[d])-1][f.Name] = f.Value
+		})
+	}
+}
+
+// bpfNow is the clock of bpf_ktime_get_ns
 func bpfNow() uint64 {
-	return uint64(time.Since(host.BootTime))
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+		panic(err)
+	}
+	return uint64(ts.Nano())
 }
 
 // feed delivers the bytes as one socket call (one data id), optionally split in BPF chunks
@@ -120,7 +149,7 @@ func (c *http2TestConn) feedWithID(direction enums.SocketDataDirection, data []b
 		if end == len(data) {
 			ev.Finished = 1
 		}
-		copy(ev.Buffer[:], data[off:end])
+		ev.Buffer = buffer.AdmittedEventData(data[off:end])
 		c.conn.AppendData(ev)
 		seq++
 	}
@@ -195,7 +224,7 @@ func (p *http2Peer) data(stream uint32, endStream bool, body []byte) {
 }
 
 func requestFields(path string) []hpack.HeaderField {
-	return []hpack.HeaderField{hf(":method", "POST"), hf(":path", path), hf(":scheme", "http"), hf(":authority", "stress-server.spm-stress.svc:8081"),
+	return []hpack.HeaderField{hf(":method", "POST"), hf(":path", path), hf(":scheme", "http"), hf(":authority", "stress-server.stress.svc:8081"),
 		hf("content-type", "application/octet-stream"), hf("user-agent", "Go-http-client/2.0"), hf("x-request-id", "req-"+path)}
 }
 
@@ -228,8 +257,11 @@ func TestHTTP2PrefaceRequestResponse(t *testing.T) {
 		t.Fatalf("expected 1 stream, got %d", len(c.analyzer.streams))
 	}
 	s := c.analyzer.streams[0]
-	if s.req[":method"] != "POST" || s.req[":path"] != "/api/stress" || s.status != 200 || s.resp["content-type"] != "text/plain" {
+	if s.req[":method"] != "POST" || s.req[":path"] != "/api/stress" || s.status != 200 {
 		t.Fatalf("unexpected stream: %+v", s)
+	}
+	if blocks := c.blocks[enums.SocketDataDirectionEgress]; len(blocks) != 1 || blocks[0]["content-type"] != "text/plain" {
+		t.Fatalf("unexpected response header blocks: %v", blocks)
 	}
 	if s.reqBody != 1024 || s.respBody != 1024 {
 		t.Fatalf("unexpected body sizes: req=%d resp=%d", s.reqBody, s.respBody)
@@ -303,8 +335,16 @@ func TestHTTP2DynamicTableAndInterleaving(t *testing.T) {
 		t.Fatalf("expected %d streams, got %d (open=%d decodeErr=%d framingErr=%d late=%d dropped=%d)", streams, len(c.analyzer.streams),
 			len(m.Streams), m.DecodeErrors, m.FramingErrors, m.LateSkips, m.DroppedStreams)
 	}
+	if blocks := c.blocks[enums.SocketDataDirectionEgress]; len(blocks) != streams {
+		t.Fatalf("expected %d response header blocks, got %d", streams, len(blocks))
+	}
+	for i, block := range c.blocks[enums.SocketDataDirectionEgress] {
+		if block["date"] == "" {
+			t.Fatalf("response header block %d unexpected: %v", i, block)
+		}
+	}
 	for i, s := range c.analyzer.streams {
-		if s.req[":path"] != fmt.Sprintf("/api/stress/%d", i%4) || s.status != 200 || s.resp["date"] == "" {
+		if s.req[":path"] != fmt.Sprintf("/api/stress/%d", i%4) || s.status != 200 {
 			t.Fatalf("stream %d unexpected: %+v", i, s)
 		}
 		if s.reqBody != int64(100+i) || s.respBody != int64(100+i) {
@@ -342,8 +382,11 @@ func TestHTTP2ContinuationPaddingPriority(t *testing.T) {
 		t.Fatalf("expected 1 stream, got %d", len(c.analyzer.streams))
 	}
 	s := c.analyzer.streams[0]
-	if s.req[":path"] != "/continued" || s.req["x-request-id"] != "req-/continued" || s.status != 201 {
+	if s.req[":path"] != "/continued" || s.status != 201 {
 		t.Fatalf("unexpected stream: %+v", s)
+	}
+	if blocks := c.blocks[enums.SocketDataDirectionIngress]; len(blocks) != 1 || blocks[0]["x-request-id"] != "req-/continued" {
+		t.Fatalf("unexpected request header blocks: %v", blocks)
 	}
 	if s.reqBody != 300 || s.respBody != 200 {
 		t.Fatalf("padding must not be counted: req=%d resp=%d", s.reqBody, s.respBody)
@@ -376,11 +419,15 @@ func TestHTTP2GRPCTrailers(t *testing.T) {
 	if len(c.analyzer.streams) != 2 {
 		t.Fatalf("expected 2 streams, got %d", len(c.analyzer.streams))
 	}
-	if s := c.analyzer.streams[0]; s.req[":path"] != "/pkg.Service/Call" || s.status != 200 || s.resp["grpc-status"] != "0" || s.respBody != 7 {
+	if s := c.analyzer.streams[0]; s.req[":path"] != "/pkg.Service/Call" || s.status != 200 || s.respBody != 7 {
 		t.Fatalf("unexpected unary stream: %+v", s)
 	}
-	if s := c.analyzer.streams[1]; s.req[":path"] != "/pkg.Service/Fail" || s.resp["grpc-status"] != "14" {
+	if s := c.analyzer.streams[1]; s.req[":path"] != "/pkg.Service/Fail" || s.status != 200 {
 		t.Fatalf("unexpected trailers-only stream: %+v", s)
+	}
+	// the response blocks: headers and trailers of stream 1, then the trailers-only response of stream 3
+	if blocks := c.blocks[enums.SocketDataDirectionEgress]; len(blocks) != 3 || blocks[1]["grpc-status"] != "0" || blocks[2]["grpc-status"] != "14" {
+		t.Fatalf("unexpected response header blocks: %v", blocks)
 	}
 }
 
@@ -444,7 +491,18 @@ func TestHTTP2RSTStreamAndResync(t *testing.T) {
 	c.feed(enums.SocketDataDirectionEgress, server.take(), 0)
 	c.analyze()
 
-	if len(c.analyzer.streams) != 1 || c.analyzer.streams[0].req[":path"] != "/after-reset" || c.analyzer.streams[0].status != 204 {
+	// the parser resynchronized past the garbage (nothing waits), but the call it went past may have held a
+	// header block of the responses: their decoder may be wrong from here on, so the response direction is no
+	// longer decoded and the stream after it is not reported with headers the decoder may have got wrong. The
+	// requests are decoded as before.
+	if c.metrics().PendingDataLength() != 0 || c.metrics().FramingErrors == 0 {
+		t.Fatalf("the parser must resynchronize: pending %d, framing errors %d", c.metrics().PendingDataLength(),
+			c.metrics().FramingErrors)
+	}
+	if !c.metrics().headerDesync[enums.SocketDataDirectionEgress] || c.metrics().headerDesync[enums.SocketDataDirectionIngress] {
+		t.Fatalf("only the response direction must be header-desynced: %v", c.metrics().headerDesync)
+	}
+	if len(c.analyzer.streams) != 0 {
 		t.Fatalf("unexpected streams: %+v", c.analyzer.streams)
 	}
 }
@@ -534,6 +592,9 @@ func TestHTTP2OutOfOrderDelivery(t *testing.T) {
 
 	// an event that never arrives: the parser gives up after the wait duration and continues
 	client.headers(5, true, hf(":method", "GET"), hf(":path", "/after-gap"), hf(":scheme", "http"), hf(":authority", "x"))
+	// the backdated event stands for one that already waited in the agent, since it reached the analysis too
+	defer func(old time.Duration) { http2ArrivalWaitDuration = old }(http2ArrivalWaitDuration)
+	http2ArrivalWaitDuration = 0
 	old := bpfNow() - uint64(http2GapWaitDuration) - uint64(time.Second)
 	c.feedWithID(enums.SocketDataDirectionIngress, client.take(), 0, 7, 6, old) // data id 6 is lost
 	c.analyze()
@@ -570,13 +631,20 @@ func TestHTTP2FrameSpanningOtherDirection(t *testing.T) {
 // TestHTTP2InvalidPseudoHeadersDropped: a block decoded against an out of sync dynamic table yields
 // implausible pseudo headers; such streams must be dropped instead of reported
 func TestHTTP2InvalidPseudoHeadersDropped(t *testing.T) {
+	headersOf := func(m map[string]string) *HTTP2Headers {
+		h := &HTTP2Headers{}
+		for k, v := range m {
+			h.emit(hf(k, v))
+		}
+		return h
+	}
 	for _, h := range []map[string]string{{":method": "POST", ":path": "9993384u"}, {":method": "po st", ":path": "/x"}, {":status": "2x0"}, {":path": ""}} {
-		if http2ValidPseudoHeaders(h) {
+		if http2ValidPseudoHeaders(headersOf(h)) {
 			t.Fatalf("headers %v must be rejected", h)
 		}
 	}
 	for _, h := range []map[string]string{{":method": "POST", ":path": "/api/stress?x=1"}, {":method": "OPTIONS", ":path": "*"}, {":status": "404"}, {"grpc-status": "0"}} {
-		if !http2ValidPseudoHeaders(h) {
+		if !http2ValidPseudoHeaders(headersOf(h)) {
 			t.Fatalf("headers %v must be accepted", h)
 		}
 	}

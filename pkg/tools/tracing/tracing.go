@@ -81,20 +81,28 @@ func (w *SkyWalkingTracingContext) Provider() *TraceContextProvider {
 	}
 }
 
+// the header names AnalyzeTracingContext reads
+const (
+	HeaderSW8       = "sw8"
+	HeaderB3        = "b3"
+	HeaderB3TraceID = "x-b3-traceid"
+	HeaderB3SpanID  = "x-b3-spanid"
+)
+
 func AnalyzeTracingContext(fetcher func(key string) string) (Context, error) {
 	// skywalking v3
-	if sw8Header := fetcher("sw8"); sw8Header != "" {
+	if sw8Header := fetcher(HeaderSW8); sw8Header != "" {
 		return analyzeSkyWalking8TracingContext(sw8Header)
 	}
 
 	// zipkin
-	if zipkinSingleContext := fetcher("b3"); zipkinSingleContext != "" {
+	if zipkinSingleContext := fetcher(HeaderB3); zipkinSingleContext != "" {
 		if ctx := analyzeZipkinTracingContextWithSingleData(zipkinSingleContext); ctx != nil {
 			return ctx, nil
 		}
 	}
-	if zipkinTraceID := fetcher("x-b3-traceid"); zipkinTraceID != "" {
-		if spanID := fetcher("x-b3-spanid"); spanID != "" {
+	if zipkinTraceID := fetcher(HeaderB3TraceID); zipkinTraceID != "" {
+		if spanID := fetcher(HeaderB3SpanID); spanID != "" {
 			return analyzeZipkinTracingContextWithSpecificData(zipkinTraceID, spanID), nil
 		}
 	}

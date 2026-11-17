@@ -80,6 +80,10 @@ int openssl_write(struct pt_regs* ctx) {
     data_args.fd = fd;
     data_args.buf = buf;
     data_args.start_nacs = bpf_ktime_get_ns();
+    // the socket calls look the arguments up from now on (syscalls/transfer.h)
+    if (openssl_probe_seen == 0) {
+        openssl_probe_seen = 1;
+    }
     bpf_map_update_elem(&openssl_sock_data_args, &id, &data_args, 0);
 
     set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_SSL_WRITE);
@@ -113,6 +117,10 @@ int openssl_read(struct pt_regs* ctx) {
     data_args.buf = buf;
     data_args.excepted_size = excepted_size;
     data_args.start_nacs = bpf_ktime_get_ns();
+    // the socket calls look the arguments up from now on (syscalls/transfer.h)
+    if (openssl_probe_seen == 0) {
+        openssl_probe_seen = 1;
+    }
     bpf_map_update_elem(&openssl_sock_data_args, &id, &data_args, 0);
 
     set_conn_as_ssl(ctx, tgid, fd, SOCKET_OPTS_TYPE_SSL_WRITE);

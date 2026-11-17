@@ -1,0 +1,31 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# kind cluster for the ambient e2e. A newer node image than the other cases is
+# required: istio ambient(1.24+) needs a recent Kubernetes, and the waypoint
+# scenario additionally needs the Gateway API to be servable. The whole host
+# filesystem is mounted into the node so the rover eBPF programs reach the REAL
+# host /proc and /sys - in kind the node is itself a container, so the eBPF
+# programs see the real host PID namespace and reading the node's own /proc
+# would make the captured PIDs not match the monitored ones.
+kind: Cluster
+name: e2e-amb
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e
+    extraMounts:
+      - hostPath: /
+        containerPath: /host

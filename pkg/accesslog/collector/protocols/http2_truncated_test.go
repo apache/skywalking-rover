@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
+	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -49,7 +50,7 @@ func (c *http2TestConn) feedTruncated(direction enums.SocketDataDirection, uploa
 			ev.Finished = 1
 			ev.HaveReduce = 1
 		}
-		copy(ev.Buffer[:], uploaded[off:end])
+		ev.Buffer = buffer.AdmittedEventData(uploaded[off:end])
 		c.conn.AppendData(ev)
 		seq++
 	}

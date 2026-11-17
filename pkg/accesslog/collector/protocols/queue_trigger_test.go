@@ -21,17 +21,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-
-	cmap "github.com/orcaman/concurrent-map"
+	"github.com/apache/skywalking-rover/pkg/tools/shardmap"
 )
 
 // TestNoteDataEventTrigger: the partition asks for an immediate analysis once triggerEvents data
 // events are waiting, and never when the trigger is disabled. The pending counter is reset by the
 // analysis itself, so a trigger that could not run keeps asking for one.
 func TestNoteDataEventTrigger(t *testing.T) {
-	p := &PartitionContext{triggerEvents: 3, connections: cmap.New()}
+	p := &PartitionContext{triggerEvents: 3, connections: shardmap.New[common.ConnectionKey, *PartitionConnection]()}
 	triggers := 0
 	for i := 0; i < 10; i++ {
 		if p.NoteDataEvent() {
@@ -73,9 +73,9 @@ func (c *countingProtocol) Analyze(*PartitionConnection, *AnalyzeHelper) error {
 // TestProcessEventsRerunsAfterRefusedTrigger: a trigger that cannot run because another ProcessEvents
 // holds the lock must not be lost; the running one repeats the pass
 func TestProcessEventsRerunsAfterRefusedTrigger(t *testing.T) {
-	p := &PartitionContext{triggerEvents: 1, connections: cmap.New()}
+	p := &PartitionContext{triggerEvents: 1, connections: shardmap.New[common.ConnectionKey, *PartitionConnection]()}
 	analyzer := &countingProtocol{}
-	p.connections.Set("1_1", &PartitionConnection{
+	p.connections.Set(common.NewConnectionKey(1, 1), &PartitionConnection{
 		connectionID:       1,
 		randomID:           1,
 		dataBuffers:        map[enums.ConnectionProtocol]*buffer.Buffer{enums.ConnectionProtocolHTTP: buffer.NewBuffer()},

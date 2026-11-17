@@ -80,7 +80,7 @@ func (c *http1TestConn) feed(direction enums.SocketDataDirection, data []byte, m
 			DataLen: uint16(end - off), StartTime0: bpfNow(), EndTime0: bpfNow(),
 			ConnectionID: 1, RandomID: 1, DataID0: c.dataID, PrevDataID0: c.dataID - 1, TotalSize0: uint64(len(data)),
 		}
-		copy(ev.Buffer[:], data[off:end])
+		ev.Buffer = buffer.AdmittedEventData(data[off:end])
 		last := end == len(data)
 		// BPF flags every chunk that does not complete the socket call, and marks the last chunk it
 		// uploads as finished, whether the call ended or the chunk budget ran out

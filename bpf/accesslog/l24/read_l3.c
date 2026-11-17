@@ -15,160 +15,153 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "l24.h"
-#include "../common/data_args.h"
-#include "list.h"
+// L3 of a receive: ip_rcv (or ip_list_rcv for a list of sk_buffs), ip_rcv_finish, ip_local_deliver of the sk_buffs of
+// skb_receive_detail
 
+#include "l24.h"
+
+// ip_rcv(skb, dev, pt, orig_dev)
 SEC("kprobe/ip_rcv")
-int ip_rcv(struct pt_regs * ctx) {
-	struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
-	struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+int l24_ip_rcv(struct pt_regs * ctx) {
+    struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
+    struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
     if (detail != NULL) {
-        detail->enter_ip_rcv_time = bpf_ktime_get_ns();
-        save_l24_tmp_args(L24_TEMP_ARGS_IP_RCV, skb);
+        __u64 now = bpf_ktime_get_ns();
+        detail->enter_ip_rcv_time = now;
+        save_l24_tmp_args(L24_TEMP_ARGS_IP_RCV, skb, now);
     }
     return 0;
 }
 
 SEC("kretprobe/ip_rcv")
-int ip_rcv_ret(struct pt_regs * ctx) {
-    struct skb_receive_detail* detail = get_l24_rcv_tmp_args(L24_TEMP_ARGS_IP_RCV);
+int l24_ip_rcv_ret(struct pt_regs * ctx) {
+    struct l24_tmp_args_value kept = {};
+    if (!take_l24_tmp_args(L24_TEMP_ARGS_IP_RCV, &kept)) {
+        return 0;
+    }
+    struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &kept.skb);
     if (detail != NULL) {
         detail->exit_ip_rcv_time = bpf_ktime_get_ns();
     }
     return 0;
 }
 
+// the sk_buffs of a list (ip_list_rcv, ip_sublist_rcv_finish) that are followed: at most L24_LIST_MAX of them, the
+// list_head of an sk_buff is its first member
+#define L24_LIST_MAX 8
+struct l24_skb_list {
+    struct sk_buff *skbs[L24_LIST_MAX];
+};
+
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__uint(max_entries, 10000);
-	__type(key, __u64);
-	__type(value, struct c_bpf_list_head);
+	__type(key, struct l24_tmp_args_key);
+	__type(value, struct l24_skb_list);
 } ip_list_rcv_args_map SEC(".maps");
 
-#define ip_list_foreach_skb(loc, time)                                      \
-    list_for_each_entry_data(skb, next, head, list) {                       \
-        detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);    \
-        if (detail != NULL) {                                               \
-            detail->loc = time;                                             \
-            skb_list = append_bpf_list_head(&skb_list, skb);                 \
-        }                                                                   \
-    };
+// l24_list_mark sets the time at the location of the followed sk_buffs of the list (0: enter_ip_rcv_time, 1:
+// ip_rcv_finish_time) and keeps them in the list given, when not NULL
+static __always_inline void l24_list_mark(struct list_head *head, int location, __u64 now, struct l24_skb_list *kept) {
+    struct list_head *node = _(head->next);
+#pragma unroll
+    for (int i = 0; i < L24_LIST_MAX; i++) {
+        if (node == NULL || node == head) {
+            break;
+        }
+        struct sk_buff *skb = (struct sk_buff *)node;
+        struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+        if (detail != NULL) {
+            if (location == 0) {
+                detail->enter_ip_rcv_time = now;
+            } else {
+                detail->ip_rcv_finish_time = now;
+            }
+            if (kept != NULL) {
+                kept->skbs[i] = skb;
+            }
+        }
+        node = _(node->next);
+    }
+}
 
-#define bpf_list_foreach_skb(loc, time)                                      \
-    bpf_list_for_each_foreach(skb, head) {                                   \
-        detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);     \
-        if (detail != NULL) {                                                \
-            detail->loc = time;                                              \
-        }                                                                    \
-    };
-
+// ip_list_rcv(head, pt, orig_dev)
 SEC("kprobe/ip_list_rcv")
-int ip_list_rcv(struct pt_regs * ctx) {
-    __u64 id = bpf_get_current_pid_tgid();
+int l24_ip_list_rcv(struct pt_regs * ctx) {
     struct list_head *head = (struct list_head *)PT_REGS_PARM1(ctx);
     if (head == NULL) {
         return 0;
     }
-    __u64 enter_rcv_time = bpf_ktime_get_ns();
-    struct skb_receive_detail *detail = NULL;
-
-    struct sk_buff *skb = NULL, *next = NULL;
-    struct c_bpf_list_head skb_list = init_bpf_list_head();
-    list_for_each_entry_init()
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-    ip_list_foreach_skb(enter_ip_rcv_time, enter_rcv_time)
-
-
-    bpf_map_update_elem(&ip_list_rcv_args_map, &id, &skb_list, BPF_ANY);
+    struct l24_skb_list kept = {};
+    l24_list_mark(head, 0, bpf_ktime_get_ns(), &kept);
+    struct l24_tmp_args_key key = {};
+    l24_tmp_args_key(&key, L24_TEMP_ARGS_IP_RCV);
+    bpf_map_update_elem(&ip_list_rcv_args_map, &key, &kept, BPF_ANY);
     return 0;
 }
 
 SEC("kretprobe/ip_list_rcv")
-int ip_list_rcv_ret(struct pt_regs * ctx) {
-    __u64 id = bpf_get_current_pid_tgid();
-    struct c_bpf_list_head *head = bpf_map_lookup_elem(&ip_list_rcv_args_map, &id);
-    if (head == NULL) {
+int l24_ip_list_rcv_ret(struct pt_regs * ctx) {
+    struct l24_tmp_args_key key = {};
+    l24_tmp_args_key(&key, L24_TEMP_ARGS_IP_RCV);
+    struct l24_skb_list *kept = bpf_map_lookup_elem(&ip_list_rcv_args_map, &key);
+    if (kept == NULL) {
         return 0;
     }
-
-    struct sk_buff *skb = NULL;
-    bpf_list_for_each_init()
-    struct skb_receive_detail *detail = NULL;
-    __u64 exit_rcv_time = bpf_ktime_get_ns();
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-    bpf_list_foreach_skb(exit_ip_rcv_time, exit_rcv_time)
-
-    bpf_map_delete_elem(&ip_list_rcv_args_map, &id);
+    __u64 now = bpf_ktime_get_ns();
+#pragma unroll
+    for (int i = 0; i < L24_LIST_MAX; i++) {
+        struct sk_buff *skb = kept->skbs[i];
+        if (skb == NULL) {
+            continue;
+        }
+        struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+        if (detail != NULL) {
+            detail->exit_ip_rcv_time = now;
+        }
+    }
+    bpf_map_delete_elem(&ip_list_rcv_args_map, &key);
     return 0;
 }
 
+// ip_rcv_finish(net, sk, skb) (static: not every kernel has a symbol to probe)
 SEC("kprobe/ip_rcv_finish")
-int ip_rcv_finish(struct pt_regs * ctx){
-	struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
-	struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+int l24_ip_rcv_finish(struct pt_regs * ctx) {
+    struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM3(ctx);
+    struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
     if (detail != NULL) {
         detail->ip_rcv_finish_time = bpf_ktime_get_ns();
     }
     return 0;
 }
 
+// ip_sublist_rcv_finish(head)
 SEC("kprobe/ip_sublist_rcv_finish")
-int ip_sublist_rcv_finish(struct pt_regs * ctx) {
+int l24_ip_sublist_rcv_finish(struct pt_regs * ctx) {
     struct list_head *head = (struct list_head *)PT_REGS_PARM1(ctx);
     if (head == NULL) {
         return 0;
     }
-    __u64 rcv_finish_time = bpf_ktime_get_ns();
-    struct skb_receive_detail *detail = NULL;
-
-    struct sk_buff *skb = NULL, *next = NULL;
-    struct c_bpf_list_head skb_list = init_bpf_list_head();
-    list_for_each_entry_init()
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-    ip_list_foreach_skb(ip_rcv_finish_time, rcv_finish_time)
-
+    l24_list_mark(head, 1, bpf_ktime_get_ns(), NULL);
     return 0;
 }
 
+// ip_local_deliver(skb)
 SEC("kprobe/ip_local_deliver")
-int ip_local_deliver(struct pt_regs * ctx){
-	struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
-	struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+int l24_ip_local_deliver(struct pt_regs * ctx) {
+    struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM1(ctx);
+    struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
     if (detail != NULL) {
         detail->ip_local_time = bpf_ktime_get_ns();
     }
     return 0;
 }
 
+// ip_local_deliver_finish(net, sk, skb) (static: not every kernel has a symbol to probe)
 SEC("kprobe/ip_local_deliver_finish")
-int ip_local_deliver_finish(struct pt_regs * ctx){
-	struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM3(ctx);
-	struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
+int l24_ip_local_deliver_finish(struct pt_regs * ctx) {
+    struct sk_buff * skb = (struct sk_buff *)PT_REGS_PARM3(ctx);
+    struct skb_receive_detail *detail = bpf_map_lookup_elem(&sk_buff_receive_detail_map, &skb);
     if (detail != NULL) {
         detail->ip_local_finish_time = bpf_ktime_get_ns();
     }

@@ -18,6 +18,7 @@
 package buffer
 
 import (
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -165,5 +166,52 @@ func TestUploadedBytesAccounting(t *testing.T) {
 	}
 	if got := b.UploadedBytes(10); got != 40 {
 		t.Fatalf("removing a chunk must not lose the accounting of the call, got %d", got)
+	}
+}
+
+// TestPrepareForReadingKeepsAHeadPastSkippedEvents: after SkipCurrentElement moved the head past events that stay
+// in the buffer, an out of order insert behind the head keeps it there (the skipped events are not read again); an
+// insert before the head starts over from the first event
+func TestPrepareForReadingKeepsAHeadPastSkippedEvents(t *testing.T) {
+	b := NewBuffer()
+	for _, id := range []uint64{2, 3, 6, 7} {
+		b.AppendDataEvent(&testEvent{dataID: id, data: []byte{byte(id)}})
+	}
+	if !b.PrepareForReading() {
+		t.Fatal("expected data")
+	}
+	b.SkipCurrentElement() // head at 3
+	b.PrepareForReading()
+	if id := b.Position().DataID(); id != 3 {
+		t.Fatalf("head at %d after the skip", id)
+	}
+	b.AppendDataEvent(&testEvent{dataID: 4, data: []byte{4}}) // out of order, behind the head
+	b.PrepareForReading()
+	if id := b.Position().DataID(); id != 3 {
+		t.Fatalf("an insert behind the head moved it to %d", id)
+	}
+	b.AppendDataEvent(&testEvent{dataID: 1, data: []byte{1}}) // before the head
+	b.PrepareForReading()
+	if id := b.Position().DataID(); id != 1 {
+		t.Fatalf("an insert before the head left it at %d", id)
+	}
+}
+
+// releasedEvent is a testEvent whose bytes were released: it keeps its length
+type releasedEvent struct{ testEvent }
+
+func (e *releasedEvent) BufferData() []byte { return nil }
+func (e *releasedEvent) BufferLen() int     { return 4 }
+
+// TestReadOfAReleasedEvent: an event whose buffer was released while it is still in the buffer is an error to
+// read, not a slice of a nil buffer
+func TestReadOfAReleasedEvent(t *testing.T) {
+	b := NewBuffer()
+	b.AppendDataEvent(&testEvent{dataID: 1, data: []byte("ab")})
+	b.AppendDataEvent(&releasedEvent{testEvent{dataID: 2}})
+	b.PrepareForReading()
+	out := make([]byte, 4)
+	if err := b.ReadUntilBufferFull(out); !errors.Is(err, ErrPayloadReleased) {
+		t.Fatalf("read past a released event: %v", err)
 	}
 }

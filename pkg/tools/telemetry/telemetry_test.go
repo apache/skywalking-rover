@@ -75,3 +75,23 @@ func TestLabelValuesAreEscaped(t *testing.T) {
 		t.Errorf("label value not escaped:\n%s", out.String())
 	}
 }
+
+// TestHistogramCountIsTheInfBucket: the count a scrape writes is the +Inf bucket it wrote, and a negative
+// observation does not take the sum down
+func TestHistogramCountIsTheInfBucket(t *testing.T) {
+	h := NewHistogram("test_histogram_scrape", "a histogram", []int64{1, 10})
+	h.Observe(5)
+	h.Observe(-3)
+	h.counts[2].Add(1) // an observation counted in its bucket only, as one between the reads of a scrape is
+	var out strings.Builder
+	if err := Write(&out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, `test_histogram_scrape_bucket{le="+Inf"} 3`) || !strings.Contains(text, "test_histogram_scrape_count 3") {
+		t.Fatalf("exposition:\n%s", text)
+	}
+	if h.sum.Load() != 5 {
+		t.Fatalf("sum %d", h.sum.Load())
+	}
+}

@@ -152,12 +152,50 @@ access_log:
     # timing: the metrics that are a sum stay correct, the read and write cpm metrics count merged
     # records instead of syscalls, and the *_time metrics become the time of a merged record.
     merge_kernel_logs: ${ROVER_ACCESS_LOG_FLUSH_MERGE_KERNEL_LOGS:false}
+  sender:
+    # The count of streams sending access logs to the backend at the same time. The backend consumes a stream
+    # serially, so one stream bounds the access log rate; a batch that fits in one send still uses one stream.
+    parallelism: ${ROVER_ACCESS_LOG_SENDER_PARALLELISM:8}
+    # The most logs (protocol logs and kernel logs) one stream carries
+    max_logs_per_send: ${ROVER_ACCESS_LOG_SENDER_MAX_LOGS_PER_SEND:2000}
+    # The most logs waiting to be sent. Past it the oldest batches are dropped, counted and warned about,
+    # instead of holding them in memory while the backend does not keep up. It is a count of logs, not bytes.
+    # 0 does not bound them.
+    max_pending_logs: ${ROVER_ACCESS_LOG_SENDER_MAX_PENDING_LOGS:200000}
+  event_reader:
+    # Wake the reader of the socket data and connection event rings once a per CPU ring holds this many
+    # events instead of for every event; 0 wakes it for every event. The rings are flushed every flush_period,
+    # so no event waits longer.
+    wakeup_events: ${ROVER_ACCESS_LOG_EVENT_READER_WAKEUP_EVENTS:32}
+    # How often the rings are flushed when wakeup_events or batch_size is set, and the longest a partial batch waits
+    flush_period: ${ROVER_ACCESS_LOG_EVENT_READER_FLUSH_PERIOD:1s}
+    # Hand the events to the analyzing partitions in batches of up to this many, collected until the ring is
+    # drained or flush_period has passed, instead of one by one; 0 hands them one by one. The queue_size of the
+    # partitions stays a count of events.
+    batch_size: ${ROVER_ACCESS_LOG_EVENT_READER_BATCH_SIZE:64}
+  bpf:
+    # How the socket call programs attach: auto (from BPF trampolines or raw tracepoints where the kernel runs them,
+    # from the syscall tracepoints and kprobes elsewhere), trampoline (auto without the check that the kernel runs
+    # trampoline programs without preemption) or tracepoint (the syscall tracepoints and kprobes everywhere)
+    attach_mode: ${ROVER_ACCESS_LOG_BPF_ATTACH_MODE:auto}
+    # Where the remote address of a connect behind a DNAT is read: auto (fexit __nf_conntrack_confirm where it
+    # attaches, otherwise a kprobe on it), confirm (the fexit only), kprobe (the kprobe only) or legacy (the kprobes
+    # __nf_conntrack_hash_insert and nf_confirm)
+    nat_hook: ${ROVER_ACCESS_LOG_BPF_NAT_HOOK:auto}
+  kernel_metrics:
+    # The L2/L3 metrics of the kernel logs of the reads and writes (the interface, the time in the IP layer, the
+    # netfilter hooks, the neighbour resolution and the device queue) with the L4 duration, retransmits and transmitted
+    # packages, taken by kprobes and tracepoints on the network stack. Off: the kernel logs carry the L4 package count
+    # and size of each socket call only, and none of those programs is attached.
+    l2_l3: ${ROVER_ACCESS_LOG_KERNEL_METRICS_L2_L3:true}
   connection_analyze:
     # The size of connection buffer on each CPU
     per_cpu_buffer: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PER_CPU_BUFFER:200KB}
-    # The count of parallel connection event parse
+    # The count of goroutines reading the connection event ring: one goroutine reads each ring, because the perf
+    # library serialises the reads of a ring, so values above 1 are ignored
     parse_parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARSE_PARALLELS:1}
-    # The count of parallel connection analyzer
+    # The count of parallel connection analyzer: a positive integer, or "auto" (or 0) for 2 x GOMAXPROCS
+    # bounded to [2, 10]
     analyze_parallels: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_PARALLELS:1}
     # The size of per paralleled analyzer queue
     queue_size: ${ROVER_ACCESS_LOG_CONNECTION_ANALYZE_QUEUE_SIZE:2000}
@@ -168,29 +206,49 @@ access_log:
     # request only: a lost HTTP/2 header block desynchronizes HPACK for the rest of that connection. The
     # agent logs "perf event queue(...) dropped N samples" when this is too small for the traffic.
     per_cpu_buffer: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PER_CPU_BUFFER:4MB}
-    # The count of parallel protocol event parse
-    parse_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARSE_PARALLELS:2}
-    # The count of parallel protocol analyzer
+    # The count of goroutines reading the socket data rings: one goroutine reads each ring, because the perf
+    # library serialises the reads of a ring (several only add a hand-off per event and deliver the events of a
+    # connection out of order), so values above 1 are ignored
+    parse_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARSE_PARALLELS:1}
+    # The count of parallel protocol analyzer: a positive integer, or "auto" (or 0) for 2 x GOMAXPROCS
+    # bounded to [2, 10]; GOMAXPROCS follows the CPU limit of the container
     analyze_parallels: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_PARALLELS:2}
-    # The size of per paralleled analyzer queue. Each queued event holds a 20KB buffer, so this is
-    # analyze_parallels x queue_size x 20KB of events waiting for analysis; a full queue makes the reader
-    # stop draining the perf buffer, which costs lost samples (counted) instead of unbounded memory.
+    # The size of per paralleled analyzer queue: the events read from the perf buffer that wait to be appended to
+    # their connection. It does not bound the memory of the analysis: an appended event keeps its data until its
+    # message is analyzed or expires, which the memory protection below bounds. A full queue makes the reader stop
+    # draining the perf buffer, which costs lost samples (counted).
     queue_size: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_QUEUE_SIZE:5000}
     # Analyze the buffered socket data of a partition as soon as this many data events are pending, instead
-    # of only on the flush period, so the unparsed data of a partition stays bounded (each event holds a 20KB
-    # buffer, so 1000 events are 20MB). 0 disables it. Lower values analyze more often: measured over 4000
-    # events of one partition, 1000 costs about 1.3x the analysis of the flush-period-only path and 200 about
-    # 1.9x, because every pass has a fixed cost per connection.
+    # of only on the flush period, so the unparsed data of a partition stays bounded (each event holds a pooled
+    # buffer of the size of its data, up to 20KB). 0 disables it. Lower values analyze more often, at a fixed cost
+    # per pass and connection.
     trigger_events: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_TRIGGER_EVENTS:1000}
-    # When the memory usage of the process reaches this share of its memory limit, new socket data events are
-    # dropped (counted in the log) until the usage is below it again, instead of growing until the process is
-    # killed. With a cgroup limit the usage is the cgroup working set (the usage without the reclaimable page
-    # cache); without one the limit is GOMEMLIMIT and the usage is the live Go heap plus the memory outside it.
-    # 0 disables the protection. A container that mounts the host /sys over /sys cannot read its own cgroup,
-    # so the limit has to come from GOMEMLIMIT or from max_memory there.
-    max_memory_percent: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_MAX_MEMORY_PERCENT:90}
-    # An absolute threshold (e.g. 1GB) that overrides the percentage when set.
-    max_memory: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_MAX_MEMORY:}
+    # Memory protection: the socket data events held in memory may take at most this percent of the memory the
+    # agent can be allocated (its cgroup limit, found from /proc/self/cgroup or by looking up our PID under the
+    # kubepods hierarchy of the host cgroup tree, else the memory of the host); while they hold it, a new event is
+    # dropped (counted) and its connection restarts at its next message. 0 disables it.
+    max_memory_percent: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_MAX_MEMORY_PERCENT:80}
+    # Do not upload the socket calls of cleartext HTTP/2 connections that carry only frames the parser never reads
+    drop_h2c_unused_frame: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_DROP_H2C_UNUSED_FRAME:false}
+    # Upload the socket calls of cleartext HTTP/2 connections that lie wholly inside the payload of a DATA frame as
+    # their size alone, without their bytes, which the parser never reads. It follows the frames like
+    # drop_h2c_unused_frame, with or without it.
+    skip_h2c_data_payload: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_SKIP_H2C_DATA_PAYLOAD:false}
+    # Send the skipped and tail-cut socket calls of cleartext HTTP/2 connections as compact records in per-CPU
+    # batches (needs skip_h2c_data_payload and flush.merge_kernel_logs).
+    batch_h2c_records: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_BATCH_H2C_RECORDS:false}
+    # Summarise the socket calls of cleartext HTTP/2 connections that lie wholly inside a DATA payload per stream
+    # instead of sending them (needs batch_h2c_records).
+    summarize_h2c_payload: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_SUMMARIZE_H2C_PAYLOAD:false}
+    # The HTTP logs carry the tracing context of their requests (the SkyWalking sw8 and the Zipkin b3 headers)
+    analyze_trace_context: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_ANALYZE_TRACE_CONTEXT:true}
+    # Decode the socket calls of an HTTP/1 connection that lie wholly inside a Content-Length body without their
+    # bytes, which the parser only counts (the events take no data buffer)
+    skip_http1_body_payload: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_SKIP_HTTP1_BODY_PAYLOAD:false}
+    # Upload the socket calls of a cleartext HTTP/1 connection that lie wholly inside a Content-Length body or inside
+    # the data of a chunk, or that come behind the head of a response delimited by the close, as an event without
+    # content that carries their size, which the parser counts into the body.
+    skip_http1_body_payload_bpf: ${ROVER_ACCESS_LOG_PROTOCOL_ANALYZE_SKIP_HTTP1_BODY_PAYLOAD_BPF:false}
 
 pprof:
   # Is active the pprof

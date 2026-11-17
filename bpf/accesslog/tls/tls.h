@@ -24,7 +24,7 @@ static __always_inline void set_conn_as_ssl(struct pt_regs* ctx, __u32 tgid, __u
     if (fd <= 0) {
         return;
     }
-    struct active_connection_t* conn = get_or_create_active_conn(ctx, tgid, fd, func_name, CONNECTION_ROLE_TYPE_UNKNOWN);
+    struct active_connection_t* conn = get_or_create_active_conn(ctx, tgid, fd, GET_OR_CREATE_FUNC_ROLE(func_name, CONNECTION_ROLE_TYPE_UNKNOWN), NULL);
     if (conn == NULL) {
         return;
     }

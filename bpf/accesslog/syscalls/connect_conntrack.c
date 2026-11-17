@@ -82,12 +82,16 @@ static __always_inline int nf_conntrack_tuple_to_conntrack_tuple(struct connect_
     return 1;
 }
 
-static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct) {
-    if (ct == NULL) {
+// nf_conn_aware_ct: confirmed is false when the caller is the confirmation of ct itself, before it set IPS_CONFIRMED
+// (the kprobe at the entry of __nf_conntrack_confirm): the NAT of the entry is set up by then (the nat hooks run before
+// the confirm), only the bit is missing
+static __always_inline int nf_conn_aware_ct(void* ctx, struct nf_conn *ct, bool confirmed) {
+    // (every packet of the host comes here: nothing to do while no thread is in a connect, common/connection.h)
+    if (ct == NULL || conecting_args_live == 0) {
         return 0;
     }
     __u64 id = bpf_get_current_pid_tgid();
-    struct connect_args_t *connect_args = bpf_map_lookup_elem(&conecting_args, &id);
+    struct connect_args_t *connect_args = conecting_args_get(&id);
     if (!connect_args) {
         return 0;
     }
@@ -102,7 +106,7 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
         return 0; // Invalid ct pointer
     }
 
-    if (!(status & IPS_CONFIRMED)) {
+    if (confirmed && !(status & IPS_CONFIRMED)) {
         return 0;
     }
     if (!(status & IPS_NAT_MASK)) {
@@ -125,11 +129,15 @@ static __always_inline int nf_conn_aware(struct pt_regs* ctx, struct nf_conn *ct
     remote.iph = reply_conn.saddr_h;
     remote.ipl = reply_conn.saddr_l;
     remote.port = reply_conn.sport;
+    // (connect_args points into the thread's entry of conecting_args: written in place)
     connect_args->remote = remote;
     connect_args->has_remote = 1;
-    bpf_map_update_elem(&conecting_args, &id, connect_args, 0);
 
     return 0;
+}
+
+static __always_inline int nf_conn_aware(void* ctx, struct nf_conn *ct) {
+    return nf_conn_aware_ct(ctx, ct, true);
 }
 
 SEC("kprobe/__nf_conntrack_hash_insert")
@@ -142,3 +150,48 @@ int nf_confirm(struct pt_regs* ctx) {
     return nf_conn_aware(ctx, (struct nf_conn*)PT_REGS_PARM3(ctx));
 }
 
+// the fentry twin of the trampoline attach (common/sys_attach.h), only for the NAT hook legacy: every packet of the
+// host passes nf_confirm, and the program has nothing to do while no thread is in a connect. The third argument, as
+// the kprobe takes it: the loader only attaches the twin where the kernel BTF says that argument is the struct
+// nf_conn (nf_confirm(skb, protoff, ct, ctinfo)), not the hook state of nf_confirm(priv, skb, state) (6.x).
+SEC("fentry/nf_confirm")
+int fentry_nf_confirm(__u64 *ctx) {
+    return nf_conn_aware(ctx, (struct nf_conn*)ctx[2]);
+}
+
+
+// The confirmation of a new conntrack entry: __nf_conntrack_confirm(skb) runs once per new entry, for the first
+// packet of a connect in the connecting thread (the SYN goes through the output hooks in connect), and at its exit the
+// entry is confirmed and its NAT set up. __nf_conntrack_hash_insert, which it calls, is inlined on some newer kernels (6.12)
+// and, where it is not, runs before IPS_CONFIRMED is set there, so the legacy hook never sees a confirmed entry;
+// and nf_confirm, hooked for every packet of the host, gets the hook state as its third argument since its signature
+// became (priv, skb, state), where the kprobes read the entry: neither found a NAT on 6.12. The entry of the packet is
+// skb->_nfct without the ctinfo bits (NFCT_PTRMASK).
+#define ACCESSLOG_NFCT_PTRMASK (~7UL)
+#define ACCESSLOG_NF_ACCEPT 1
+
+static __always_inline struct nf_conn *nf_conn_of_skb(struct sk_buff *skb) {
+    long unsigned int nfct = 0;
+    if (skb == NULL || bpf_core_read(&nfct, sizeof(nfct), &skb->_nfct) != 0) {
+        return NULL;
+    }
+    return (struct nf_conn *)(nfct & ACCESSLOG_NFCT_PTRMASK);
+}
+
+// the trampoline: once the entry is confirmed (NF_ACCEPT), with the same checks as nf_confirm
+SEC("fexit/__nf_conntrack_confirm")
+int fexit_nf_conntrack_confirm(__u64 *ctx) {
+    if (conecting_args_live == 0 || (int)ctx[1] != ACCESSLOG_NF_ACCEPT) {
+        return 0;
+    }
+    return nf_conn_aware_ct(ctx, nf_conn_of_skb((struct sk_buff *)ctx[0]), true);
+}
+
+// without trampolines and without the symbol __nf_conntrack_hash_insert: the entry of the confirmation, before the bit
+SEC("kprobe/__nf_conntrack_confirm")
+int kprobe_nf_conntrack_confirm(struct pt_regs *ctx) {
+    if (conecting_args_live == 0) {
+        return 0;
+    }
+    return nf_conn_aware_ct(ctx, nf_conn_of_skb((struct sk_buff *)PT_REGS_PARM1(ctx)), false);
+}

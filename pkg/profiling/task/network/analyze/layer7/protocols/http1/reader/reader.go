@@ -62,6 +62,8 @@ const (
 type Reader struct {
 	headBuffer []byte
 	bodyBuffer []byte
+	// textprotoOnly disables the fast header scanner (see fast.go), for the differential tests
+	textprotoOnly bool
 }
 
 func NewReader() *Reader {
@@ -98,6 +100,8 @@ func (r *Reader) IdentityMessageType(reader *buffer.Buffer) (MessageType, error)
 }
 
 type Message interface {
+	// Headers of the message. A message parsed by the fast header scanner holds only the headers listed in
+	// fastHeaderNames (see fast.go): a header read by a user of the reader must be added there.
 	Headers() http.Header
 	HeaderBuffer() *buffer.Buffer
 	BodyBuffer() *buffer.Buffer

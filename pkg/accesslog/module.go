@@ -35,7 +35,10 @@ type Module struct {
 }
 
 func NewModule() *Module {
-	return &Module{config: &common.Config{}}
+	config := &common.Config{}
+	// the defaults of the keys a configuration may leave out: the HTTP logs of the rover carry the tracing context
+	config.ProtocolAnalyze.AnalyzeTraceContext = true
+	return &Module{config: config}
 }
 
 func (m *Module) Name() string {

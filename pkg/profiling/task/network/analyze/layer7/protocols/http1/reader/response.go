@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/textproto"
-	"strconv"
 	"strings"
 
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
@@ -63,51 +62,33 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	defer func() {
 		releasePooledReader(bufReader)
 	}()
-	tp := textproto.NewReader(bufReader)
-	resp := &http.Response{}
-	result := &Response{original: resp, req: req, reader: r}
-	result.MessageOpt = &MessageOpt{result}
 
 	headerStartPosition := buf.Position()
-	line, err := tp.ReadLine()
-	if err != nil {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("read response first line failure: %v", err)
+	var resp *http.Response
+	if !r.textprotoOnly {
+		resp = readResponseHeadFast(bufReader)
 	}
-	indexByte := strings.IndexByte(line, ' ')
-	if indexByte == -1 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response error: %s", line)
+	headerComplete := true
+	if resp == nil {
+		// the fast scanner was not sure about the message: parse it again from its start with textproto
+		rewindForTextproto(buf, headerStartPosition, bufReader)
+		var err error
+		if resp, headerComplete, err = readResponseHeadTextproto(bufReader); err != nil {
+			return nil, enums.ParseResultSkipPackage, err
+		}
 	}
-	resp.Proto = line[:indexByte]
-	resp.Status = strings.TrimLeft(line[indexByte+1:], " ")
-	statusCode := resp.Status
-	if i := strings.IndexByte(resp.Status, ' '); i != -1 {
-		statusCode = resp.Status[:i]
-	}
-	if len(statusCode) != 3 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing response status code failure: %v", statusCode)
-	}
-	resp.StatusCode, err = strconv.Atoi(statusCode)
-	if err != nil || resp.StatusCode < 0 {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("status code not correct: %s", statusCode)
-	}
-	var ok bool
-	if resp.ProtoMajor, resp.ProtoMinor, ok = http.ParseHTTPVersion(resp.Proto); !ok {
-		return nil, enums.ParseResultSkipPackage, fmt.Errorf("parsing http version failure: %s", resp.Proto)
-	}
-
-	mimeHeader, err := tp.ReadMIMEHeader()
-	if err != nil {
-		result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	result := &Response{original: resp, req: req, reader: r}
+	result.MessageOpt = &MessageOpt{result}
+	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
+	if !headerComplete {
+		// the headers could not be parsed: the response is reported without them (and without a body)
 		return result, enums.ParseResultSuccess, nil
 	}
-	resp.Header = http.Header(mimeHeader)
 
-	result.buildHeaderBuffer(headerStartPosition, buf, bufReader)
 	if !readBody {
 		// the caller continues from the end of the headers (the bufio read-ahead moved the position past it)
 		buf.SetPosition(buf.OffsetPosition(-bufReader.Buffered()))
-	}
-	if readBody {
+	} else {
 		b, r, err := result.readFullResponseBody(bufReader, buf)
 		if err != nil {
 			return nil, enums.ParseResultSkipPackage, err
@@ -118,6 +99,37 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	}
 
 	return result, enums.ParseResultSuccess, nil
+}
+
+// readResponseHeadTextproto parses the status line and the headers with net/textproto, it is the
+// reference behaviour of readResponseHeadFast. headerComplete is false when the headers cannot be parsed,
+// the response is still returned then (without headers)
+func readResponseHeadTextproto(bufReader *bufio.Reader) (resp *http.Response, headerComplete bool, err error) {
+	tp := textproto.NewReader(bufReader)
+	resp = &http.Response{}
+	line, err := tp.ReadLine()
+	if err != nil {
+		return nil, false, fmt.Errorf("read response first line failure: %v", err)
+	}
+	indexByte := strings.IndexByte(line, ' ')
+	if indexByte == -1 {
+		return nil, false, fmt.Errorf("parsing response error: %s", line)
+	}
+	resp.Proto = line[:indexByte]
+	if resp.Status, resp.StatusCode, err = parseStatus(line[indexByte+1:]); err != nil {
+		return nil, false, err
+	}
+	var ok bool
+	if resp.ProtoMajor, resp.ProtoMinor, ok = http.ParseHTTPVersion(resp.Proto); !ok {
+		return nil, false, fmt.Errorf("parsing http version failure: %s", resp.Proto)
+	}
+
+	mimeHeader, err := tp.ReadMIMEHeader()
+	if err != nil {
+		return resp, false, nil
+	}
+	resp.Header = http.Header(mimeHeader)
+	return resp, true, nil
 }
 
 func (r *Response) buildHeaderBuffer(start *buffer.Position, buf *buffer.Buffer, bufReader *bufio.Reader) {
