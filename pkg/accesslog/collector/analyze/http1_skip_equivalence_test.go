@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"math/rand"
 	"os"
 	"sort"
@@ -31,16 +30,18 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols/http1skip"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/accesslog/sender"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
-	"google.golang.org/protobuf/proto"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
@@ -192,7 +193,7 @@ func h1Body(rnd *rand.Rand, n int, unusual bool) []byte {
 
 // h1ChunkedBody frames the body in chunks of any size (some with an extension, now and then trailers), and
 // returns where the data of the chunks is
-func h1ChunkedBody(rnd *rand.Rand, body []byte) ([]byte, [][2]int) {
+func h1ChunkedBody(rnd *rand.Rand, body []byte) (framed []byte, chunks [][2]int) {
 	var out bytes.Buffer
 	var data [][2]int
 	for len(body) > 0 {
@@ -318,7 +319,7 @@ func (c *h1Conn) call(dir enums.SocketDataDirection, data []byte) {
 // call enters, in the order of entry, the previous data id when it uploads, in the order of the calls. With
 // overlap, some calls entered a few calls before they upload; with gaps, calls that upload nothing take
 // data ids in between.
-func (c *h1Conn) number(rnd *rand.Rand, base uint64, o h1Options) {
+func (c *h1Conn) number(rnd *rand.Rand, base uint64, o h1Options) { //nolint:funlen // a model of the BPF logic, kept in one piece to follow the C code step by step
 	entry := make([]int, len(c.calls)) // the calls in the order they entered
 	for i := range entry {
 		entry[i] = i
@@ -407,7 +408,7 @@ func (c *h1Conn) number(rnd *rand.Rand, base uint64, o h1Options) {
 // the run is in flight), or at the close.
 // The previous data ids are the ones BPF gives: the last upload, which a held call is not. Every call keeps
 // its slot (the records uploaded at its return, maybe none), so the interleaving is the same as without.
-func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) {
+func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) { //nolint:funlen // a model of the BPF logic, kept in one piece to follow the C code step by step
 	if c.ssl {
 		// TLS: never followed
 		return
@@ -422,19 +423,21 @@ func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) {
 			return nil
 		}
 		w := run[0].wire
-		for _, r := range run[1:] {
+		for i := 1; i < len(run); i++ {
+			r := &run[i]
 			w.TotalSize0 += r.wire.TotalSize0
 			w.L4PackageCount += r.wire.L4PackageCount
 			w.L4TotalPackageSize += r.wire.L4TotalPackageSize
 		}
 		end := run[len(run)-1].wire
-		for _, r := range run {
+		for i := range run {
+			r := &run[i]
 			w.EndTime0 = max(w.EndTime0, r.wire.EndTime0)
 		}
 		w.DataID0, w.DataIDSpan, w.PrevDataID0 = end.DataID0, uint16(end.DataID0-w.DataID0), runPrev
 		last = max(last, end.DataID0)
 		run = nil
-		return []h1Record{h1BPFSkipped(w, c.id)}
+		return []h1Record{h1BPFSkipped(&w, c.id)}
 	}
 	for i, records := range c.calls {
 		first := records[0]
@@ -467,7 +470,8 @@ func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) {
 		if len(run) > 0 && mayFlush {
 			head := run[0].wire
 			packages := int(w.L4PackageCount)
-			for _, r := range run {
+			for j := range run {
+				r := &run[j]
 				packages += int(r.wire.L4PackageCount)
 			}
 			// what h1_hold and upload_data_args_ext_coalesce require of a call that joins the run
@@ -492,14 +496,15 @@ func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) {
 				last = max(last, run[len(run)-1].wire.DataID0) // h1_reserve_run
 			}
 			w.PrevDataID0 = last
-			slot = append(slot, h1BPFSkipped(w, c.id))
+			slot = append(slot, h1BPFSkipped(&w, c.id))
 			last = w.DataID0
 		default:
 			if len(run) > 0 {
 				// a held run it may not upload: its previous data id names the run (h1_reserve_run)
 				last = max(last, run[len(run)-1].wire.DataID0)
 			}
-			for _, r := range records {
+			for j := range records {
+				r := records[j]
 				r.wire.PrevDataID0 = last
 				r.sample = h1Sample(&r.wire, r.payload)
 				slot = append(slot, r)
@@ -515,7 +520,8 @@ func (c *h1Conn) bpfSkip(rnd *rand.Rand, o h1Options) {
 }
 
 // h1BPFSkipped is the record of a call (or a run of calls) BPF uploaded without its content
-func h1BPFSkipped(w h1Wire, conn uint64) h1Record {
+func h1BPFSkipped(wire *h1Wire, conn uint64) h1Record {
+	w := *wire
 	w.Sequence0, w.DataLen, w.Finished, w.HaveReduce, w.PayloadSkipped0 = 0, 0, 1, 0, 1
 	return h1Record{wire: w, sample: h1Sample(&w, nil), conn: conn, first: true}
 }
@@ -556,7 +562,7 @@ func (c *h1Conn) message(rnd *rand.Rand, dir enums.SocketDataDirection, msg []by
 	}
 }
 
-func h1GenerateTraffic(seed int64, o h1Options) *h1Traffic {
+func h1GenerateTraffic(seed int64, o h1Options) *h1Traffic { //nolint:funlen // one scripted traffic scenario, kept in one piece so its steps read in order
 	rnd := rand.New(rand.NewSource(seed))
 	base := o.base
 	if base == 0 {
@@ -682,7 +688,7 @@ func h1GenerateTraffic(seed int64, o h1Options) *h1Traffic {
 			c.bpfSkip(bpfRnd, o)
 		}
 	}
-	// interleave the connections; with lossy, lose some calls and swap some neighbours of a connection
+	// interleave the connections; with lossy, lose some calls and swap some neighbors of a connection
 	slot := 0
 	for {
 		var pending []*h1Conn
@@ -706,7 +712,8 @@ func h1GenerateTraffic(seed int64, o h1Options) *h1Traffic {
 		if dropped {
 			traffic.disturbed[c.id] = true
 		}
-		for _, r := range calls {
+		for j := range calls {
+			r := calls[j]
 			r.dropped, r.known, r.slot = dropped, known, slot
 			traffic.records = append(traffic.records, r)
 		}
@@ -735,7 +742,7 @@ type h1RunResult struct {
 
 // h1SkipRun decodes the records with skip_http1_body_payload on or off and analyzes every connection
 // after every `every` records, in a fixed order
-func h1SkipRun(t *testing.T, traffic *h1Traffic, skip bool, every int) *h1RunResult {
+func h1SkipRun(t *testing.T, traffic *h1Traffic, skip bool, every int) *h1RunResult { //nolint:funlen // it feeds a run to the analyzer and counts what comes out in one pass, with the state both share
 	t.Helper()
 	http1skip.ResetRegistry()
 	ctx := &common.AccessLogContext{
@@ -771,7 +778,8 @@ func h1SkipRun(t *testing.T, traffic *h1Traffic, skip bool, every int) *h1RunRes
 	}
 	reader := &btf.BytesReader{}
 	slot := 0
-	for _, r := range traffic.records {
+	for i := range traffic.records {
+		r := &traffic.records[i]
 		// the slots before this record are complete
 		for ; slot < r.slot; slot++ {
 			if (slot+1)%every == 0 {
@@ -973,7 +981,8 @@ func h1SkipRunConcurrently(t *testing.T, traffic *h1Traffic, skip bool) []h1Outp
 	// the reader
 	go func() {
 		reader := &btf.BytesReader{}
-		for _, r := range traffic.records {
+		for i := range traffic.records {
+			r := &traffic.records[i]
 			event := &aclevents.SocketDataUploadEvent{}
 			reader.Reset(r.sample)
 			event.ReadFrom(reader)
@@ -1178,7 +1187,7 @@ func h1AdvSplit(rnd *rand.Rand, data []byte) [][]byte {
 	return out
 }
 
-func h1AdversarialCalls(seed int64) ([]h1Call, []uint16) {
+func h1AdversarialCalls(seed int64) (script []h1Call, inFlightPerCall []uint16) { //nolint:funlen // one scripted traffic scenario, kept in one piece so its steps read in order
 	rnd := rand.New(rand.NewSource(seed))
 	in, out := enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress
 	if rnd.Intn(2) == 0 {
@@ -1324,7 +1333,7 @@ func TestHTTP1BodySkipAdversarialSweep(t *testing.T) {
 			total += on.skipped
 			same := len(off.outputs) == len(on.outputs) && on.conflicts == 0
 			for i := 0; same && i < len(off.outputs); i++ {
-				same = string(off.outputs[i].encoded) == string(on.outputs[i].encoded)
+				same = bytes.Equal(off.outputs[i].encoded, on.outputs[i].encoded)
 			}
 			if !same {
 				fails++
@@ -1430,7 +1439,8 @@ func TestHTTP1BodySkipBPFKeepsTheAccessLogs(t *testing.T) {
 func h1WithoutInFlight(traffic *h1Traffic) *h1Traffic {
 	stripped := *traffic
 	stripped.records = make([]h1Record, len(traffic.records))
-	for i, r := range traffic.records {
+	for i := range traffic.records {
+		r := traffic.records[i]
 		r.wire.InFlight = 0
 		r.sample = h1Sample(&r.wire, r.payload)
 		stripped.records[i] = r
@@ -1505,7 +1515,8 @@ func TestHTTP1BodySkipBPFRunPassedByTheOtherDirection(t *testing.T) {
 		}
 		traffic := &h1Traffic{merge: true, expected: map[uint64][]h1Expected{}, disturbed: map[uint64]bool{}}
 		for slot, records := range c.calls {
-			for _, r := range records {
+			for i := range records {
+				r := records[i]
 				r.slot = slot
 				traffic.records = append(traffic.records, r)
 			}
@@ -1515,7 +1526,8 @@ func TestHTTP1BodySkipBPFRunPassedByTheOtherDirection(t *testing.T) {
 	off, on := build(false), build(true)
 	// the run of 2 and 3 goes before 4 by its data id, and 5 and 6 are a run of their own
 	var spans []string
-	for _, r := range on.records {
+	for i := range on.records {
+		r := &on.records[i]
 		if r.wire.PayloadSkipped0 == 1 {
 			spans = append(spans, fmt.Sprintf("%d-%d", r.wire.DataID0-uint64(r.wire.DataIDSpan), r.wire.DataID0))
 		}

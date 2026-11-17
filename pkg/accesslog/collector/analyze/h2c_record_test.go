@@ -184,7 +184,7 @@ func newH2CRecordRunner(t *testing.T, split batchSplitter) *h2cRecordRunner {
 		ConnectionMgr: h2cTestConnectionManager(),
 		Config:        &common.Config{},
 	}
-	r.inUse0, _, _, _ = buffer.MemoryStats()
+	r.inUse0, _, _, _ = buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	r.inflight0 = buffer.InflightBytes()
 	r.proto = protocols.NewHTTP2Analyzer(r.ctx, NewHTTP2Analyze(r.ctx))
 	partition := protocols.NewPartitionContext(r.ctx, 0, []protocols.Protocol{r.proto})
@@ -265,7 +265,7 @@ func (r *h2cRecordRunner) finish() *h2cRecordOutput {
 		out.kernelTransfers = append(out.kernelTransfers, tl)
 		out.kernelMeta = append(out.kernelMeta, fmt.Sprintf("type=%d owned=%t", k.Type(), k.Owned()))
 	}
-	inUse1, _, _, _ := buffer.MemoryStats()
+	inUse1, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	out.inUse, out.inflight = inUse1-r.inUse0, buffer.InflightBytes()-r.inflight0
 	return out
 }
@@ -527,7 +527,7 @@ func TestH2CRecordsLikeFullEvents(t *testing.T) {
 // the budget is set so that the events in use hold it after a few dozen, and both runs must refuse the same
 // records and hold the same events and bytes in the end, which only holds when a record is released exactly
 // when its event would be.
-func TestH2CRecordsLikeFullEventsWithLossAndPressure(t *testing.T) {
+func TestH2CRecordsLikeFullEventsWithLossAndPressure(t *testing.T) { //nolint:funlen // one scenario whose steps share the state of the run
 	chargeEventsLikeRecords(t)
 	withH2CSkipDataPayload(t)
 	holdInflightMargin(t)
@@ -614,7 +614,7 @@ func TestH2CRecordsLikeFullEventsWithLossAndPressure(t *testing.T) {
 
 // TestH2CRecordAnswersAsItsEvent: every method a consumer reads of a record answers what the event the old
 // splitter decoded of it answers, before and after the release, and its detail copy is that event's
-func TestH2CRecordAnswersAsItsEvent(t *testing.T) {
+func TestH2CRecordAnswersAsItsEvent(t *testing.T) { //nolint:funlen // one scenario whose steps share the state of the run
 	var evs []*events.SocketDataUploadEvent
 	for i, cut := range [][]byte{nil, {0, 0x40, 0, 0, 0, 0, 0, 0, 1}, bytes.Repeat([]byte{0xAB}, 16), {}} {
 		e := &events.SocketDataUploadEvent{Protocol0: enums.ConnectionProtocolHTTP2, Finished: 1, FunctionName: uint32(3 + i),

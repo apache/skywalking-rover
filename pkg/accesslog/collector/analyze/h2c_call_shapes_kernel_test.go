@@ -19,12 +19,12 @@ package analyze
 
 import (
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 

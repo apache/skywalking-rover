@@ -66,11 +66,11 @@ func newDrainTest() (*HTTP2Protocol, *HTTP2Metrics, *drainAnalyzer) {
 	return r, m, a
 }
 
-func summarisedStream(id uint32, in, out uint64) *HTTP2Streaming {
+func summarizedStream(id uint32, in, out uint64) *HTTP2Streaming {
 	_ = id
 	s := &HTTP2Streaming{}
-	s.summarised[enums.SocketDataDirectionIngress] = in
-	s.summarised[enums.SocketDataDirectionEgress] = out
+	s.summarized[enums.SocketDataDirectionIngress] = in
+	s.summarized[enums.SocketDataDirectionEgress] = out
 	return s
 }
 
@@ -81,7 +81,7 @@ func TestReportStreamDefersTheDrain(t *testing.T) {
 	in, out := enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress
 	r, m, a := newDrainTest()
 	a.kept[3] = []HTTP2Summary{&benchSummary{stream: 3, dir: out, bytes: 700, first: 20}}
-	s3 := summarisedStream(3, 500, 700)
+	s3 := summarizedStream(3, 500, 700)
 	r.reportStream(nil, m, 3, s3)
 	if len(a.drains) != 0 || len(a.reported) != 0 {
 		t.Fatalf("drained %d times, reported %d at the end of the stream", len(a.drains), len(a.reported))
@@ -103,7 +103,7 @@ func TestReportStreamDefersTheDrain(t *testing.T) {
 
 	// a stream whose summaries all come before the next round is never drained for
 	r, m, a = newDrainTest()
-	s5 := summarisedStream(5, 500, 0)
+	s5 := summarizedStream(5, 500, 0)
 	r.reportStream(nil, m, 5, s5)
 	r.processSummaries(nil, m)
 	m.addSummary(&benchSummary{stream: 5, dir: in, bytes: 500, first: 10})
@@ -116,7 +116,7 @@ func TestReportStreamDefersTheDrain(t *testing.T) {
 	// a complete stream is reported at once, no drain
 	r, m, a = newDrainTest()
 	m.addSummary(&benchSummary{stream: 7, dir: in, bytes: 500, first: 10})
-	s7 := summarisedStream(7, 500, 0)
+	s7 := summarizedStream(7, 500, 0)
 	r.reportStream(nil, m, 7, s7)
 	if len(a.drains) != 0 || a.reported[s7] != 1 {
 		t.Fatalf("complete: drains %v, reported %v", a.drains, a.reported)
@@ -129,7 +129,7 @@ func TestReleaseDrainsDeferredStreams(t *testing.T) {
 	out := enums.SocketDataDirectionEgress
 	r, m, a := newDrainTest()
 	a.kept[9] = []HTTP2Summary{&benchSummary{stream: 9, dir: out, bytes: 64, first: 30}}
-	s9 := summarisedStream(9, 0, 64)
+	s9 := summarizedStream(9, 0, 64)
 	r.reportStream(nil, m, 9, s9)
 	m.sums.conn = &PartitionConnection{}
 	m.releaseSummaries()

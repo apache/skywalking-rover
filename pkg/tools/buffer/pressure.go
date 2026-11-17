@@ -64,6 +64,9 @@ const (
 
 var dropReasonLabels = [2]string{"memory", "kernel_shed"}
 
+// dropReasonLabel is the name of the label of the drop reason (dropReasonLabels)
+const dropReasonLabel = "reason"
+
 // CountDroppedCall counts a socket call, or a part of one, the memory protection dropped: calls is 1 for
 // the first part of a call (0 for the others), bytes are the bytes of the call that were lost with it
 func CountDroppedCall(reason int, calls, bytes int64) {
@@ -202,7 +205,7 @@ func init() {
 		telemetry.RegisterSeries(kind.name, kind.help, telemetry.Counter, func() []telemetry.Sample {
 			samples := make([]telemetry.Sample, len(dropReasonLabels))
 			for i, label := range dropReasonLabels {
-				samples[i] = telemetry.Sample{Labels: map[string]string{"reason": label}, Value: float64(counters[i].Load())}
+				samples[i] = telemetry.Sample{Labels: map[string]string{dropReasonLabel: label}, Value: float64(counters[i].Load())}
 			}
 			return samples
 		})

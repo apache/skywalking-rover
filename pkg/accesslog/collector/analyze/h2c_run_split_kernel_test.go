@@ -91,7 +91,7 @@ func h2cSplitReport(t *testing.T, run *h2cKernelRun, summaries []*events.H2CSumm
 				}
 				r := records(enums.SocketDataDirection(d))
 				r.positional++
-				if e.PayloadSkipped0 == 0 && !(e.HaveReduce == 1 && e.DataLen <= 16) {
+				if e.PayloadSkipped0 == 0 && (e.HaveReduce != 1 || e.DataLen > 16) {
 					r.full++
 				}
 				if e.SumStream != 0 {
@@ -159,8 +159,8 @@ func h2cSplitFrames(t *testing.T, conn *h2cKernelConn, d enums.SocketDataDirecti
 // time and 8 at once, and checks:
 //   - drop off (a call is one upload, so the calls line up with the recorded bytes): BPF does what the model of the
 //     summaries (h2cSummarize, held to today's output by TestH2CRunsSplitLikeToday and TestH2CSummaryRealCalls)
-//     predicts from the recorded calls, upload by upload, with the same summarised bytes, runs, open runs (and the
-//     rest of their open frame) and heads in front of them; every summarised call is in a summary and its bytes in a
+//     predicts from the recorded calls, upload by upload, with the same summarized bytes, runs, open runs (and the
+//     rest of their open frame) and heads in front of them; every summarized call is in a summary and its bytes in a
 //     gap, the map is empty after the traffic; the client read response DATA frames split across calls, and those
 //     reads and the request bodies of both sides go into runs, the client's behind a head;
 //   - with the production switches (drop on): the agent reports every request on both sides, with the same bodies
@@ -200,7 +200,7 @@ func TestH2CRunsSplitKernel(t *testing.T) {
 			t.Logf("drop off: %d of %d connections compared with the model; client %v / %v, server %v / %v",
 				compared, len(runModel.conns), client.request, client.response, server.request, server.response)
 			// the split run calls: Go's client reads a response DATA frame header with the start of its payload in
-			// one call and the rest in another, so the run of the frames behind starts behind the summarised rest of
+			// one call and the rest in another, so the run of the frames behind starts behind the summarized rest of
 			// that frame (its head). The traffic must have had that shape, and the runs must have been made of it.
 			split := 0
 			for _, conn := range runModel.conns {
@@ -221,7 +221,7 @@ func TestH2CRunsSplitKernel(t *testing.T) {
 				t.Fatalf("no run of the requests: client %v, server %v", client.request, server.request)
 			}
 			// (no check of the open runs: a run whose last frame goes on into the next call needs a frame header
-			// read with the start of its payload by a call BPF summarises whole, which these readers do not make;
+			// read with the start of its payload by a call BPF summarizes whole, which these readers do not make;
 			// the model comparison above checks the open runs upload by upload whenever there are any)
 
 			// the production switches

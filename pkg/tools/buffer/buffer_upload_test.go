@@ -214,7 +214,7 @@ func TestSparseUploadGapsStayOutOfTheMap(t *testing.T) {
 }
 
 // TestSparseUploadRace appends and analyzes concurrently, as the partition and the analyzer do
-func TestSparseUploadRace(t *testing.T) {
+func TestSparseUploadRace(_ *testing.T) {
 	b := NewViewBuffer(NewBuffer())
 	var wg sync.WaitGroup
 	wg.Add(1)

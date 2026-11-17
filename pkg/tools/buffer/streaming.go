@@ -207,6 +207,8 @@ func (c *BodyConsumer) isOtherDirection(ev SocketDataBuffer) bool {
 // of data. Fully consumed events are removed from the buffer (and their pooled buffer released); the
 // head and the current position end up at the first unconsumed byte. It returns true when the body is
 // complete.
+//
+//nolint:gocyclo // per event on the body streaming path, the walk and its stops read best together
 func (c *BodyConsumer) Consume(r *Buffer) bool {
 	if c.chunked {
 		return c.consumeChunked(r)
@@ -306,6 +308,8 @@ func (c *BodyConsumer) consumeSkipped(r *Buffer, element *eventElement, ev Socke
 
 // consumeChunked parses the chunked framing from the current position, releasing fully consumed
 // events; it returns true when the last chunk and the trailers were consumed
+//
+//nolint:gocyclo,funlen // per event on the chunked body path, the walk and its stops read best together
 func (c *BodyConsumer) consumeChunked(r *Buffer) bool {
 	for !c.done {
 		if r.current == nil || r.current.element == nil {
@@ -388,6 +392,8 @@ func (c *BodyConsumer) consumeChunked(r *Buffer) bool {
 
 // parseChunked walks the chunked framing in data[from:] and returns the index up to which the data was
 // consumed (len(data) unless the body ended inside it)
+//
+//nolint:gocyclo // the chunked framing state machine, on the body path, splitting it obscures the flow
 func (c *BodyConsumer) parseChunked(data []byte, from int) int {
 	i := from
 	for i < len(data) && !c.done {
@@ -402,7 +408,7 @@ func (c *BodyConsumer) parseChunked(data []byte, from int) int {
 				}
 				continue
 			}
-			line := append(c.chunkLine, data[i:j]...)
+			line := append(c.chunkLine, data[i:j]...) //nolint:gocritic // the line reuses the array of chunkLine, which is reset below
 			c.chunkLine = c.chunkLine[:0]
 			i = j + 1
 			line = bytes.TrimRight(line, "\r")
@@ -470,7 +476,7 @@ func (c *BodyConsumer) keep(ev SocketDataBuffer, from, to int) {
 	if to <= from {
 		return
 	}
-	var meta SocketDataBuffer = ev
+	meta := ev
 	if copier, ok := ev.(MetadataCopier); ok {
 		meta = copier.CopyMetadata()
 	}

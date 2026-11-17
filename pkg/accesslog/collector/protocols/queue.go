@@ -178,12 +178,10 @@ func (p *PartitionContext) Start(ctx context.Context) {
 			}
 		}
 	}()
-
 }
 
 func (p *PartitionContext) Consume(data interface{}) {
-	switch event := data.(type) {
-	case *events.SocketDataUploadEvent:
+	if event, ok := data.(*events.SocketDataUploadEvent); ok {
 		if log.Enable(logrus.DebugLevel) {
 			pid, _ := events.ParseConnectionID(event.ConnectionID)
 			log.Debugf("receive the socket data event, connection ID: %d, random ID: %d, pid: %d, prev data id: %d, "+

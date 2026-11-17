@@ -27,7 +27,7 @@ import (
 )
 
 // testL24Store is a store with a clock the test moves
-func testL24Store(capacity int, ttl, grace time.Duration) (*L24Store, *int64) {
+func testL24Store(capacity int, ttl, grace time.Duration) (store *L24Store, now *int64) {
 	s := NewL24Store(capacity, ttl, grace)
 	clock := int64(1_000_000_000)
 	s.now = func() int64 { return clock }

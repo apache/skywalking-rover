@@ -20,7 +20,6 @@ package analyze
 import (
 	"context"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -31,6 +30,7 @@ import (
 	"github.com/cilium/ebpf/perf"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
@@ -54,7 +54,7 @@ type h2cSumKernelStats struct {
 // connection line up with the recorded ones), skip and batch on. The summaries BPF sends in its batches and
 // the ones the user space drains (H2CSummaries, flushed every second during the traffic, and at the end for
 // the closed connections) are collected with the events.
-func withAccessLogSummary(t *testing.T, drop, summarize bool, traffic func(run *h2cKernelRun)) (*h2cKernelRun,
+func withAccessLogSummary(t *testing.T, drop, summarize bool, traffic func(run *h2cKernelRun)) (*h2cKernelRun, //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	[]*aclevents.H2CSummary, h2cSumKernelStats) {
 	t.Helper()
 	loader, err := h2cLoadBPF()
@@ -212,7 +212,7 @@ func withAccessLogSummary(t *testing.T, drop, summarize bool, traffic func(run *
 	}
 	for _, e := range events {
 		if e.Sequence0 == 0 {
-			stats.gapBytes += uint64(e.SummarisedBefore())
+			stats.gapBytes += uint64(e.SummarizedBefore())
 		}
 	}
 	for _, conn := range run.conns {
@@ -304,15 +304,15 @@ func TestH2CSummaryRealCalls(t *testing.T) {
 				if len(today.protocolLogs) == 0 {
 					continue
 				}
-				summarised := h2cSumRun(t, deliveries, every)
+				summarized := h2cSumRun(t, deliveries, every)
 				t.Run(fmt.Sprintf("%s/%+v/every=%d", conn.name, o, every), func(t *testing.T) {
-					assertSameMessages(t, today, summarised, false)
+					assertSameMessages(t, today, summarized, false)
 				})
 				compared++
 				if every == 1 && o == (h2cSummaryOptions{}) {
 					runs += stats.runs
-					t.Logf("%s: %d calls, %d summarised (%d whole frames in %d runs) in %d summaries, %d deliveries "+
-						"instead of %d; %d protocol logs", conn.name, len(evs), stats.summarised, stats.runCalls, stats.runs,
+					t.Logf("%s: %d calls, %d summarized (%d whole frames in %d runs) in %d summaries, %d deliveries "+
+						"instead of %d; %d protocol logs", conn.name, len(evs), stats.summarized, stats.runCalls, stats.runs,
 						stats.summaries, stats.positional+stats.summaries, len(evs), len(today.protocolLogs))
 				}
 			}
@@ -327,7 +327,7 @@ func TestH2CSummaryRealCalls(t *testing.T) {
 }
 
 // TestH2CSummaryKernel runs real Go h2c endpoints (8 streams at once, 256KB bodies both ways) with the
-// summaries off and on, and checks with them on that every summarised byte is in a summary and in a gap of the
+// summaries off and on, and checks with them on that every summarized byte is in a summary and in a gap of the
 // parser, that the agent reports every request as with them off, that the summary map is empty after the
 // traffic, and how many records each message costs either way.
 func TestH2CSummaryKernel(t *testing.T) {
@@ -343,7 +343,7 @@ func TestH2CSummaryKernel(t *testing.T) {
 
 	// the bytes of every summary are in exactly one gap
 	if on.summaryCalls == 0 {
-		t.Fatalf("nothing was summarised")
+		t.Fatalf("nothing was summarized")
 	}
 	if on.summaryBytes != on.gapBytes {
 		t.Fatalf("%d bytes in the summaries, %d in the gaps in front of the positional events", on.summaryBytes, on.gapBytes)
@@ -378,7 +378,7 @@ func TestH2CSummaryKernel(t *testing.T) {
 	t.Logf("summaries off: %d perf events, %d records (%d full events) in %v: %.1f records per message",
 		off.perfEvents, off.records, off.fullEvents, off.elapsed, float64(off.records)/messages)
 	t.Logf("summaries on: %d perf events, %d records (%d full events) + %d summaries in %v: %.1f records per message; "+
-		"%d calls summarised in %d summaries (%d by BPF, %d drained: %v), map left %d",
+		"%d calls summarized in %d summaries (%d by BPF, %d drained: %v), map left %d",
 		on.perfEvents, on.records, on.fullEvents, len(summaries), on.elapsed,
 		float64(on.records+on.fromBPF)/messages, on.summaryCalls, len(summaries), on.fromBPF, on.drained, reasons, on.left)
 	if completed == 0 {
@@ -416,7 +416,7 @@ func analyzeSummaryConn(t *testing.T, conn *h2cKernelConn, summaries []*aclevent
 // end (12 connections at once, 8 streams each, 256KB both ways); the summary map is sampled while they run and
 // after: it must be back to about 0 entries within the flush period once the traffic stops, by the deletes
 // of BPF at the end of a stream, of the parser and of the flush, with no forced drain.
-func TestH2CSummaryLiveMap(t *testing.T) {
+func TestH2CSummaryLiveMap(t *testing.T) { //nolint:funlen // one scenario whose steps share the loaded BPF and the state of the run
 	withH2CSkipDataPayload(t)
 	requireBPF(t)
 	common.SetMergeKernelLogs(true)
@@ -437,10 +437,10 @@ func TestH2CSummaryLiveMap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	defer loader.DropH2cUnusedFrame.Set(uint32(0))
-	defer loader.SkipH2cDataPayload.Set(uint32(0))
-	defer loader.BatchH2cRecords.Set(uint32(0))
-	defer loader.SummarizeH2cPayload.Set(uint32(0))
+	defer func() { _ = loader.DropH2cUnusedFrame.Set(uint32(0)) }()
+	defer func() { _ = loader.SkipH2cDataPayload.Set(uint32(0)) }()
+	defer func() { _ = loader.BatchH2cRecords.Set(uint32(0)) }()
+	defer func() { _ = loader.SummarizeH2cPayload.Set(uint32(0)) }()
 	h2cClearMap(t, loader.H2cStreamMap)
 	h2cClearMap(t, loader.ActiveConnectionMap)
 	h2cClearMap(t, loader.H2cSumMap)
@@ -540,7 +540,7 @@ func TestH2CSummaryLiveMap(t *testing.T) {
 		peak.Load(), after, len(protocolLogs))
 	_ = stopped
 	if peak.Load() == 0 {
-		t.Fatalf("nothing was summarised: the summary map never held an entry")
+		t.Fatalf("nothing was summarized: the summary map never held an entry")
 	}
 	if last := after[len(after)-1]; last > 2 {
 		t.Fatalf("%d entries left in the summary map 3s after the traffic stopped", last)

@@ -39,12 +39,12 @@ import (
 // An element is never reused, not even after it is removed: a Position (the end position of a slice, a
 // position handed to the protocol analyzer) can outlive the removal of its element and still read the
 // event through it, and must find the element detached (Next and Prev nil) rather than linked into the
-// list again. So a removed element stays what container/list leaves behind: its Value, no neighbours, no
+// list again. So a removed element stays what container/list leaves behind: its Value, no neighbors, no
 // list. The cost of the slab is only that a slab is kept alive by any of its elements still referenced,
 // with the (small, metadata) event values of its removed elements; maxEventSlab bounds that.
 //
 // That bound only holds while a removed element links to nothing: an element that still pointed at its
-// neighbours would keep their slabs alive, and theirs, the whole history of the connection behind one
+// neighbors would keep their slabs alive, and theirs, the whole history of the connection behind one
 // position. So a list that is replaced (renew) detaches its elements like Remove does, and a slab is never
 // shared by two lists: the spare elements of a replaced list are dropped with it, not handed on.
 type eventList struct {
@@ -137,14 +137,6 @@ func (e *eventElement) atOrBefore(k *eventKey) bool {
 	return ev.StartTime() <= k.start
 }
 
-// dataID is the data id of the element's event
-func (e *eventElement) dataID() uint64 {
-	if e.keyID != 0 {
-		return e.keyID
-	}
-	return e.Value.(SocketDataBuffer).DataID()
-}
-
 // Next returns the next list element or nil.
 func (e *eventElement) Next() *eventElement {
 	if p := e.next; e.list != nil && p != &e.list.root {
@@ -180,7 +172,7 @@ func (l *eventList) init() *eventList {
 }
 
 // renew returns a new empty list to replace l (TakeDataEvents, Clean). Every element of l is detached as
-// Remove detaches it (its Value stays, its neighbours and its list go), so a position that outlives the
+// Remove detaches it (its Value stays, its neighbors and its list go), so a position that outlives the
 // replacement finds its element removed, and an element still referenced keeps only its own slab alive,
 // not the slabs of the elements it was linked to. The new list does not take the spare elements of l: they
 // are in a slab of l, which would then be shared by the elements of both lists.

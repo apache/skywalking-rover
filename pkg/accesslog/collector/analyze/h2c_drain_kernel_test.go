@@ -18,12 +18,12 @@
 package analyze
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"testing"
 
 	"github.com/cilium/ebpf"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 

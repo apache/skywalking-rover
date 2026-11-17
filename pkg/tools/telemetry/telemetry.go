@@ -67,7 +67,7 @@ func Register(name, help string, kind Kind, read func() float64) {
 	RegisterSeries(name, help, kind, func() []Sample { return []Sample{{Value: read()}} })
 }
 
-// RegisterSeries adds a metric that reports several labelled values, for example one per partition
+// RegisterSeries adds a metric that reports several labeled values, for example one per partition
 func RegisterSeries(name, help string, kind Kind, read func() []Sample) {
 	registryLocker.Lock()
 	defer registryLocker.Unlock()
@@ -118,7 +118,7 @@ func formatLabels(labels map[string]string) string {
 	pairs := make([]string, 0, len(names))
 	for _, name := range names {
 		// the value is escaped here, so it is quoted directly rather than with %q, which would escape twice
-		pairs = append(pairs, fmt.Sprintf("%s=\"%s\"", name, escapeLabelValue(labels[name])))
+		pairs = append(pairs, fmt.Sprintf("%s=\"%s\"", name, escapeLabelValue(labels[name]))) //nolint:gocritic // escaped above, %q would escape twice
 	}
 	return "{" + strings.Join(pairs, ",") + "}"
 }

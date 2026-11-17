@@ -367,14 +367,14 @@ func TestHTTP2ContinuationPaddingPriority(t *testing.T) {
 	_ = client.framer.WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: block[:cut], EndHeaders: false, EndStream: false,
 		PadLength: 7, Priority: http2.PriorityParam{StreamDep: 0, Weight: 15}})
 	_ = client.framer.WriteContinuation(1, true, block[cut:])
-	_ = client.framer.WriteDataPadded(1, true, bytes.Repeat([]byte("a"), 300), bytes.Repeat([]byte{0}, 9))
+	_ = client.framer.WriteDataPadded(1, true, bytes.Repeat([]byte("a"), 300), make([]byte, 9))
 	c.feed(enums.SocketDataDirectionIngress, client.take(), 0)
 
 	rblock := server.encode(responseFields("201")...)
 	_ = server.framer.WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: rblock[:3], EndHeaders: false})
 	_ = server.framer.WriteContinuation(1, false, rblock[3:5])
 	_ = server.framer.WriteContinuation(1, true, rblock[5:])
-	_ = server.framer.WriteDataPadded(1, true, bytes.Repeat([]byte("b"), 200), bytes.Repeat([]byte{0}, 3))
+	_ = server.framer.WriteDataPadded(1, true, bytes.Repeat([]byte("b"), 200), make([]byte, 3))
 	c.feed(enums.SocketDataDirectionEgress, server.take(), 0)
 
 	c.analyze()
@@ -472,7 +472,7 @@ func TestHTTP2RSTStreamAndResync(t *testing.T) {
 	client, server := newHTTP2Peer(), newHTTP2Peer()
 
 	client.preface()
-	client.headers(1, false, requestFields("/cancelled")...)
+	client.headers(1, false, requestFields("/canceled")...)
 	_ = client.framer.WriteRSTStream(1, http2.ErrCodeCancel)
 	c.feed(enums.SocketDataDirectionIngress, client.take(), 0)
 	c.analyze()

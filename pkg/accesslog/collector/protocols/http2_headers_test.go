@@ -161,7 +161,7 @@ func writeSplitBlock(p *http2Peer, stream uint32, endStream bool, block []byte, 
 // dynamic table references (indexed fields, literals with incremental indexing, never indexed literals)
 // and dynamic table size updates, over several interleaved streams with trailers, and checks that what
 // the analyzers read (HTTP2Headers, without keeping every field) is what the old map path produced.
-func TestHTTP2HeadersMatchMapPath(t *testing.T) {
+func TestHTTP2HeadersMatchMapPath(t *testing.T) { //nolint:funlen // one scripted frame sequence checked step by step
 	analyzer := &http2FieldsAnalyzer{streams: make(map[string]http2FieldsStream)}
 	proto := NewHTTP2Analyzer(nil, analyzer)
 	c := newHTTP2TestConn(t)

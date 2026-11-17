@@ -146,11 +146,6 @@ func (l *Loader) Close() error {
 	return err
 }
 
-// loadSpec is loadSpecWithOptions of the default options
-func loadSpec() (*ebpf.CollectionSpec, error) {
-	return loadSpecWithOptions(LoaderOptions{})
-}
-
 // loadSpecWithOptions is loadBpf with the atomic exchange of the upload chain turned on where the kernel has it, and
 // the load-time constant of the L2 to L4 details (l24.go) of the options
 func loadSpecWithOptions(opts LoaderOptions) (*ebpf.CollectionSpec, error) {
@@ -201,11 +196,11 @@ func haveAtomicXchg() error {
 		asm.JEq.Imm(asm.R0, 0, "out"),
 		asm.Mov.Imm(asm.R1, 1),
 		// r1 = xchg(*(u64 *)(r0 + 0), r1): BPF_STX | BPF_ATOMIC | BPF_DW, imm BPF_XCHG (0xe0) | BPF_FETCH (0x01)
-		{OpCode: asm.StoreXAddOp(asm.DWord), Dst: asm.R0, Src: asm.R1, Offset: 0, Constant: 0xe1},
+		asm.Xchg.Mem(asm.R0, asm.R1, asm.DWord, 0),
 		asm.Mov.Imm(asm.R0, 0).WithSymbol("out"),
 		asm.Return(),
 	}
-	prog, err := ebpf.NewProgram(&ebpf.ProgramSpec{Type: ebpf.SocketFilter, License: "GPL", Instructions: insns})
+	prog, err := ebpf.NewProgram(&ebpf.ProgramSpec{Type: ebpf.SocketFilter, License: bpfLicense, Instructions: insns})
 	if err != nil {
 		return err
 	}
@@ -219,7 +214,8 @@ func StripAtomicFetch(spec *ebpf.CollectionSpec) int {
 	n := 0
 	for _, p := range spec.Programs {
 		for i, ins := range p.Instructions {
-			if ins.OpCode.Class() == asm.StXClass && ins.OpCode.Mode() == asm.XAddMode && ins.Constant != 0 {
+			// the kind of an atomic is part of its opcode (the immediate of the instruction): anything but a plain add
+			if op := ins.OpCode.AtomicOp(); op != asm.InvalidAtomic && op != asm.AddAtomic {
 				repl := asm.Mov.Reg(ins.Src, ins.Src)
 				repl.Metadata = ins.Metadata
 				p.Instructions[i] = repl

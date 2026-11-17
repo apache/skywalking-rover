@@ -102,11 +102,11 @@ func TestBatchSampleSplitter(t *testing.T) {
 // once, when the splitter is set, not per sample)
 func TestSplitSampleDoesNotAllocate(t *testing.T) {
 	const name = "test_batch_alloc_queue"
-	SetBatchSampleSplitter(name, func(sample []byte, deliver func(data interface{}), drop func(sample []byte)) bool {
+	SetBatchSampleSplitter(name, func(sample []byte, _ func(data interface{}), _ func(sample []byte)) bool {
 		return len(sample) > 0 && sample[0] == 0xBA
 	})
 	defer SetBatchSampleSplitter(name, nil)
-	deliver := func(data interface{}) {}
+	deliver := func(interface{}) {}
 	sample := []byte{0xBA, 1, 2}
 	if n := testing.AllocsPerRun(1000, func() { splitSample(name, sample, deliver) }); n != 0 {
 		t.Fatalf("splitSample allocates %v times per sample", n)

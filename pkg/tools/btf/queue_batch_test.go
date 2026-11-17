@@ -147,10 +147,3 @@ func TestBatchRecyclingDoesNotAlias(t *testing.T) {
 		t.Fatalf("consumed %d events, sent %d", c, readers*perReader)
 	}
 }
-
-type countingPartition struct {
-	consumed *atomic.Int64
-}
-
-func (countingPartition) Start(context.Context) {}
-func (c countingPartition) Consume(interface{}) { c.consumed.Add(1) }

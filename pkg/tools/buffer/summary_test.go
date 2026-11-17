@@ -20,8 +20,8 @@ package buffer
 import "testing"
 
 // TestSummaryGapBetweenACutCallAndTheNext: a call cut behind its header (truncated, 9 of 100 bytes uploaded),
-// 4000 summarised bytes in front of the next call, which starts with the rest of the payload: the discard of
-// the payload counts the 91 bytes the cut call did not upload and the gap, reports the gap as summarised, and
+// 4000 summarized bytes in front of the next call, which starts with the rest of the payload: the discard of
+// the payload counts the 91 bytes the cut call did not upload and the gap, reports the gap as summarized, and
 // stops in the next call; removing the read elements keeps the upload accounting of the next call's data id
 // (the gap shares it), so a truncation of that call is still measured right
 func TestSummaryGapBetweenACutCallAndTheNext(t *testing.T) {
@@ -36,7 +36,7 @@ func TestSummaryGapBetweenACutCallAndTheNext(t *testing.T) {
 	}
 	b.SetFollowTruncation(true)
 	result, err := b.DiscardBytes(91 + 4000 + 7)
-	if err != nil || result.Consumed != 4098 || result.Virtual != 4091 || result.Summarised != 4000 {
+	if err != nil || result.Consumed != 4098 || result.Virtual != 4091 || result.Summarized != 4000 {
 		t.Fatalf("discard: %+v %v", result, err)
 	}
 	if b.RemoveReadElements(false) {
@@ -48,8 +48,8 @@ func TestSummaryGapBetweenACutCallAndTheNext(t *testing.T) {
 	if !IsSummaryGap(gap) || !IsPayloadSkipped(gap) || gap.IsFinished() || gap.DataSequence() != -1 {
 		t.Fatalf("the gap is not a skipped, unfinished element in front of its event")
 	}
-	if SummarisedBefore(gap) != 0 {
-		t.Fatalf("a gap carries no summarised bytes of its own")
+	if SummarizedBefore(gap) != 0 {
+		t.Fatalf("a gap carries no summarized bytes of its own")
 	}
 }
 

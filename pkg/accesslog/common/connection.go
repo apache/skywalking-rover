@@ -1363,7 +1363,7 @@ func setupH2CFrames(config *Config, bpfLoader *bpf.Loader) (drop, skip bool) {
 	return drop, skip
 }
 
-// SummarizeH2CPayload tells whether the BPF side summarises the h2c socket calls inside a DATA payload instead
+// SummarizeH2CPayload tells whether the BPF side summarizes the h2c socket calls inside a DATA payload instead
 // of sending them (access_log.protocol_analyze.summarize_h2c_payload, as it was applied)
 func (c *ConnectionManager) SummarizeH2CPayload() bool {
 	return c != nil && c.summarizeH2CPayload
@@ -1392,13 +1392,13 @@ func setupH2CSummary(config *Config, bpfLoader *bpf.Loader, skip bool) bool {
 	}
 	if want {
 		if err := bpfLoader.BootTimeUnixNs.Set(uint64(host.BootTime.UnixNano())); err != nil {
-			log.Warnf("cannot pass the boot time to the BPF side, the h2c DATA payload is not summarised: %v", err)
+			log.Warnf("cannot pass the boot time to the BPF side, the h2c DATA payload is not summarized: %v", err)
 			want = false
 		}
 	}
 	return setBPFSwitch(bpfLoader.SummarizeH2cPayload, want,
-		"cannot enable summarising the h2c DATA payload, the skipped calls are sent on their own",
-		"summarising the socket calls of cleartext HTTP/2 connections that lie inside a DATA payload per stream")
+		"cannot enable summarizing the h2c DATA payload, the skipped calls are sent on their own",
+		"summarizing the socket calls of cleartext HTTP/2 connections that lie inside a DATA payload per stream")
 }
 
 // setupH2CBatch passes access_log.protocol_analyze.batch_h2c_records to the BPF side: the skipped and

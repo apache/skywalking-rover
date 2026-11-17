@@ -220,9 +220,9 @@ type HTTP2Streaming struct {
 	// to the stream when it is reported (http2_summary.go)
 	ReqSummaries  []HTTP2Summary
 	RespSummaries []HTTP2Summary
-	// summarised is the payload bytes of the stream, by direction, that the frames counted from summary gaps
+	// summarized is the payload bytes of the stream, by direction, that the frames counted from summary gaps
 	// (buffer.SummaryGap): what its summaries must bring
-	summarised [3]uint64
+	summarized [3]uint64
 
 	// age links the stream into HTTP2Metrics.streamAges, with the time it was created
 	age http2Aged
@@ -366,6 +366,7 @@ func (r *HTTP2Protocol) GenerateConnection(connectionID, randomID uint64) Protoc
 // http2TakenKeep is the largest slice of taken events a connection keeps for its next round
 const http2TakenKeep = 4096
 
+//nolint:gocyclo,funlen // per-connection HTTP/2 analysis round over both directions, one flow on the hot path
 func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelper) error {
 	m := connection.Metrics(enums.ConnectionProtocolHTTP2).(*HTTP2Metrics)
 	connBuf := connection.Buffer(enums.ConnectionProtocolHTTP2)
@@ -398,8 +399,8 @@ func (r *HTTP2Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelpe
 			// the rest of a call is waited for while what was read before it was missed is on its way
 			m.dirBuffers[d].SetWaitClock(linkClock, m.links.deliveryBehind)
 		}
-		if n := buffer.SummarisedBefore(event); n > 0 {
-			// the payload bytes BPF summarised in front of the event (http2_summary.go)
+		if n := buffer.SummarizedBefore(event); n > 0 {
+			// the payload bytes BPF summarized in front of the event (http2_summary.go)
 			m.dirBuffers[d].AppendDataEvent(buffer.NewSummaryGap(event, n, m.ConnectionID, m.RandomID))
 		}
 		m.dirBuffers[d].AppendDataEvent(event)
@@ -534,10 +535,9 @@ func (r *HTTP2Protocol) waitForMissingEvent(m *HTTP2Metrics, pos *buffer.Positio
 		http2Log.Debugf("give up waiting for the missing HTTP/2 socket event, connection ID: %d, last data id: %d, next data id: %d (prev: %d)",
 			m.ConnectionID, m.lastDataID, pos.DataID(), pos.PrevDataID())
 	}
-	if m.links.missingSinceStart(pos.DataID()) {
-		// an upload made before the first event the analysis saw that did not come within the start window: it
-		// was made before the analysis (a connection captured mid stream), not lost
-	} else {
+	// an upload made before the first event the analysis saw that did not come within the start window was
+	// made before the analysis (a connection captured mid stream), it is not lost
+	if !m.links.missingSinceStart(pos.DataID()) {
 		m.Gaps++
 	}
 	m.links.force(pos.DataID())
@@ -590,6 +590,8 @@ func (r *HTTP2Protocol) notifyDropEvent(connection *PartitionConnection, db *buf
 
 // analyzeDirection parses the frames of one direction up to the socket call with data id `limit`
 // (inclusive). It returns false when nothing could be consumed because the data is incomplete.
+//
+//nolint:gocyclo,funlen // frame parse loop state machine (gaps, resync, limits) on the hot path
 func (r *HTTP2Protocol) analyzeDirection(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, limit uint64) (progress bool) {
 	for {
@@ -757,7 +759,7 @@ func init() {
 // markHeaderDesync records that a direction's HPACK decoder has lost sync, once per direction, but only
 // when a gap was seen on this connection: a decode failure that follows a missing (lost) event is the
 // unrecoverable case the HPACK investigation targets, so the direction stops being decoded from here on.
-// A connection captured mid stream also fails to decode but keeps today's per-block behaviour (its blocks
+// A connection captured mid stream also fails to decode but keeps today's per-block behavior (its blocks
 // that use only the static table still decode), so it is not marked and not stopped.
 func (m *HTTP2Metrics) markHeaderDesync(d enums.SocketDataDirection) {
 	if m.Gaps == 0 {
@@ -775,8 +777,9 @@ func (m *HTTP2Metrics) skippedHeaderBytes(d enums.SocketDataDirection, cause int
 
 // setHeaderDesync marks the direction header-desynced (once): its header blocks are no longer decoded, and the
 // open streams whose header block of that direction was decoded from a socket call after the hole are dropped,
-// since the decoder may already have been wrong then. A stream already reported cannot be taken back.
-func (m *HTTP2Metrics) setHeaderDesync(d enums.SocketDataDirection, cause int, hole uint64) {
+// since the decoder may already have been wrong then. A stream already reported cannot be taken back. The cause
+// the callers name is not kept.
+func (m *HTTP2Metrics) setHeaderDesync(d enums.SocketDataDirection, _ int, hole uint64) {
 	if int(d) >= len(m.headerDesync) || d == 0 || m.headerDesync[d] {
 		return
 	}
@@ -797,9 +800,11 @@ func (m *HTTP2Metrics) setHeaderDesync(d enums.SocketDataDirection, cause int, h
 }
 
 // parseFrame reads one frame (or the client connection preface) from the current position
+//
+//nolint:gocyclo,funlen // frame parser state machine on the per-event hot path
 func (r *HTTP2Protocol) parseFrame(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, startPos *buffer.Position) http2FrameResult {
-	// whole DATA frames BPF summarised as a run come where a frame header is expected
+	// whole DATA frames BPF summarized as a run come where a frame header is expected
 	if run := buffer.SummaryRunGap(db.HeadDataEvent()); run != nil && startPos.Offset() == 0 {
 		return r.handleSummaryRun(connection, connBuf, m, d, db, run, startPos)
 	}
@@ -1105,23 +1110,23 @@ func (r *HTTP2Protocol) handleData(connection *PartitionConnection, connBuf *buf
 	data, err := http2DiscardBytes(db, int(header.Length))
 	if err != nil {
 		return r.truncatedData(connection, connBuf, m, d, db, header, streaming, bodyStart,
-			int(header.Length)-data.Consumed, data.Virtual, data.Unread, err, data.Summarised)
+			int(header.Length)-data.Consumed, data.Virtual, data.Unread, err, data.Summarized)
 	}
 	return r.appendDataWithVirtual(connection, connBuf, m, d, db, header, streaming, bodyStart, db.Position(), data.Virtual,
-		data.Summarised)
+		data.Summarized)
 }
 
-// handleSummaryRun takes a run of whole DATA frames BPF summarised (buffer.SummaryGap with a stream, see
+// handleSummaryRun takes a run of whole DATA frames BPF summarized (buffer.SummaryGap with a stream, see
 // http2_summary.go) at a frame boundary: gap.Frames DATA frames of the stream without END_STREAM or PADDED, each
 // a socket call of its own today, uploaded cut behind its header. handleData reads nothing of such a frame but
 // its length and its stream, and counts its payload into the body; this does it for the frames at once: the
 // payload is the size of the run less the frame headers, counted as virtual bytes of the body (the gap, which
 // carries no bytes, is the slice of the body), and the summaries of the stream bring the details of its calls,
-// headers included (summarised).
+// headers included (summarized).
 //
 // When the last frame of the run is open (gap.Open), the rest of its payload follows the gap: it is
 // discarded from there as handleData discards the payload of a frame (the bytes of the events behind the gap, the
-// calls BPF uploaded without their bytes, the summarised bytes in front of a later event), and the frame, the run with
+// calls BPF uploaded without their bytes, the summarized bytes in front of a later event), and the frame, the run with
 // its rest, ends where it ends.
 func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, gap *buffer.SummaryGap, startPos *buffer.Position) http2FrameResult {
@@ -1131,7 +1136,7 @@ func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBu
 	payload := size - frames*http2FrameHeaderLen
 	open := gap.Open
 	if frames == 0 || payload < 0 || open < 0 || payload+open > frames*int64(m.maxFrameLength(d)) || (!gap.Headed && gap.Head > 0) {
-		// not frames the parser would take (BPF summarises no other)
+		// not frames the parser would take (BPF summarizes no other)
 		return http2FrameSkipElement
 	}
 	if gap.Headed && gap.Head == 0 {
@@ -1148,7 +1153,7 @@ func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBu
 	}
 	streaming := m.Streams[gap.Stream]
 	header := http2.FrameHeader{Type: http2.FrameData, StreamID: gap.Stream, Length: uint32(payload + open)}
-	virtual, summarised := payload, size
+	virtual, summarized := payload, size
 	if open > 0 {
 		// from the gap on: the gap itself holds no bytes, the rest of the frame is behind it
 		data, err := http2DiscardBytes(db, int(open))
@@ -1157,10 +1162,10 @@ func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBu
 				return http2ErrorResult(db, err)
 			}
 			return r.truncatedData(connection, connBuf, m, d, db, &header, streaming, startPos, int(open)-data.Consumed,
-				virtual+data.Virtual, data.Unread, err, summarised+data.Summarised)
+				virtual+data.Virtual, data.Unread, err, summarized+data.Summarized)
 		}
 		virtual += data.Virtual
-		summarised += data.Summarised
+		summarized += data.Summarized
 	}
 	// the frames of the run but the one the caller counts
 	http2FramesConsumed.Add(frames - 1)
@@ -1171,7 +1176,7 @@ func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBu
 	// the gap holds no bytes: the body slice is the gap itself, its payload all virtual (the end is kept by the
 	// body, so it is a position of its own), and the bytes of the rest of an open frame behind it
 	return r.appendDataWithVirtual(connection, connBuf, m, d, db, &header, streaming, startPos, db.Position(), virtual,
-		summarised)
+		summarized)
 }
 
 // truncatedData handles a DATA frame whose payload stops at a socket call BPF did not upload in full.
@@ -1183,7 +1188,7 @@ func (r *HTTP2Protocol) handleSummaryRun(connection *PartitionConnection, connBu
 // of a truncated call the payload ran past), unread what the call it stopped at did not upload.
 func (r *HTTP2Protocol) truncatedData(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming,
-	bodyStart *buffer.Position, missing int, virtual, unread int64, err error, summarised int64) http2FrameResult {
+	bodyStart *buffer.Position, missing int, virtual, unread int64, err error, summarized int64) http2FrameResult {
 	if missing <= 0 || unread < int64(missing) {
 		// nothing is missing, or the bytes are missing for another reason than the upload limit: do not
 		// invent them
@@ -1192,16 +1197,16 @@ func (r *HTTP2Protocol) truncatedData(connection *PartitionConnection, connBuf *
 	http2Log.Debugf("DATA frame of stream %d truncated by the upload limit, %d bytes were not uploaded, "+
 		"the body keeps its real length", header.StreamID, missing)
 	return r.appendDataAndResync(connection, connBuf, m, d, db, header, streaming, bodyStart, db.Position(),
-		virtual+int64(missing), summarised)
+		virtual+int64(missing), summarized)
 }
 
 // appendDataAndResync appends a DATA frame that ends in the bytes a truncated call did not upload, and
 // resynchronizes at the next call: the remainder of the truncated call is not readable
 func (r *HTTP2Protocol) appendDataAndResync(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming,
-	bodyStart, bodyEnd *buffer.Position, virtual, summarised int64) http2FrameResult {
+	bodyStart, bodyEnd *buffer.Position, virtual, summarized int64) http2FrameResult {
 	if result := r.appendDataWithVirtual(connection, connBuf, m, d, db, header, streaming, bodyStart, bodyEnd,
-		virtual, summarised); result != http2FrameConsumed {
+		virtual, summarized); result != http2FrameConsumed {
 		return result
 	}
 	return http2FrameSkipElement
@@ -1209,11 +1214,11 @@ func (r *HTTP2Protocol) appendDataAndResync(connection *PartitionConnection, con
 
 func (r *HTTP2Protocol) appendDataWithVirtual(connection *PartitionConnection, connBuf *buffer.Buffer, m *HTTP2Metrics,
 	d enums.SocketDataDirection, db *buffer.Buffer, header *http2.FrameHeader, streaming *HTTP2Streaming,
-	bodyStart, bodyEnd *buffer.Position, virtual, summarised int64) http2FrameResult {
+	bodyStart, bodyEnd *buffer.Position, virtual, summarized int64) http2FrameResult {
 	http2PayloadBytes.Add(int64(header.Length))
-	if summarised > 0 && int(d) < len(streaming.summarised) {
+	if summarized > 0 && int(d) < len(streaming.summarized) {
 		// the summaries of the stream bring the details of these bytes (http2_summary.go)
-		streaming.summarised[d] += uint64(summarised)
+		streaming.summarized[d] += uint64(summarized)
 	}
 	endStream := header.Flags.Has(http2.FlagDataEndStream)
 	if r.isRequestDirection(m, d, streaming) {
@@ -1456,6 +1461,8 @@ type http2DropScan struct {
 // dropped just before, from where the frames of that chunk left off: a header frame, bytes that are no frame
 // header (the offset is not a frame boundary, or the end of the bytes cuts a frame header), or bytes of the call
 // that were not uploaded behind its last frame (BPF truncated it) mean it may.
+//
+//nolint:gocyclo // ordered decision over the BPF frame cursor and the walk of the dropped call
 func (m *HTTP2Metrics) droppedHeaderBytes(d enums.SocketDataDirection, event buffer.SocketDataBuffer, from int) bool {
 	if int(d) >= len(m.dropScan) {
 		return true

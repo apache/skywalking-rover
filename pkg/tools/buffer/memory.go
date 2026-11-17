@@ -216,7 +216,7 @@ func init() {
 		"Socket data events refused by the memory protection: the events in use held the memory budget",
 		telemetry.Counter, func() []telemetry.Sample {
 			return []telemetry.Sample{
-				{Labels: map[string]string{"reason": "memory"}, Value: float64(droppedByBudget.Load())},
+				{Labels: map[string]string{dropReasonLabel: dropReasonLabels[DropReasonMemory]}, Value: float64(droppedByBudget.Load())},
 			}
 		})
 	telemetry.Register("rover_socket_data_records_in_use",

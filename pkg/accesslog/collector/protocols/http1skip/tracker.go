@@ -266,6 +266,8 @@ func (t *Tracker) NoteDropped(connectionID, randomID uint64) {
 }
 
 // follow frames the call and tells whether it lies wholly inside a Content-Length body and may be skipped
+//
+//nolint:gocyclo // per-call framing state machine on the hot path, splitting it obscures the flow
 func (cn *conn) follow(t *Tracker, c *Call, data []byte, seq uint64) bool {
 	if epoch := t.LossEpoch(); epoch != cn.epoch {
 		cn.epoch = epoch
@@ -528,6 +530,8 @@ func (cn *conn) feedChunked(c *Call, data []byte, seq uint64) {
 }
 
 // startMessage frames the message the head starts
+//
+//nolint:gocyclo // message framing rules (methods, status codes, body kinds) checked in order
 func (cn *conn) startMessage(c *Call, data []byte, head reader.Head, chained bool, lastReq string,
 	lastReqDir enums.SocketDataDirection, lastReqEnd, seq uint64) {
 	inCall := int64(c.TotalSize) - int64(head.Length) // body bytes in the call of the head

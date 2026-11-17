@@ -43,7 +43,7 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
@@ -166,6 +166,7 @@ type h2TestServer struct {
 	handled []string
 }
 
+//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 func newH2TestServer(t *testing.T, conf *http2.Server) *h2TestServer {
 	s := &h2TestServer{}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +197,7 @@ func newH2TestServer(t *testing.T, conf *http2.Server) *h2TestServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: h2c.NewHandler(handler, conf), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: h2c.NewHandler(handler, conf), ReadHeaderTimeout: 10 * time.Second} //nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	s.addr = ln.Addr().String()
@@ -236,8 +237,10 @@ func TestHTTP2RealGoClient(t *testing.T) {
 	// its SETTINGS and fails the connection with COMPRESSION_ERROR, which is about Go, not about the parser)
 	for _, table := range []uint32{64, 4096} {
 		t.Run(fmt.Sprintf("table=%d", table), func(t *testing.T) {
+			//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 			server := newH2TestServer(t, &http2.Server{MaxEncoderHeaderTableSize: table})
 			proxy := newH2RecordingProxy(t, server.addr)
+			//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 			tr := &http2.Transport{AllowHTTP: true, MaxDecoderHeaderTableSize: table, MaxEncoderHeaderTableSize: 8192,
 				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 					return (&net.Dialer{}).DialContext(ctx, network, addr)
@@ -273,7 +276,7 @@ func TestHTTP2RealGoClient(t *testing.T) {
 				}(g)
 			}
 			wg.Wait()
-			tr.CloseIdleConnections()
+			tr.CloseIdleConnections() //nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 			time.Sleep(200 * time.Millisecond)
 			got, calls := proxy.parse(t, true)
 			compareH2(t, "go", got, server.expected(true), calls)
@@ -363,6 +366,7 @@ func TestHTTP2RealExternalClients(t *testing.T) {
 	big := strings.Repeat("H", 20000)
 	t.Run("curl", func(t *testing.T) {
 		curl := requireTool(t, "curl")
+		//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 		server := newH2TestServer(t, &http2.Server{})
 		proxy := newH2RecordingProxy(t, server.addr)
 		args := []string{"-s", "-o", "/dev/null", "--http2-prior-knowledge", "-H", "x-big: " + big, "-H", "authorization: Bearer x"}
@@ -377,6 +381,7 @@ func TestHTTP2RealExternalClients(t *testing.T) {
 	})
 	t.Run("nghttp", func(t *testing.T) {
 		nghttp := requireTool(t, "nghttp")
+		//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 		server := newH2TestServer(t, &http2.Server{})
 		proxy := newH2RecordingProxy(t, server.addr)
 		for _, table := range []string{"0", "100", "65536"} {
@@ -396,6 +401,7 @@ func TestHTTP2RealExternalClients(t *testing.T) {
 		if exec.Command(python, "-c", "import h2").Run() != nil {
 			t.Skip("python h2 is not installed")
 		}
+		//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 		server := newH2TestServer(t, &http2.Server{})
 		proxy := newH2RecordingProxy(t, server.addr)
 		script := filepath.Join(t.TempDir(), "client.py")
@@ -408,6 +414,7 @@ func TestHTTP2RealExternalClients(t *testing.T) {
 	})
 	t.Run("node", func(t *testing.T) {
 		node := requireTool(t, "node")
+		//nolint:staticcheck // the test drives the x/net HTTP/2 server and transport with their own HPACK table settings
 		server := newH2TestServer(t, &http2.Server{})
 		proxy := newH2RecordingProxy(t, server.addr)
 		script := filepath.Join(t.TempDir(), "client.js")

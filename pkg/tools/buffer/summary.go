@@ -27,14 +27,14 @@ import (
 //
 // BPF does not upload the socket calls that lie wholly inside a DATA payload: it adds them to a summary of
 // their stream, and the next socket call of the direction it uploads (a positional event) carries how many
-// payload bytes it summarised since the previous one (SummarisedBefore). Those bytes come right in front of
+// payload bytes it summarized since the previous one (SummarizedBefore). Those bytes come right in front of
 // that event in the stream of the direction, inside the payload of one DATA frame. The HTTP/2 parser puts a
 // SummaryGap of that size in front of the event: a payload skipped element, which DiscardBytes counts as a
 // whole like a call uploaded without its content, so every frame stays where it is and every body keeps its
-// size. The gap carries no kernel log detail: the details of the summarised calls come with the summaries.
+// size. The gap carries no kernel log detail: the details of the summarized calls come with the summaries.
 //
-// The summarised bytes can also be a run (SummaryRun): whole DATA frames of one stream, each a call of its own
-// that BPF summarised header and all because the parser reads nothing of it but its length (a writer that
+// The summarized bytes can also be a run (SummaryRun): whole DATA frames of one stream, each a call of its own
+// that BPF summarized header and all because the parser reads nothing of it but its length (a writer that
 // writes a frame per call, as Go's server writes a large response body). Such a gap lies on frame boundaries:
 // the parser takes it where it expects a frame header, as that many frames of the stream without END_STREAM or
 // PADDED, whose payload is its size less the frame headers (HTTP2 handleSummaryRun).
@@ -45,26 +45,26 @@ import (
 // rest of the payload of that frame, from the start of the call of the event (SummaryRunOpenBuffer): the gap keeps it
 // (Open), and the parser counts that many bytes behind the gap into the frame.
 //
-// A run can also start behind summarised payload of the frame in front of it (H2C_SUM_RUN_HEAD), its head: the frame
+// A run can also start behind summarized payload of the frame in front of it (H2C_SUM_RUN_HEAD), its head: the frame
 // whose header the parser read from an earlier event, whose payload it discards when it gets to the gap. BPF marks
 // the frames of such a run (summaryRunHead); the discard (Buffer.DiscardBytes) takes the bytes it still wants of the
 // gap as the head (Head), stops in front of the gap, and the parser takes the run behind the head where it expects
 // the next frame header.
 
-// SummarisedBeforeBuffer is implemented by the events that can carry summarised payload bytes in front of
+// SummarizedBeforeBuffer is implemented by the events that can carry summarized payload bytes in front of
 // them
-type SummarisedBeforeBuffer interface {
-	SummarisedBefore() uint32
+type SummarizedBeforeBuffer interface {
+	SummarizedBefore() uint32
 }
 
-// SummarisedBefore is the payload bytes BPF summarised in front of the event, 0 for an event that carries
+// SummarizedBefore is the payload bytes BPF summarized in front of the event, 0 for an event that carries
 // none. Only the first chunk of a call counts (every chunk of it carries the same value).
-func SummarisedBefore(b SocketDataBuffer) uint32 {
-	s, ok := b.(SummarisedBeforeBuffer)
+func SummarizedBefore(b SocketDataBuffer) uint32 {
+	s, ok := b.(SummarizedBeforeBuffer)
 	if !ok || b.DataSequence() != 0 {
 		return 0
 	}
-	return s.SummarisedBefore()
+	return s.SummarizedBefore()
 }
 
 // What the h2c follower of BPF knew of the frames of a socket call (h2c_frames of the event, H2C_FRAMES_* in
@@ -104,7 +104,7 @@ func H2CFramesOf(b SocketDataBuffer) (flags uint8, firstFrameOff uint16, ok bool
 }
 
 // SummaryRunBuffer is implemented by the events that can carry a run in front of them: the stream and the
-// frames the summarised bytes in front of them are, stream 0 when they are payload of one frame. The stream is
+// frames the summarized bytes in front of them are, stream 0 when they are payload of one frame. The stream is
 // the one BPF sent: with summaryRunOpen when the last frame of the run is open (summaryRunOf takes it apart).
 type SummaryRunBuffer interface {
 	SummaryRun() (stream uint32, frames uint16)
@@ -165,7 +165,7 @@ func SummaryRunOpenRest(b SocketDataBuffer) int64 {
 	return -1
 }
 
-// SummaryGap stands for the payload bytes BPF summarised in front of a positional event (Next). It sorts right in
+// SummaryGap stands for the payload bytes BPF summarized in front of a positional event (Next). It sorts right in
 // front of the event: the data id of the event and the sequence -1. It is not finished, so neither the
 // end of the call nor the upload accounting of the data id are taken from it.
 type SummaryGap struct {

@@ -165,7 +165,8 @@ func TestDiscardBytesPastATruncatedCall(t *testing.T) {
 	if consumed, virtual, err = discard(b, 20+30); err != nil || consumed != 50 || virtual != 30 {
 		t.Fatalf("a payload that ends exactly with the truncated call: %d %d %v", consumed, virtual, err)
 	}
-	if b.RemoveReadElements(false); b.DataLength() != 0 {
+	b.RemoveReadElements(false)
+	if b.DataLength() != 0 {
 		t.Fatalf("the truncated call is read to its end and must be removed")
 	}
 	// a plain buffer (not a per direction view) does not stop at the truncation

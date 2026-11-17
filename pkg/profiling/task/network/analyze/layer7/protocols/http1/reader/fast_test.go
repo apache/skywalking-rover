@@ -208,7 +208,7 @@ func fastTestStep(r *Reader, buf *buffer.Buffer, readBody bool, lastRequest *Req
 		var resp *Response
 		resp, obs.Result, err = r.ReadResponse(lastRequest, buf, readBody)
 		if resp != nil {
-			o := resp.Original()
+			o := resp.Original() //nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 			obs.Response = &fastTestResponse{Status: o.Status, Proto: o.Proto, StatusCode: o.StatusCode,
 				ProtoMajor: o.ProtoMajor, ProtoMinor: o.ProtoMinor, Headers: fastTestHeaders(o.Header), HeaderNil: o.Header == nil}
 			obs.HasBody = resp.HasBody()
@@ -368,6 +368,7 @@ func TestFastReaderTakesThePlainMessages(t *testing.T) {
 		}
 	}
 	for _, s := range []string{fastTestSeeds[3], fastTestSeeds[7], fastTestSeeds[25]} {
+		//nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 		if readResponseHeadFast(newPooledReaderFromBuffer(buildFastTestBuffer([]byte(s), nil))) == nil {
 			t.Fatalf("the response fell back to textproto: %q", s)
 		}
@@ -386,39 +387,6 @@ func FuzzHTTP1Reader(f *testing.F) {
 		}
 		fastTestCompare(t, data, splits, mode&1 == 0)
 	})
-}
-
-var benchRequest = []byte("GET /api/v1/orders/12345?expand=items&currency=USD HTTP/1.1\r\nHost: orders.default.svc.cluster.local:8080\r\n" +
-	"User-Agent: Go-http-client/1.1\r\nAccept: application/json\r\nAccept-Encoding: gzip\r\n" +
-	"sw8: 1-MWYyZDRiZjQ3YmY3MTFlYWI3OTRhY2RlNDgwMDExMjI=-MWU3YzIwNGE3YmY3MTFlYWI4NThhY2RlNDgwMDExMjI=-0-c2VydmljZQ==-aW5zdGFuY2U=-L2FwcA==-MTI3LjAuMC4xOjgwODA=\r\n" +
-	"X-Request-Id: 7f1c2a9e-3b4d-4c5e-8f6a-1b2c3d4e5f60\r\nX-Forwarded-For: 10.0.0.1\r\n\r\n")
-
-var benchResponse = []byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 27\r\n" +
-	"Date: Fri, 06 Nov 2026 10:00:00 GMT\r\nServer: envoy\r\nX-Envoy-Upstream-Service-Time: 3\r\nVary: Accept-Encoding\r\n\r\n" +
-	"{\"id\":12345,\"status\":\"ok\"}")
-
-func benchmarkReader(b *testing.B, textprotoOnly, response bool) {
-	r := NewReader()
-	r.textprotoOnly = textprotoOnly
-	data := benchRequest
-	if response {
-		data = benchResponse
-	}
-	buf := buildFastTestBuffer(data, nil)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		buf.PrepareForReading()
-		var err error
-		if response {
-			_, _, err = r.ReadResponse(nil, buf, false)
-		} else {
-			_, _, err = r.ReadRequest(buf, false)
-		}
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
 }
 
 // TestFastHeadersKeepTheTracingHeaders: every header the tracing context is analyzed from is kept by the fast

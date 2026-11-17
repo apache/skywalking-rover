@@ -80,7 +80,8 @@ func init() {
 		"HTTP/1 socket calls decoded after a skipped call of the connection that was made later (overlapping calls)",
 		telemetry.Counter, func() float64 { return float64(overlaps.Load()) })
 	telemetry.Register("rover_http1_body_skip_hole_waits_total",
-		"HTTP/1 body socket calls copied because a socket call of the connection with a smaller data id was not decoded (still to come, or uploaded nothing)",
+		"HTTP/1 body socket calls copied because a socket call of the connection with a smaller data id was not decoded "+
+			"(still to come, or uploaded nothing)",
 		telemetry.Counter, func() float64 { return float64(holeWaits.Load()) })
 	telemetry.Register("rover_http1_body_skip_gap_clears_total",
 		"HTTP/1 socket calls that proved the missing data ids below them to be calls that uploaded nothing (no other call of the fd was in flight)",

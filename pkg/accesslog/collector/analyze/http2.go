@@ -59,7 +59,7 @@ func (a *http2Analyze) HandleWholeStream(connection *protocols.PartitionConnecti
 	bufs := [...]*buffer.Buffer{stream.ReqHeaderBuffer, stream.ReqBodyBuffer, stream.RespHeaderBuffer, stream.RespBodyBuffer}
 	var buffers []buffer.SocketDataBuffer
 	if len(stream.ReqSummaries) > 0 || len(stream.RespSummaries) > 0 {
-		// the details of the calls BPF summarised go where those calls would be (summaryDetails)
+		// the details of the calls BPF summarized go where those calls would be (summaryDetails)
 		buffers = withSummaries(bufs, stream.ReqSummaries, stream.RespSummaries)
 	} else {
 		buffers = buffer.CombinedSocketBuffers(bufs[:]...)
@@ -108,7 +108,7 @@ func (a *http2Analyze) HandleWholeStream(connection *protocols.PartitionConnecti
 	return nil
 }
 
-func (a *http2Analyze) OnProtocolBreak(connection *protocols.PartitionConnection, metrics *protocols.HTTP2Metrics) {
+func (a *http2Analyze) OnProtocolBreak(connection *protocols.PartitionConnection, _ *protocols.HTTP2Metrics) {
 	buf := connection.Buffer(enums.ConnectionProtocolHTTP2)
 	for _, b := range buf.TotalBuffer() {
 		a.OnDropEvent(connection, b)
@@ -120,7 +120,7 @@ func (a *http2Analyze) OnProtocolBreak(connection *protocols.PartitionConnection
 // so without this the bytes of the dropped socket call would disappear from the connection metrics.
 func (a *http2Analyze) OnDropEvent(_ *protocols.PartitionConnection, b buffer.SocketDataBuffer) {
 	if buffer.IsSummaryGap(b) {
-		// the bytes of summarised calls: their details come with the summaries (OnOrphanSummary)
+		// the bytes of summarized calls: their details come with the summaries (OnOrphanSummary)
 		return
 	}
 	switch event := detailSource(b).(type) {

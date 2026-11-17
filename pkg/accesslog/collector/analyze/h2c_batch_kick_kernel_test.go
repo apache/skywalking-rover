@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +35,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
@@ -47,7 +47,7 @@ import (
 // closed. The records of the last calls are held in per-CPU batches with nothing on the connection to flush
 // them but the kick: they must all arrive within about 2s of the last request, well before the close, and
 // the connection's events must be complete. The kick's own pipe writes must never be recorded as traffic.
-func TestH2CBatchKickFlushesIdle(t *testing.T) {
+func TestH2CBatchKickFlushesIdle(t *testing.T) { //nolint:funlen // one scenario whose steps share the loaded BPF and the state of the run
 	withH2CSkipDataPayload(t)
 	requireBPF(t)
 	loader, err := h2cLoadBPF()
@@ -65,8 +65,8 @@ func TestH2CBatchKickFlushesIdle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	defer loader.SkipH2cDataPayload.Set(uint32(0))
-	defer loader.BatchH2cRecords.Set(uint32(0))
+	defer func() { _ = loader.SkipH2cDataPayload.Set(uint32(0)) }()
+	defer func() { _ = loader.BatchH2cRecords.Set(uint32(0)) }()
 	h2cClearMap(t, loader.H2cStreamMap)
 	h2cClearMap(t, loader.ActiveConnectionMap)
 
@@ -186,15 +186,16 @@ func h2cIdleTraffic(t *testing.T, run *h2cKernelRun, requests, body int, lastReq
 		if err != nil {
 			return
 		}
+		//nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		server := &http2.Server{MaxUploadBufferPerConnection: 4 << 20, MaxUploadBufferPerStream: 1 << 20}
-		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
 				_, _ = w.Write(payload)
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
@@ -214,7 +215,7 @@ func h2cIdleTraffic(t *testing.T, run *h2cKernelRun, requests, body int, lastReq
 	*lastRequest = time.Now()
 	time.Sleep(3 * time.Second)
 	*closeAt = time.Now()
-	transport.CloseIdleConnections()
+	transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 }
 
 // TestH2CBatchProductionReader runs the production read path end to end: the btf reader of the socket
@@ -222,7 +223,7 @@ func h2cIdleTraffic(t *testing.T, run *h2cKernelRun, requests, body int, lastReq
 // (the memory protection admission and the pooled event) and the production idle kick, over interleaved
 // many-stream traffic. Every connection's events must be complete and byte-identical in analysis to the same
 // calls uploaded in whole, and the reader must have split batches.
-func TestH2CBatchProductionReader(t *testing.T) {
+func TestH2CBatchProductionReader(t *testing.T) { //nolint:funlen // one scenario whose steps share the loaded BPF and the state of the run
 	withH2CSkipDataPayload(t)
 	requireBPF(t)
 	common.SetMergeKernelLogs(true)
@@ -242,8 +243,8 @@ func TestH2CBatchProductionReader(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	defer loader.SkipH2cDataPayload.Set(uint32(0))
-	defer loader.BatchH2cRecords.Set(uint32(0))
+	defer func() { _ = loader.SkipH2cDataPayload.Set(uint32(0)) }()
+	defer func() { _ = loader.BatchH2cRecords.Set(uint32(0)) }()
 	h2cClearMap(t, loader.H2cStreamMap)
 	h2cClearMap(t, loader.ActiveConnectionMap)
 	stop, err := common.StartH2CBatchKick(loader)

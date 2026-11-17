@@ -49,6 +49,12 @@ import (
 
 var connectionLogger = logger.GetLogger("access_log", "collector", "connection")
 
+// the kernel functions of the connection kprobe and kretprobe
+const (
+	symbolTCPConnect = "tcp_connect"
+	symbolSockAlloc  = "sock_alloc"
+)
+
 type CollectFilter interface {
 	// OnConnectEvent is used to filter the event,
 	// if return true, the event will be sent to the next step
@@ -109,10 +115,10 @@ func (c *ConnectCollector) Start(m *module.Manager, ctx *common.AccessLogContext
 	b.AddSyscall("close", b.TracepointEnterClose, b.TracepointExitClose, b.FentryEnterClose, b.FexitExitClose)
 
 	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
-		"tcp_connect": ctx.BPF.TcpConnect,
+		symbolTCPConnect: ctx.BPF.TcpConnect,
 	})
 	ctx.BPF.AddLink(link.Kretprobe, map[string]*ebpf.Program{
-		"sock_alloc": ctx.BPF.SockAllocRet,
+		symbolSockAlloc: ctx.BPF.SockAllocRet,
 	})
 	ctx.BPF.AddLink(link.Kprobe, map[string]*ebpf.Program{
 		"ip4_datagram_connect": ctx.BPF.Ip4UdpDatagramConnect,

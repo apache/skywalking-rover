@@ -34,6 +34,7 @@ type recordingHTTP1 struct {
 }
 
 func (a *recordingHTTP1) HandleHTTPData(_ *HTTP1Metrics, _ *PartitionConnection, req *reader.Request, resp *reader.Response) error {
+	//nolint:bodyclose // the response is parsed from captured socket data, its body is an in-memory buffer reader
 	a.handled = append(a.handled, fmt.Sprintf("%s %s -> %d req=%d resp=%d", req.Original().Method, req.Original().URL.Path,
 		resp.Original().StatusCode, req.BodyBuffer().DataSize(), resp.BodyBuffer().DataSize()))
 	a.details = resp.BodyBuffer().TotalBuffer()
@@ -243,7 +244,7 @@ func http1ChunkedResponse(chunks []int) []byte {
 	var b strings.Builder
 	b.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n")
 	for _, n := range chunks {
-		b.WriteString(fmt.Sprintf("%x;ext=1\r\n", n))
+		fmt.Fprintf(&b, "%x;ext=1\r\n", n)
 		b.WriteString(strings.Repeat("c", n))
 		b.WriteString("\r\n")
 	}

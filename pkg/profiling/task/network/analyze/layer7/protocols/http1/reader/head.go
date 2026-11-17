@@ -69,7 +69,7 @@ func (p *HeadParser) Parse(data []byte) (Head, bool) {
 		}
 		head.Request, head.Method, head.Header = true, req.Method, req.Header
 	case bytes.HasPrefix(data, []byte("HTTP")):
-		resp := readResponseHeadFast(p.br)
+		resp := readResponseHeadFast(p.br) //nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 		if resp == nil {
 			return head, false
 		}

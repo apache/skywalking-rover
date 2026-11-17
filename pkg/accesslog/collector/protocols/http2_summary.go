@@ -31,22 +31,22 @@ import (
 // direction, and the positional event that follows them carries their bytes (buffer.SummaryGap), so the
 // frames are parsed and every body is counted as before. What the parser does not get with the frames are the
 // kernel log details of those calls: they come in summaries (HTTP2Summary), in any order with the frames,
-// from the batches BPF sends and from the map the user space drains. A stream counts the summarised bytes of
-// its body (HTTP2Streaming.summarised, from the gaps its DATA frames covered); once it ends, it is reported
+// from the batches BPF sends and from the map the user space drains. A stream counts the summarized bytes of
+// its body (HTTP2Streaming.summarized, from the gaps its DATA frames covered); once it ends, it is reported
 // when the summaries of its stream id have brought those bytes, with the summaries attached
 // (HTTP2Streaming.ReqSummaries, RespSummaries), which the analyzer turns into the details the calls would have
 // given. A stream whose summaries do not arrive within http2SummaryWait is reported without the missing ones.
 // A summary no stream takes (a reset stream, a stream that never ended, one the parser dropped) is handed to
 // the analyzer on its own (HTTP2SummaryHandler.OnOrphanSummary), after http2SummaryOrphanAge.
 //
-// BPF also summarises the calls of whole DATA frames (a run, buffer.SummaryGap with a stream): a writer that writes
+// BPF also summarizes the calls of whole DATA frames (a run, buffer.SummaryGap with a stream): a writer that writes
 // a frame per call (Go's server, writing a large response body) makes calls the parser reads nothing of but the
-// frame header, which BPF summarises header and all, in the direction of the responses, consecutive frames of one
+// frame header, which BPF summarizes header and all, in the direction of the responses, consecutive frames of one
 // stream. The parser takes such a gap where a frame header is expected (handleSummaryRun): the payload goes into
 // the body of the stream, and the gap, headers included, into what the summaries of the stream must bring, which
 // count the calls as a whole.
 
-// HTTP2Summary is a summary of the summarised calls of one stream and direction
+// HTTP2Summary is a summary of the summarized calls of one stream and direction
 type HTTP2Summary interface {
 	SummaryStreamID() uint32
 	SummaryDirection() enums.SocketDataDirection
@@ -64,7 +64,7 @@ type HTTP2SummaryHandler interface {
 	OnOrphanSummary(connection *PartitionConnection, summary HTTP2Summary)
 }
 
-// HTTP2DrainRequest asks DrainSummaries for the summaries of one direction of a stream. Missing is the summarised
+// HTTP2DrainRequest asks DrainSummaries for the summaries of one direction of a stream. Missing is the summarized
 // bytes of the direction no summary brought yet (0: not known, as for a reset stream): a drain that took exactly
 // that many bytes has every summary of the direction, and need not look further.
 type HTTP2DrainRequest struct {
@@ -210,17 +210,17 @@ func (m *HTTP2Metrics) addSummary(s HTTP2Summary) {
 	m.sums.touched = append(m.sums.touched, id)
 }
 
-// summariesComplete tells whether the summaries of the stream bring the bytes it summarised
+// summariesComplete tells whether the summaries of the stream bring the bytes it summarized
 func (m *HTTP2Metrics) summariesComplete(id uint32, streaming *HTTP2Streaming) bool {
 	var st *http2StreamSummaries
 	if m.sums != nil {
 		st = m.sums.byStream[id]
 	}
-	for d := range streaming.summarised {
-		if streaming.summarised[d] == 0 {
+	for d := range streaming.summarized {
+		if streaming.summarized[d] == 0 {
 			continue
 		}
-		if st == nil || st.bytes[d] < streaming.summarised[d] {
+		if st == nil || st.bytes[d] < streaming.summarized[d] {
 			return false
 		}
 	}
@@ -278,8 +278,8 @@ func (r *HTTP2Protocol) drainSummaries(m *HTTP2Metrics, id uint32, streaming *HT
 		if st != nil {
 			have = st.bytes[d]
 		}
-		if streaming.summarised[d] > 0 && have < streaming.summarised[d] {
-			requests = append(requests, HTTP2DrainRequest{Direction: d, Missing: streaming.summarised[d] - have})
+		if streaming.summarized[d] > 0 && have < streaming.summarized[d] {
+			requests = append(requests, HTTP2DrainRequest{Direction: d, Missing: streaming.summarized[d] - have})
 		}
 	}
 	if len(requests) == 0 {
@@ -293,7 +293,7 @@ func (r *HTTP2Protocol) drainSummaries(m *HTTP2Metrics, id uint32, streaming *HT
 // reportStream reports an ended stream, at once when its summaries are complete, otherwise once they are (or
 // http2SummaryWait passed)
 func (r *HTTP2Protocol) reportStream(connection *PartitionConnection, m *HTTP2Metrics, id uint32, streaming *HTTP2Streaming) {
-	if streaming.summarised != [3]uint64{} {
+	if streaming.summarized != [3]uint64{} {
 		m.takeSummaries()
 		if !m.summariesComplete(id, streaming) {
 			// the map is drained for the stream the next round (drainDue), when what BPF sent at the end of the
@@ -313,7 +313,7 @@ func (r *HTTP2Protocol) reportStream(connection *PartitionConnection, m *HTTP2Me
 
 func (r *HTTP2Protocol) handleWholeStream(connection *PartitionConnection, m *HTTP2Metrics, id uint32, streaming *HTTP2Streaming) {
 	m.attachSummaries(id, streaming)
-	if streaming.summarised != [3]uint64{} {
+	if streaming.summarized != [3]uint64{} {
 		m.markEnded(id)
 	}
 	if err := r.analyzer.HandleWholeStream(connection, streaming); err != nil {
@@ -333,6 +333,8 @@ func http2SummarySweep() time.Duration {
 // that waited long enough, and hands the summaries no stream takes to the analyzer. It runs on every analysis
 // round of the connection, so it does not look at everything every time: at the streams new summaries came for,
 // at every stream and summary once per http2SummarySweep, and at the ended streams to forget in their order.
+//
+//nolint:gocyclo // summary matching state machine run on every analysis round
 func (r *HTTP2Protocol) processSummaries(connection *PartitionConnection, m *HTTP2Metrics) {
 	if m.sums == nil {
 		return
@@ -487,7 +489,7 @@ func (r *HTTP2Protocol) resetStreamSummaries(connection *PartitionConnection, m 
 		// the stream ended before (a peer may reset a stream it has seen end): it waits for its summaries
 		return
 	}
-	if streaming == nil || streaming.summarised == [3]uint64{} {
+	if streaming == nil || streaming.summarized == [3]uint64{} {
 		if m.sums.byStream[id] == nil {
 			return
 		}

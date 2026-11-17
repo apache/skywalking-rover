@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -35,12 +34,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/perf"
+
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 	"github.com/apache/skywalking-rover/pkg/tools/telemetry"
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/perf"
 )
 
 // The tests below attach the access log BPF programs to this process (see h2cLoadBPF) with
@@ -68,7 +69,7 @@ func withH1SkipBPF(t *testing.T, mode h1BPFMode, traffic func(run *h2cKernelRun)
 
 // withH1SkipBPFRecorded is withH1SkipBPF that also returns the perf records of the recorded connections in
 // the order the reader read them
-func withH1SkipBPFRecorded(t *testing.T, mode h1BPFMode, traffic func(run *h2cKernelRun)) (*h2cKernelRun, [][]byte) {
+func withH1SkipBPFRecorded(t *testing.T, mode h1BPFMode, traffic func(run *h2cKernelRun)) (kernelRun *h2cKernelRun, perfRecords [][]byte) { //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	t.Helper()
 	loader, err := h2cLoadBPF()
 	if err != nil {
@@ -170,12 +171,12 @@ type h1Head struct {
 }
 
 // h1ParseHead parses the head at pos, false when there is none (or it does not end)
-func h1ParseHead(real []byte, pos int) (h1Head, bool) {
-	end := bytes.Index(real[pos:], []byte("\r\n\r\n"))
+func h1ParseHead(realData []byte, pos int) (h1Head, bool) {
+	end := bytes.Index(realData[pos:], []byte("\r\n\r\n"))
 	if end < 0 {
 		return h1Head{}, false
 	}
-	lines := strings.Split(string(real[pos:pos+end]), "\r\n")
+	lines := strings.Split(string(realData[pos:pos+end]), "\r\n")
 	h := h1Head{start: pos, length: end + 4, line: lines[0], headers: http.Header{}}
 	for _, line := range lines[1:] {
 		k, v, ok := strings.Cut(line, ":")
@@ -189,25 +190,25 @@ func h1ParseHead(real []byte, pos int) (h1Head, bool) {
 
 // h1Chunks frames a chunked body that starts at pos: the ranges of the chunk data, and where the body ends
 // (-1 when it does not end in the stream)
-func h1Chunks(real []byte, pos int) ([][2]int, int) {
+func h1Chunks(realData []byte, pos int) (chunks [][2]int, end int) {
 	var data [][2]int
 	for {
-		eol := bytes.Index(real[pos:], []byte("\r\n"))
+		eol := bytes.Index(realData[pos:], []byte("\r\n"))
 		if eol < 0 {
 			return data, -1
 		}
-		line, _, _ := strings.Cut(string(real[pos:pos+eol]), ";")
+		line, _, _ := strings.Cut(string(realData[pos:pos+eol]), ";")
 		size, err := strconv.ParseInt(strings.TrimSpace(line), 16, 64)
 		if err != nil {
 			return data, -1
 		}
 		pos += eol + 2
 		if size == 0 {
-			end := bytes.Index(real[pos:], []byte("\r\n"))
+			end := bytes.Index(realData[pos:], []byte("\r\n"))
 			for end > 0 {
 				// a trailer line
 				pos += end + 2
-				end = bytes.Index(real[pos:], []byte("\r\n"))
+				end = bytes.Index(realData[pos:], []byte("\r\n"))
 			}
 			if end < 0 {
 				return data, -1
@@ -216,7 +217,7 @@ func h1Chunks(real []byte, pos int) ([][2]int, int) {
 		}
 		data = append(data, [2]int{pos, pos + int(size)})
 		pos += int(size) + 2
-		if pos > len(real) {
+		if pos > len(realData) {
 			return data, -1
 		}
 	}
@@ -227,17 +228,19 @@ func h1Chunks(real []byte, pos int) ([][2]int, int) {
 // has no body, an interim 1xx answers no request), a Content-Length body, the data of chunked bodies, and
 // the rest of the stream behind a response delimited by the close; it stops at what it cannot frame (an
 // upgrade, another transfer coding)
-func h1Frame(real [3][]byte) h1Framing {
+//
+//nolint:funlen // one walk over both directions of the connection, its message, body and close cases share the positions
+func h1Frame(realData [3][]byte) h1Framing {
 	var f h1Framing
 	in, out := enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress
 	reqDir, respDir := in, out
-	if bytes.HasPrefix(real[in], []byte("HTTP/")) || (len(real[in]) == 0 && len(real[out]) > 0 && !bytes.HasPrefix(real[out], []byte("HTTP/"))) {
+	if bytes.HasPrefix(realData[in], []byte("HTTP/")) || (len(realData[in]) == 0 && len(realData[out]) > 0 && !bytes.HasPrefix(realData[out], []byte("HTTP/"))) {
 		reqDir, respDir = out, in
 	}
 	var methods []string
 	pos := 0
-	for pos < len(real[reqDir]) {
-		h, ok := h1ParseHead(real[reqDir], pos)
+	for pos < len(realData[reqDir]) {
+		h, ok := h1ParseHead(realData[reqDir], pos)
 		te := h.headers.Values("Transfer-Encoding")
 		if !ok || (len(te) > 0 && (len(te) != 1 || !strings.EqualFold(te[0], "chunked"))) || len(h.headers.Values("Content-Length")) > 1 {
 			break
@@ -246,10 +249,10 @@ func h1Frame(real [3][]byte) h1Framing {
 		methods = append(methods, method)
 		start := pos + h.length
 		if len(te) == 1 {
-			data, end := h1Chunks(real[reqDir], start)
+			data, end := h1Chunks(realData[reqDir], start)
 			f.bodies[reqDir] = append(f.bodies[reqDir], data...)
 			if end < 0 {
-				pos = len(real[reqDir])
+				pos = len(realData[reqDir])
 				break
 			}
 			pos = end
@@ -261,8 +264,8 @@ func h1Frame(real [3][]byte) h1Framing {
 	}
 	f.end[reqDir] = pos
 	pos = 0
-	for pos < len(real[respDir]) {
-		h, ok := h1ParseHead(real[respDir], pos)
+	for pos < len(realData[respDir]) {
+		h, ok := h1ParseHead(realData[respDir], pos)
 		te := h.headers.Values("Transfer-Encoding")
 		if !ok || (len(te) > 0 && (len(te) != 1 || !strings.EqualFold(te[0], "chunked"))) {
 			break
@@ -286,10 +289,10 @@ func h1Frame(real [3][]byte) h1Framing {
 		if method != http.MethodHead && status != 204 && status != 304 {
 			values := h.headers.Values("Content-Length")
 			if len(te) == 1 {
-				data, end := h1Chunks(real[respDir], start)
+				data, end := h1Chunks(realData[respDir], start)
 				f.bodies[respDir] = append(f.bodies[respDir], data...)
 				if end < 0 {
-					pos = len(real[respDir])
+					pos = len(realData[respDir])
 					break
 				}
 				pos = end
@@ -297,8 +300,8 @@ func h1Frame(real [3][]byte) h1Framing {
 			}
 			if len(values) == 0 {
 				// delimited by the close: the rest of the stream
-				f.bodies[respDir] = append(f.bodies[respDir], [2]int{start, len(real[respDir])})
-				pos = len(real[respDir])
+				f.bodies[respDir] = append(f.bodies[respDir], [2]int{start, len(realData[respDir])})
+				pos = len(realData[respDir])
 				break
 			}
 			if len(values) != 1 {
@@ -334,7 +337,7 @@ func h1NoLimits() h1Limits {
 // bytes, a skipped event stands for one call (or, coalesced, a run of consecutive calls) wholly inside one
 // body, with the exact summed size, and was alone on its fd (in flight 1); the previous data ids chain the
 // events of the connection. With sequential, every call must have been alone on its fd.
-func checkH1Conn(t *testing.T, conn *h2cKernelConn, mode h1BPFMode, limits h1Limits, sequential bool) (st h1Stats) {
+func checkH1Conn(t *testing.T, conn *h2cKernelConn, mode h1BPFMode, limits h1Limits, sequential bool) (st h1Stats) { //nolint:funlen // it checks the events of a run in one pass, with the state every check shares
 	t.Helper()
 	type ev struct {
 		e    *aclevents.SocketDataUploadEvent
@@ -383,15 +386,15 @@ func checkH1Conn(t *testing.T, conn *h2cKernelConn, mode h1BPFMode, limits h1Lim
 					directionName(d), k, e.InFlight)
 			}
 			if e.PayloadSkipped0 != 1 {
-				real := conn.real[d][offsets[ci]:offsets[ci+1]]
-				if !bytes.Equal(x.data, real) || e.TotalSize0 != uint64(len(real)) || e.DataIDSpan != 0 {
+				realData := conn.real[d][offsets[ci]:offsets[ci+1]]
+				if !bytes.Equal(x.data, realData) || e.TotalSize0 != uint64(len(realData)) || e.DataIDSpan != 0 {
 					for j := max(0, k-3); j < len(evs) && j < k+3; j++ {
 						t.Logf("event %d: dlen=%d total=%d skipped=%d id=%d prev=%d span=%d inflight=%d %q", j, evs[j].e.DataLen,
 							evs[j].e.TotalSize0, evs[j].e.PayloadSkipped0, evs[j].e.DataID0, evs[j].e.PrevDataID0,
 							evs[j].e.DataIDSpan, evs[j].e.InFlight, string(evs[j].data[:min(40, len(evs[j].data))]))
 					}
 					t.Fatalf("%s %s %s: call %d (%d bytes at %d) not uploaded byte for byte (%d bytes, total %d)", mode.name,
-						conn.name, directionName(d), ci, len(real), offsets[ci], len(x.data), e.TotalSize0)
+						conn.name, directionName(d), ci, len(realData), offsets[ci], len(x.data), e.TotalSize0)
 				}
 				ci++
 				continue
@@ -515,7 +518,7 @@ func goH1Traffic(t *testing.T, run *h2cKernelRun) {
 		w.Header().Set("Content-Length", strconv.Itoa(int(n)))
 		_, _ = w.Write(bytes.Repeat([]byte{'r'}, int(n)))
 	})}
-	go server.Serve(&recordingListener{Listener: listener, run: run})
+	go func() { _ = server.Serve(&recordingListener{Listener: listener, run: run}) }()
 	defer server.Close()
 	transport := &http.Transport{MaxConnsPerHost: 1, DisableCompression: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -651,7 +654,7 @@ func rawH1Traffic(t *testing.T, run *h2cKernelRun, readSize int) {
 
 // noBodyH1Traffic: a HEAD answered with a Content-Length and no body, a 204 and a 304 with one, a 100
 // Continue in front of a body: the messages behind each are still followed in both directions
-func noBodyH1Traffic(t *testing.T, s *h1Session) {
+func noBodyH1Traffic(_ *testing.T, s *h1Session) {
 	s.post(50000, 50000)
 	s.exchange([]byte("HEAD /h HTTP/1.1\r\nHost: x\r\n\r\n"), 1000, 1000,
 		[]byte("HTTP/1.1 200 OK\r\nContent-Length: 50000\r\n\r\n"), 1000, 1000)
@@ -731,7 +734,7 @@ var h1GiveUps = []h1GiveUp{
 
 // closeMidBodyTraffic: the client sends a head and a part of its body and closes; the server reads it all
 // and closes: the calls a direction still holds are uploaded with the close
-func closeMidBodyTraffic(t *testing.T, s *h1Session) {
+func closeMidBodyTraffic(_ *testing.T, s *h1Session) {
 	s.post(40000, 40000)
 	head := []byte("POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n\r\n")
 	s.transfer(s.client, s.server, append(head, make([]byte, 30000)...), 6000, 6000)
@@ -744,7 +747,7 @@ func closeMidBodyTraffic(t *testing.T, s *h1Session) {
 // writes a request body on it: those writes overlap a call of their fd and are never skipped, the ones
 // before are. The read returns after them, with a smaller data id, so it is read in front of them: the
 // connection is not followed anymore behind it. mark is called before the overlap.
-func overlapTraffic(t *testing.T, s *h1Session, mark func()) {
+func overlapTraffic(t *testing.T, s *h1Session, mark func()) { //nolint:funlen // one scripted traffic scenario, kept in one piece so its steps read in order
 	s.post(40000, 40000)
 	mark()
 	raw, err := s.client.Conn.(*net.TCPConn).SyscallConn()
@@ -1044,7 +1047,7 @@ func h1RecordedTraffic(samples [][]byte) *h1Traffic {
 // skip_http1_body_payload_bpf: every call uploaded without its content gets its real bytes (in 20480 byte
 // chunks), and a coalesced event becomes the calls it stands for (with the data ids of its span, the L4
 // counters on the first, the times of the event), which is what merging the kernel logs makes the same
-func h1Unskipped(t *testing.T, run *h2cKernelRun, samples [][]byte) [][]byte {
+func h1Unskipped(t *testing.T, run *h2cKernelRun, samples [][]byte) [][]byte { //nolint:funlen // it checks the events of a run in one pass, with the state every check shares
 	t.Helper()
 	type key struct {
 		port uint16
@@ -1096,12 +1099,12 @@ func h1Unskipped(t *testing.T, run *h2cKernelRun, samples [][]byte) [][]byte {
 			if i == len(sizes)-1 {
 				id = e.DataID0
 			}
-			real := conn.real[e.Direction0][off : off+size]
+			realData := conn.real[e.Direction0][off : off+size]
 			off += size
-			for seq := 0; seq == 0 || len(real) > 0; seq++ {
-				n := min(len(real), 20480)
-				r := append(append([]byte(nil), sample[:h1HeaderSize]...), real[:n]...)
-				real = real[n:]
+			for seq := 0; seq == 0 || len(realData) > 0; seq++ {
+				n := min(len(realData), 20480)
+				r := append(append([]byte(nil), sample[:h1HeaderSize]...), realData[:n]...)
+				realData = realData[n:]
 				binary.LittleEndian.PutUint16(r[h1OffSequence:], uint16(seq))
 				binary.LittleEndian.PutUint16(r[h1OffDataLen:], uint16(n))
 				binary.LittleEndian.PutUint64(r[h1OffDataID:], id)
@@ -1110,7 +1113,7 @@ func h1Unskipped(t *testing.T, run *h2cKernelRun, samples [][]byte) [][]byte {
 				binary.LittleEndian.PutUint16(r[h1OffDataIDSpan:], 0)
 				r[h1OffPayloadSkipped] = 0
 				r[h1OffFinished] = 0
-				if len(real) == 0 {
+				if len(realData) == 0 {
 					r[h1OffFinished] = 1
 				}
 				if i > 0 {
@@ -1349,7 +1352,7 @@ func (s *h1Session) transferReads(from, to *recordingConn, data []byte, writeSiz
 }
 
 // h1Chunked frames the pieces as chunks, each with the extension when there is one, and the trailer lines
-func h1Chunked(pieces []int, ext string, trailers string) []byte {
+func h1Chunked(pieces []int, ext, trailers string) []byte {
 	var b bytes.Buffer
 	for i, n := range pieces {
 		fmt.Fprintf(&b, "%x%s\r\n", n, ext)
@@ -1362,7 +1365,7 @@ func h1Chunked(pieces []int, ext string, trailers string) []byte {
 
 // rawChunkedTraffic: chunked requests and responses of every shape on one keep-alive connection, then a
 // Content-Length exchange behind them
-func rawChunkedTraffic(t *testing.T, s *h1Session) {
+func rawChunkedTraffic(_ *testing.T, s *h1Session) {
 	chunkedReq := []byte("POST /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n")
 	chunkedResp := []byte("HTTP/1.1 200 OK\r\nTransfer-Encoding:  Chunked \r\n\r\n")
 	ok := []byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
@@ -1391,7 +1394,7 @@ func rawChunkedTraffic(t *testing.T, s *h1Session) {
 
 // rawCloseTraffic: a response delimited by the close, whose body comes in calls of every size, one of them
 // starting like a message
-func rawCloseTraffic(t *testing.T, s *h1Session) {
+func rawCloseTraffic(_ *testing.T, s *h1Session) {
 	s.post(40000, 40000)
 	s.transfer(s.client, s.server, []byte("GET /stream HTTP/1.1\r\nHost: x\r\n\r\n"), 1000, 1000)
 	s.transfer(s.server, s.client, []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nfirst bytes"), 1000, 1000)
@@ -1424,7 +1427,7 @@ func goChunkedTraffic(t *testing.T, run *h2cKernelRun) {
 		// io.Copy of a reader of unknown length: chunks of 32KB
 		_, _ = io.Copy(w, struct{ io.Reader }{bytes.NewReader(bytes.Repeat([]byte{'r'}, int(n)))})
 	})}
-	go server.Serve(&recordingListener{Listener: listener, run: run})
+	go func() { _ = server.Serve(&recordingListener{Listener: listener, run: run}) }()
 	defer server.Close()
 	transport := &http.Transport{MaxConnsPerHost: 1, DisableCompression: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {

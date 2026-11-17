@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
+	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/logger"
@@ -55,56 +56,81 @@ func NewL24Collector() *L24Collector {
 	return &L24Collector{}
 }
 
-// l24Hook is a kernel function or tracepoint of an l24 program
+// l24Hook is an l24 program and the kernel function or tracepoint it is attached to
 type l24Hook struct {
+	// program is its name in the object
 	program string
 	// kind: kprobe, kretprobe or tracepoint ("group/name" in symbol)
 	kind   string
 	symbol string
+	prog   *ebpf.Program
 }
 
-// l24Hooks are the hooks of bpf/accesslog/l24. None is required: a hook the kernel does not have (the static
-// functions ip_rcv_finish and ip_local_deliver_finish are inlined by some builds, ip_list_rcv and
-// ip_sublist_rcv_finish are 4.19+) only leaves its metrics at 0.
-var l24Hooks = []l24Hook{
-	// write: L4
-	{"l24_tcp_sendmsg", "kprobe", "tcp_sendmsg"},
-	{"l24_tcp_sendmsg_ret", "kretprobe", "tcp_sendmsg"},
-	{"l24_tcp_transmit_skb", "kprobe", "__tcp_transmit_skb"},
-	{"l24_tcp_retransmit_skb", "tracepoint", "tcp/tcp_retransmit_skb"},
-	// write: L3
-	{"l24_ip_queue_xmit", "kprobe", "__ip_queue_xmit"},
-	{"l24_ip_queue_xmit_ret", "kretprobe", "__ip_queue_xmit"},
-	{"l24_ip_local_out", "kprobe", "__ip_local_out"},
-	{"l24_ip_output", "kprobe", "ip_output"},
-	{"l24_ip_finish_output2", "kprobe", "ip_finish_output2"},
-	{"l24_neigh_resolve_output", "kprobe", "neigh_resolve_output"},
-	{"l24_neigh_resolve_output_ret", "kretprobe", "neigh_resolve_output"},
-	// netfilter
-	{"l24_nf_hook_slow", "kprobe", "nf_hook_slow"},
-	{"l24_nf_hook_slow_ret", "kretprobe", "nf_hook_slow"},
-	// write: L2
-	{"l24_dev_queue_xmit", "kprobe", "__dev_queue_xmit"},
-	{"l24_dev_queue_xmit_ret", "kretprobe", "__dev_queue_xmit"},
-	{"l24_net_dev_start_xmit", "tracepoint", "net/net_dev_start_xmit"},
-	{"l24_net_dev_xmit", "tracepoint", "net/net_dev_xmit"},
-	// read: L2
-	{"l24_netif_receive_skb", "tracepoint", "net/netif_receive_skb"},
-	{"l24_skb_copy_datagram_iovec", "tracepoint", "skb/skb_copy_datagram_iovec"},
-	// read: L3
-	{"l24_ip_rcv", "kprobe", "ip_rcv"},
-	{"l24_ip_rcv_ret", "kretprobe", "ip_rcv"},
-	{"l24_ip_list_rcv", "kprobe", "ip_list_rcv"},
-	{"l24_ip_list_rcv_ret", "kretprobe", "ip_list_rcv"},
-	{"l24_ip_rcv_finish", "kprobe", "ip_rcv_finish"},
-	{"l24_ip_sublist_rcv_finish", "kprobe", "ip_sublist_rcv_finish"},
-	{"l24_ip_local_deliver", "kprobe", "ip_local_deliver"},
-	{"l24_ip_local_deliver_finish", "kprobe", "ip_local_deliver_finish"},
-	// read: L4
-	{"l24_tcp_v4_rcv", "kprobe", "tcp_v4_rcv"},
-	{"l24_tcp_v4_rcv_ret", "kretprobe", "tcp_v4_rcv"},
-	{"l24_tcp_v6_rcv", "kprobe", "tcp_v6_rcv"},
-	{"l24_tcp_v6_rcv_ret", "kretprobe", "tcp_v6_rcv"},
+// the kinds of the l24 hooks
+const (
+	l24KindKprobe     = "kprobe"
+	l24KindKretprobe  = "kretprobe"
+	l24KindTracepoint = "tracepoint"
+)
+
+// the kernel functions the l24 hooks probe on entry and on return
+const (
+	l24SymbolIPQueueXmit        = "__ip_queue_xmit"
+	l24SymbolDevQueueXmit       = "__dev_queue_xmit"
+	l24SymbolNeighResolveOutput = "neigh_resolve_output"
+	l24SymbolNfHookSlow         = "nf_hook_slow"
+	l24SymbolIPRcv              = "ip_rcv"
+	l24SymbolIPListRcv          = "ip_list_rcv"
+	l24SymbolTCPV4Rcv           = "tcp_v4_rcv"
+	l24SymbolTCPV6Rcv           = "tcp_v6_rcv"
+)
+
+// l24Hooks are the hooks of bpf/accesslog/l24 with the programs of the loader. None is required: a hook the
+// kernel does not have (the static functions ip_rcv_finish and ip_local_deliver_finish are inlined by some
+// builds, ip_list_rcv and ip_sublist_rcv_finish are 4.19+) only leaves its metrics at 0.
+//
+//nolint:goconst // each program name is written once here, its other occurrence is the generated (unexported) bpfProg constant of pkg/accesslog/bpf
+func l24Hooks(b *bpf.Loader) []l24Hook {
+	return []l24Hook{
+		// write: L4
+		{"l24_tcp_sendmsg", l24KindKprobe, symbolTCPSendmsg, b.L24TcpSendmsg},
+		{"l24_tcp_sendmsg_ret", l24KindKretprobe, symbolTCPSendmsg, b.L24TcpSendmsgRet},
+		{"l24_tcp_transmit_skb", l24KindKprobe, "__tcp_transmit_skb", b.L24TcpTransmitSkb},
+		{"l24_tcp_retransmit_skb", l24KindTracepoint, "tcp/tcp_retransmit_skb", b.L24TcpRetransmitSkb},
+		// write: L3
+		{"l24_ip_queue_xmit", l24KindKprobe, l24SymbolIPQueueXmit, b.L24IpQueueXmit},
+		{"l24_ip_queue_xmit_ret", l24KindKretprobe, l24SymbolIPQueueXmit, b.L24IpQueueXmitRet},
+		{"l24_ip_local_out", l24KindKprobe, "__ip_local_out", b.L24IpLocalOut},
+		{"l24_ip_output", l24KindKprobe, "ip_output", b.L24IpOutput},
+		{"l24_ip_finish_output2", l24KindKprobe, "ip_finish_output2", b.L24IpFinishOutput2},
+		{"l24_neigh_resolve_output", l24KindKprobe, l24SymbolNeighResolveOutput, b.L24NeighResolveOutput},
+		{"l24_neigh_resolve_output_ret", l24KindKretprobe, l24SymbolNeighResolveOutput, b.L24NeighResolveOutputRet},
+		// netfilter
+		{"l24_nf_hook_slow", l24KindKprobe, l24SymbolNfHookSlow, b.L24NfHookSlow},
+		{"l24_nf_hook_slow_ret", l24KindKretprobe, l24SymbolNfHookSlow, b.L24NfHookSlowRet},
+		// write: L2
+		{"l24_dev_queue_xmit", l24KindKprobe, l24SymbolDevQueueXmit, b.L24DevQueueXmit},
+		{"l24_dev_queue_xmit_ret", l24KindKretprobe, l24SymbolDevQueueXmit, b.L24DevQueueXmitRet},
+		{"l24_net_dev_start_xmit", l24KindTracepoint, "net/net_dev_start_xmit", b.L24NetDevStartXmit},
+		{"l24_net_dev_xmit", l24KindTracepoint, "net/net_dev_xmit", b.L24NetDevXmit},
+		// read: L2
+		{"l24_netif_receive_skb", l24KindTracepoint, "net/netif_receive_skb", b.L24NetifReceiveSkb},
+		{"l24_skb_copy_datagram_iovec", l24KindTracepoint, "skb/skb_copy_datagram_iovec", b.L24SkbCopyDatagramIovec},
+		// read: L3
+		{"l24_ip_rcv", l24KindKprobe, l24SymbolIPRcv, b.L24IpRcv},
+		{"l24_ip_rcv_ret", l24KindKretprobe, l24SymbolIPRcv, b.L24IpRcvRet},
+		{"l24_ip_list_rcv", l24KindKprobe, l24SymbolIPListRcv, b.L24IpListRcv},
+		{"l24_ip_list_rcv_ret", l24KindKretprobe, l24SymbolIPListRcv, b.L24IpListRcvRet},
+		{"l24_ip_rcv_finish", l24KindKprobe, "ip_rcv_finish", b.L24IpRcvFinish},
+		{"l24_ip_sublist_rcv_finish", l24KindKprobe, "ip_sublist_rcv_finish", b.L24IpSublistRcvFinish},
+		{"l24_ip_local_deliver", l24KindKprobe, "ip_local_deliver", b.L24IpLocalDeliver},
+		{"l24_ip_local_deliver_finish", l24KindKprobe, "ip_local_deliver_finish", b.L24IpLocalDeliverFinish},
+		// read: L4
+		{"l24_tcp_v4_rcv", l24KindKprobe, l24SymbolTCPV4Rcv, b.L24TcpV4Rcv},
+		{"l24_tcp_v4_rcv_ret", l24KindKretprobe, l24SymbolTCPV4Rcv, b.L24TcpV4RcvRet},
+		{"l24_tcp_v6_rcv", l24KindKprobe, l24SymbolTCPV6Rcv, b.L24TcpV6Rcv},
+		{"l24_tcp_v6_rcv_ret", l24KindKretprobe, l24SymbolTCPV6Rcv, b.L24TcpV6RcvRet},
+	}
 }
 
 // l24TTL is how long the details of a call wait for its kernel log: a few flush periods, as the kernel logs of a
@@ -137,10 +163,9 @@ func (c *L24Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) er
 		return &events.SocketL24Event{}
 	})
 
-	programs := l24Programs(ctx)
 	attached, failed := 0, 0
-	for _, h := range l24Hooks {
-		p := programs[h.program]
+	for _, h := range l24Hooks(ctx.BPF) {
+		p := h.prog
 		if p == nil || !ctx.BPF.L24ProgramLoaded(h.program) {
 			failed++
 			l24Log.Warnf("the L2/L3 kernel metrics program %s is not loaded, %s %s is not traced", h.program, h.kind, h.symbol)
@@ -160,11 +185,11 @@ func (c *L24Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) er
 
 func attachL24Hook(ctx *common.AccessLogContext, h l24Hook, p *ebpf.Program) error {
 	switch h.kind {
-	case "kprobe":
+	case l24KindKprobe:
 		return ctx.BPF.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{h.symbol: p})
-	case "kretprobe":
+	case l24KindKretprobe:
 		return ctx.BPF.AddLinkOrError(link.Kretprobe, map[string]*ebpf.Program{h.symbol: p})
-	case "tracepoint":
+	case l24KindTracepoint:
 		for i := 0; i < len(h.symbol); i++ {
 			if h.symbol[i] == '/' {
 				return ctx.BPF.AddTracePointOrError(h.symbol[:i], h.symbol[i+1:], p)
@@ -172,44 +197,6 @@ func attachL24Hook(ctx *common.AccessLogContext, h l24Hook, p *ebpf.Program) err
 		}
 	}
 	return fmt.Errorf("unknown hook %s %s", h.kind, h.symbol)
-}
-
-// l24Programs are the l24 programs of the loader by their name in the object
-func l24Programs(ctx *common.AccessLogContext) map[string]*ebpf.Program {
-	b := ctx.BPF
-	return map[string]*ebpf.Program{
-		"l24_tcp_sendmsg":              b.L24TcpSendmsg,
-		"l24_tcp_sendmsg_ret":          b.L24TcpSendmsgRet,
-		"l24_tcp_transmit_skb":         b.L24TcpTransmitSkb,
-		"l24_tcp_retransmit_skb":       b.L24TcpRetransmitSkb,
-		"l24_ip_queue_xmit":            b.L24IpQueueXmit,
-		"l24_ip_queue_xmit_ret":        b.L24IpQueueXmitRet,
-		"l24_ip_local_out":             b.L24IpLocalOut,
-		"l24_ip_output":                b.L24IpOutput,
-		"l24_ip_finish_output2":        b.L24IpFinishOutput2,
-		"l24_neigh_resolve_output":     b.L24NeighResolveOutput,
-		"l24_neigh_resolve_output_ret": b.L24NeighResolveOutputRet,
-		"l24_nf_hook_slow":             b.L24NfHookSlow,
-		"l24_nf_hook_slow_ret":         b.L24NfHookSlowRet,
-		"l24_dev_queue_xmit":           b.L24DevQueueXmit,
-		"l24_dev_queue_xmit_ret":       b.L24DevQueueXmitRet,
-		"l24_net_dev_start_xmit":       b.L24NetDevStartXmit,
-		"l24_net_dev_xmit":             b.L24NetDevXmit,
-		"l24_netif_receive_skb":        b.L24NetifReceiveSkb,
-		"l24_skb_copy_datagram_iovec":  b.L24SkbCopyDatagramIovec,
-		"l24_ip_rcv":                   b.L24IpRcv,
-		"l24_ip_rcv_ret":               b.L24IpRcvRet,
-		"l24_ip_list_rcv":              b.L24IpListRcv,
-		"l24_ip_list_rcv_ret":          b.L24IpListRcvRet,
-		"l24_ip_rcv_finish":            b.L24IpRcvFinish,
-		"l24_ip_sublist_rcv_finish":    b.L24IpSublistRcvFinish,
-		"l24_ip_local_deliver":         b.L24IpLocalDeliver,
-		"l24_ip_local_deliver_finish":  b.L24IpLocalDeliverFinish,
-		"l24_tcp_v4_rcv":               b.L24TcpV4Rcv,
-		"l24_tcp_v4_rcv_ret":           b.L24TcpV4RcvRet,
-		"l24_tcp_v6_rcv":               b.L24TcpV6Rcv,
-		"l24_tcp_v6_rcv_ret":           b.L24TcpV6RcvRet,
-	}
 }
 
 func registerL24Telemetry(store *events.L24Store) {

@@ -203,15 +203,15 @@ func h2cUploadedCalls(events []*aclevents.SocketDataUploadEvent) int {
 }
 
 // TestH2CForgedFrames sends frames whose payload is, byte for byte, one or more droppable control frames (in
-// DATA, HEADERS and CONTINUATION frames, and a whole h2c connection tunnelled in DATA frames). The follower walks
+// DATA, HEADERS and CONTINUATION frames, and a whole h2c connection tunneled in DATA frames). The follower walks
 // the frame headers, so none of them is taken for a control frame: the access logs are the same with the dropping
 // off and on, and the real control frames of the connection are still dropped.
 func TestH2CForgedFrames(t *testing.T) {
 	requireBPF(t)
 	forged := h2cForgedFrames()
-	tunnelled := 0
+	tunneled := 0
 	for _, p := range h2cTunnelPayloads(newH2CEndpoint()) {
-		tunnelled += len(p)
+		tunneled += len(p)
 	}
 	after := "/after body=0 status=200 resp=50"
 	forgedData := func(body []byte) func(s *h2cRawSession) {
@@ -244,7 +244,7 @@ func TestH2CForgedFrames(t *testing.T) {
 			}
 			s.send(frames...)
 			s.respond(9, 10)
-		}, []string{fmt.Sprintf("/tunnel body=%d status=200 resp=10", tunnelled), after}},
+		}, []string{fmt.Sprintf("/tunnel body=%d status=200 resp=10", tunneled), after}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestH2CForgedFrames(t *testing.T) {
 // of the size of a call inside a plain DATA payload, a cut one the start of its call up to the payload, of the
 // size of the call), a call no event matches was dropped (only allowed with the dropping on). The skipped and cut
 // calls are given their bytes, in upload chunks, as the run without the skipping would have sent them.
-func h2cUnskippedMatched(t *testing.T, conn *h2cKernelConn, drop bool) (copied *h2cKernelConn, skipped int) {
+func h2cUnskippedMatched(t *testing.T, conn *h2cKernelConn, drop bool) (copied *h2cKernelConn, skipped int) { //nolint:funlen // it checks the events of a run in one pass, with the state every check shares
 	t.Helper()
 	copied = &h2cKernelConn{name: conn.name, port: conn.port, remotePort: conn.remotePort, client: conn.client}
 	for _, d := range []enums.SocketDataDirection{enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress} {
@@ -298,7 +298,7 @@ func h2cUnskippedMatched(t *testing.T, conn *h2cKernelConn, drop bool) (copied *
 		}
 		next := 0
 		for i, c := range script.calls {
-			real := c.data
+			realData := c.data
 			if next >= len(groups) {
 				if !drop {
 					t.Fatalf("%s %s: call %d sent no event", conn.name, directionName(d), i)
@@ -315,12 +315,12 @@ func h2cUnskippedMatched(t *testing.T, conn *h2cKernelConn, drop bool) (copied *
 			var matched, whole bool
 			switch {
 			case first.PayloadSkipped0 == 1:
-				matched = first.TotalSize0 == uint64(len(real)) && skippable[i]
+				matched = first.TotalSize0 == uint64(len(realData)) && skippable[i]
 				skipped++
 			case cut:
-				matched = first.TotalSize0 == uint64(len(real)) && len(data) == tailSkippable[i] && bytes.HasPrefix(real, data)
+				matched = first.TotalSize0 == uint64(len(realData)) && len(data) == tailSkippable[i] && bytes.HasPrefix(realData, data)
 			default:
-				matched, whole = bytes.Equal(data, real), true
+				matched, whole = bytes.Equal(data, realData), true
 			}
 			if !matched {
 				if first.PayloadSkipped0 == 1 {
@@ -336,17 +336,17 @@ func h2cUnskippedMatched(t *testing.T, conn *h2cKernelConn, drop bool) (copied *
 				copied.events[d] = append(copied.events[d], group...)
 				continue
 			}
-			for sent, seq := 0, uint16(0); sent < len(real); seq++ {
-				chunk := min(len(real)-sent, buffer.MaxEventBufferSize)
+			for sent, seq := 0, uint16(0); sent < len(realData); seq++ {
+				chunk := min(len(realData)-sent, buffer.MaxEventBufferSize)
 				e := first.Detach()
 				e.PayloadSkipped0, e.Sequence0, e.DataLen, e.HaveReduce, e.Finished = 0, seq, uint16(chunk), 0, 0
-				if len(real)-sent > buffer.MaxEventBufferSize {
+				if len(realData)-sent > buffer.MaxEventBufferSize {
 					e.HaveReduce = 1
 				}
-				if sent+chunk == len(real) {
+				if sent+chunk == len(realData) {
 					e.Finished = 1
 				}
-				e.Buffer = append([]byte(nil), real[sent:sent+chunk]...)
+				e.Buffer = append([]byte(nil), realData[sent:sent+chunk]...)
 				copied.events[d] = append(copied.events[d], e)
 				sent += chunk
 			}
@@ -413,8 +413,9 @@ func goH2CStreamsTraffic(t *testing.T, run *h2cKernelRun, requests, streams, bod
 		if err != nil {
 			return
 		}
+		//nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		server := &http2.Server{MaxUploadBufferPerConnection: 16 << 20, MaxUploadBufferPerStream: 1 << 20}
-		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				n, _ := io.Copy(io.Discard, r.Body)
 				w.Header().Set("x-request-body", fmt.Sprint(n))
@@ -422,14 +423,14 @@ func goH2CStreamsTraffic(t *testing.T, run *h2cKernelRun, requests, streams, bod
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
 		return run.record(raw, "client", true), nil
 	}}
-	defer transport.CloseIdleConnections()
+	defer transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	httpClient := &http.Client{Transport: transport}
 	var wg sync.WaitGroup
 	inFlight := make(chan struct{}, streams)
@@ -465,7 +466,7 @@ func TestH2CSkipManyStreams(t *testing.T) {
 	const requests, streams, bodySize = 64, 8, 256 * 1024
 	var data [2][2][3]int
 	var summaries [2][]string
-	comparable := true
+	canCompare := true
 	for i, skip := range []bool{false, true} {
 		run := withAccessLogBPFModes(t, false, skip, func(run *h2cKernelRun) {
 			goH2CStreamsTraffic(t, run, requests, streams, bodySize)
@@ -498,13 +499,13 @@ func TestH2CSkipManyStreams(t *testing.T) {
 			// endpoint writes between two reads of a frame of its peer, which the analysis after the traffic cannot
 			// parse in order, with or without the skipping
 			if !h2cKernelRunClean(t, fmt.Sprintf("skip=%t %s", skip, conn.name), result, requests, sizes) {
-				comparable = false
+				canCompare = false
 			}
 			summaries[i] = append(summaries[i], sortedLogSummary(result)...)
 		}
 		sort.Strings(summaries[i])
 	}
-	if comparable && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
+	if canCompare && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
 		t.Fatalf("the access logs differ:\noff %v\non  %v", summaries[0], summaries[1])
 	}
 	for endpoint, name := range []string{"client", "server"} {
@@ -598,7 +599,7 @@ func TestH2CSkipWithDropping(t *testing.T) {
 	requireBPF(t)
 	const requests, bodySize = 12, 256 * 1024
 	var summaries [2][]string
-	comparable := true
+	canCompare := true
 	for i, on := range []bool{false, true} {
 		run := withAccessLogBPFModes(t, on, on, func(run *h2cKernelRun) { goH2CBodyTraffic(t, run, requests, bodySize, bodySize) })
 		if !on {
@@ -616,7 +617,7 @@ func TestH2CSkipWithDropping(t *testing.T) {
 			}
 			sizes := fmt.Sprintf("body=%d status=200 resp=%d", bodySize, bodySize)
 			if !h2cKernelRunClean(t, fmt.Sprintf("drop=skip=%t %s", on, conn.name), result, requests, sizes) {
-				comparable = false
+				canCompare = false
 			}
 			summaries[i] = append(summaries[i], sortedLogSummary(result)...)
 		}
@@ -626,7 +627,7 @@ func TestH2CSkipWithDropping(t *testing.T) {
 		}
 		t.Logf("drop=skip=%t: %d calls skipped", on, skipped)
 	}
-	if comparable && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
+	if canCompare && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
 		t.Fatalf("the access logs differ:\noff %v\non  %v", summaries[0], summaries[1])
 	}
 }

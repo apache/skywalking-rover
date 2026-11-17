@@ -59,6 +59,21 @@ const (
 	AttachTracepoint = "tracepoint"
 )
 
+const (
+	// goarchAMD64 is the only GOARCH the trampoline programs (and the fexit NAT hook) run on
+	goarchAMD64 = "amd64"
+	// x64SyscallPrefix is the prefix of the syscall wrappers the twins are compiled for
+	x64SyscallPrefix = "__x64_sys_"
+	// bpfLicense is the license of the programs the loader builds itself
+	bpfLicense = "GPL"
+	// hookNfConfirm is the hook (and kernel function) nf_confirm
+	hookNfConfirm = "nf_confirm"
+	// moduleNfConntrack is the kernel module of nf_confirm when vmlinux does not have it
+	moduleNfConntrack = "nf_conntrack"
+	// reasonAttachModeTracepoint is the plan reason of the tracepoint attach mode
+	reasonAttachModeTracepoint = "attach mode tracepoint"
+)
+
 // attachHook is one hook point: the programs of its twin (fast) and its classic programs (slow)
 type attachHook struct {
 	name string
@@ -81,6 +96,8 @@ func syscallHook(call string) attachHook {
 }
 
 // attachHooks are all the hooks with a twin. accept4 shares the tracepoint programs of accept.
+//
+//nolint:goconst // the table spells the BPF program and kernel function names as the C sources do
 var attachHooks = func() []attachHook {
 	var hooks []attachHook
 	for _, call := range []string{"read", "write", "readv", "writev", "sendto", "recvfrom", "sendmsg", "recvmsg",
@@ -96,7 +113,7 @@ var attachHooks = func() []attachHook {
 			slow: []string{"security_socket_sendmsg"}},
 		attachHook{name: "tcp_sendmsg", fast: []string{"fentry_tcp_sendmsg"}, slow: []string{"tcp_sendmsg"}},
 		// (only for the NAT hook legacy, see nat.go: nf_confirm(skb, protoff, ct, ctinfo) before 6.x)
-		attachHook{name: "nf_confirm", fast: []string{"fentry_nf_confirm"}, slow: []string{"nf_confirm"},
+		attachHook{name: hookNfConfirm, fast: []string{"fentry_nf_confirm"}, slow: []string{hookNfConfirm},
 			argStruct: "nf_conn", argIndex: 2},
 		attachHook{name: "skb_copy_datagram_iovec", fast: []string{"raw_tp_skb_copy_datagram_iovec"},
 			slow: []string{"tracepoint_skb_copy_datagram_iovec"}, raw: "skb_copy_datagram_iovec",
@@ -187,7 +204,7 @@ func kernelBTFFunc(name, module string) (*btf.Func, error) {
 	if merr != nil {
 		return nil, fmt.Errorf("%v; module %s: %v", err, module, merr)
 	}
-	if err = mod.TypeByName(name, &fn); err != nil {
+	if err := mod.TypeByName(name, &fn); err != nil {
 		return nil, err
 	}
 	return fn, nil
@@ -213,7 +230,7 @@ func funcArgIsStructPointer(fn *btf.Func, index int, name string) error {
 }
 
 // hookModules is the kernel module a hooked function may be in when vmlinux does not have it
-var hookModules = map[string]string{"nf_confirm": "nf_conntrack"}
+var hookModules = map[string]string{hookNfConfirm: moduleNfConntrack}
 
 // planAttach decides the attach of each hook for the requested mode (auto when empty); the hooks of unused attach
 // nothing
@@ -228,6 +245,42 @@ func planAttachEnv(mode string, spec *ebpf.CollectionSpec, unused map[string]boo
 }
 
 func planAttachMode(mode string, spec *ebpf.CollectionSpec, unused map[string]bool, env planEnv) *attachPlan {
+	mode = normalizeAttachMode(mode)
+	if reason := attachPrecondition(mode, env); reason != "" {
+		return tracepointPlan(reason)
+	}
+	plan := &attachPlan{mode: mode, reason: "probed", fast: map[string]bool{}, btf: map[string]bool{}, syscallPrefix: x64SyscallPrefix}
+	// (read before the probes: the ftrace entries of a probe stay listed for a while after its detach)
+	busy := env.busy()
+	start := time.Now()
+	results, btfOK := probeAttachHooks(spec, unused, env)
+	var failed []string
+	for i, h := range attachHooks {
+		if results[i] == errUnusedHook {
+			continue
+		}
+		if results[i] != nil {
+			failed = append(failed, results[i].Error())
+			continue
+		}
+		plan.fast[h.name] = true
+		if btfOK[i] {
+			plan.btf[h.name] = true
+		}
+	}
+	failed = dropFtraceBusyHooks(plan, spec, busy, failed)
+	plan.reason = fmt.Sprintf("probed in %v", time.Since(start).Round(time.Millisecond))
+	if len(failed) > 0 {
+		plan.reason += fmt.Sprintf("; not attachable: %v", failed)
+	}
+	if !plan.anyFast() {
+		plan.mode = AttachTracepoint
+	}
+	return plan
+}
+
+// normalizeAttachMode takes the requested attach mode, auto when empty or unknown
+func normalizeAttachMode(mode string) string {
 	mode = strings.TrimSpace(strings.ToLower(mode))
 	switch mode {
 	case "", AttachAuto:
@@ -237,31 +290,38 @@ func planAttachMode(mode string, spec *ebpf.CollectionSpec, unused map[string]bo
 		log.Warnf("the attach mode %q is not one of auto, trampoline, tracepoint: auto", mode)
 		mode = AttachAuto
 	}
+	return mode
+}
+
+// attachPrecondition is why no twin is probed at all in the mode on this host, "" when the twins are probed
+func attachPrecondition(mode string, env planEnv) string {
 	if mode == AttachTracepoint {
-		return tracepointPlan("attach mode tracepoint")
+		return reasonAttachModeTracepoint
 	}
-	if env.goarch != "amd64" {
-		return tracepointPlan("the trampoline programs read the x86_64 registers")
+	if env.goarch != goarchAMD64 {
+		return "the trampoline programs read the x86_64 registers"
 	}
 	if err := env.kernelBTF(); err != nil {
-		return tracepointPlan(fmt.Sprintf("no kernel BTF: %v", err))
+		return fmt.Sprintf("no kernel BTF: %v", err)
 	}
 	if mode == AttachAuto {
 		if preemptible, why := env.preemptible(); preemptible {
-			return tracepointPlan("the kernel may preempt a trampoline program (" + why + "): the per CPU scratch of " +
-				"the programs is only safe without preemption, as the tracepoints and kprobes run them")
+			return "the kernel may preempt a trampoline program (" + why + "): the per CPU scratch of " +
+				"the programs is only safe without preemption, as the tracepoints and kprobes run them"
 		}
 	}
-	plan := &attachPlan{mode: mode, reason: "probed", fast: map[string]bool{}, btf: map[string]bool{}, syscallPrefix: "__x64_sys_"}
 	if _, err := env.kernelFunc("__x64_sys_read", ""); err != nil {
-		return tracepointPlan("the kernel has no __x64_sys_read")
+		return "the kernel has no __x64_sys_read"
 	}
-	// (read before the probes: the ftrace entries of a probe stay listed for a while after its detach)
-	busy := env.busy()
-	start := time.Now()
+	return ""
+}
+
+// probeAttachHooks probes the twin of every hook not in unused: results holds the error of each hook (errUnusedHook
+// for the unused ones), btfOK whether its BTF-typed raw tracepoint attaches
+func probeAttachHooks(spec *ebpf.CollectionSpec, unused map[string]bool, env planEnv) (results []error, btfOK []bool) {
 	// (the probes in parallel: the detach of a trampoline waits for an RCU grace period)
-	results := make([]error, len(attachHooks))
-	btfOK := make([]bool, len(attachHooks))
+	results = make([]error, len(attachHooks))
+	btfOK = make([]bool, len(attachHooks))
 	var wg sync.WaitGroup
 	for i, h := range attachHooks {
 		if unused[h.name] {
@@ -302,46 +362,32 @@ func planAttachMode(mode string, spec *ebpf.CollectionSpec, unused map[string]bo
 		}(i, h)
 	}
 	wg.Wait()
-	var failed []string
-	for i, h := range attachHooks {
-		if results[i] == errUnusedHook {
-			continue
-		}
-		if results[i] != nil {
-			failed = append(failed, results[i].Error())
-			continue
-		}
-		plan.fast[h.name] = true
-		if btfOK[i] {
-			plan.btf[h.name] = true
-		}
+	return results, btfOK
+}
+
+// dropFtraceBusyHooks takes the hooks whose function is already busy in ftrace out of the twins of the plan, adding
+// why to failed.
+// A function that ftrace already calls something for (another tool's kprobe or trampoline) keeps the kprobe: a second
+// kind of ftrace user on one function sends its every call through the ftrace list function, which tests every
+// registered ftrace user (measured on 6.12: some 200 ns a call), while the kprobes of all tools share one user
+func dropFtraceBusyHooks(plan *attachPlan, spec *ebpf.CollectionSpec, busy map[string]bool, failed []string) []string {
+	if len(busy) == 0 {
+		return failed
 	}
-	// a function that ftrace already calls something for (another tool's kprobe or trampoline) keeps the kprobe: a second
-	// kind of ftrace user on one function sends its every call through the ftrace list function, which tests every
-	// registered ftrace user (measured on 6.12: some 200 ns a call), while the kprobes of all tools share one user
-	if len(busy) > 0 {
-		for _, h := range attachHooks {
-			if !plan.fast[h.name] || h.raw != "" {
-				continue
-			}
-			for _, name := range h.fast {
-				if p := spec.Programs[name]; p != nil && busy[p.AttachTo] {
-					delete(plan.fast, h.name)
-					delete(plan.btf, h.name)
-					failed = append(failed, fmt.Sprintf("%s: %s is already traced through ftrace", name, p.AttachTo))
-					break
-				}
+	for _, h := range attachHooks {
+		if !plan.fast[h.name] || h.raw != "" {
+			continue
+		}
+		for _, name := range h.fast {
+			if p := spec.Programs[name]; p != nil && busy[p.AttachTo] {
+				delete(plan.fast, h.name)
+				delete(plan.btf, h.name)
+				failed = append(failed, fmt.Sprintf("%s: %s is already traced through ftrace", name, p.AttachTo))
+				break
 			}
 		}
 	}
-	plan.reason = fmt.Sprintf("probed in %v", time.Since(start).Round(time.Millisecond))
-	if len(failed) > 0 {
-		plan.reason += fmt.Sprintf("; not attachable: %v", failed)
-	}
-	if !plan.anyFast() {
-		plan.mode = AttachTracepoint
-	}
-	return plan
+	return failed
 }
 
 // errUnusedHook marks a hook of attachPlan.unused in the probe results
@@ -356,7 +402,7 @@ func probeTwin(spec *ebpf.ProgramSpec, raw string) error {
 		Type:         spec.Type,
 		AttachType:   spec.AttachType,
 		AttachTo:     spec.AttachTo,
-		License:      "GPL",
+		License:      bpfLicense,
 		Instructions: probeInstructions(spec),
 	}
 	prog, err := ebpf.NewProgram(probe)
@@ -417,10 +463,10 @@ func probeInstructions(spec *ebpf.ProgramSpec) asm.Instructions {
 	var insns asm.Instructions
 	if spec.Type == ebpf.Tracing {
 		switch {
-		case strings.HasPrefix(spec.AttachTo, "__x64_sys_") && spec.AttachType == ebpf.AttachTraceFEntry:
+		case strings.HasPrefix(spec.AttachTo, x64SyscallPrefix) && spec.AttachType == ebpf.AttachTraceFEntry:
 			// regs = ctx[0]; regs->orig_ax
 			insns = append(insns, asm.LoadMem(asm.R2, asm.R1, 0, asm.DWord), asm.LoadMem(asm.R3, asm.R2, 120, asm.DWord))
-		case strings.HasPrefix(spec.AttachTo, "__x64_sys_"):
+		case strings.HasPrefix(spec.AttachTo, x64SyscallPrefix):
 			// the return value behind the one argument
 			insns = append(insns, asm.LoadMem(asm.R2, asm.R1, 8, asm.DWord))
 		default:
@@ -433,6 +479,8 @@ func probeInstructions(spec *ebpf.ProgramSpec) asm.Instructions {
 }
 
 // twinArgSlot is the argument the fentry twin of a kprobe reads
+//
+//nolint:goconst // the BPF program names, as the C sources spell them
 var twinArgSlot = map[string]int{
 	"fentry_security_socket_recvmsg": 3,
 	// (the sk_buff)
@@ -443,12 +491,20 @@ var twinArgSlot = map[string]int{
 	"fexit_nf_conntrack_confirm": 1,
 }
 
+const (
+	// preemptRT is the uname version flag of a PREEMPT_RT kernel
+	preemptRT = "PREEMPT_RT"
+	// preemptModeNone and preemptModeVoluntary are the modes of a PREEMPT_DYNAMIC kernel that do not preempt kernel code
+	preemptModeNone      = "none"
+	preemptModeVoluntary = "voluntary"
+)
+
 // trampolinePreemptible tells whether a trampoline program may be preempted on this kernel. The tracepoints and
 // kprobes run a program with preemption off; a trampoline only keeps it on its CPU (migrate_disable), which until 5.11
 // disabled preemption, and since then only does where the kernel does not preempt kernel code: a preemptible build
 // (CONFIG_PREEMPT, PREEMPT_RT, PREEMPT_DYNAMIC in the full or lazy mode) could switch to another task in the middle of a
 // program, whose programs then use the same per CPU scratch and batch on that CPU.
-func trampolinePreemptible() (bool, string) {
+func trampolinePreemptible() (preemptible bool, why string) {
 	var uts unix.Utsname
 	if err := unix.Uname(&uts); err != nil {
 		return true, fmt.Sprintf("uname: %v", err)
@@ -460,7 +516,7 @@ func trampolinePreemptible() (bool, string) {
 
 // preemptibleFrom is trampolinePreemptible for a kernel release and version (uname), with the current mode of a
 // PREEMPT_DYNAMIC kernel and the preempt= of the command line read by the functions given
-func preemptibleFrom(release, version string, dynamicMode func() (string, error), cmdline func() string) (bool, string) {
+func preemptibleFrom(release, version string, dynamicMode func() (string, error), cmdline func() string) (preemptible bool, why string) {
 	if kernelBefore(release, 5, 11) {
 		return false, ""
 	}
@@ -469,16 +525,16 @@ func preemptibleFrom(release, version string, dynamicMode func() (string, error)
 		flags[f] = true
 	}
 	switch {
-	case flags["PREEMPT_RT"]:
-		return true, "PREEMPT_RT"
+	case flags[preemptRT]:
+		return true, preemptRT
 	case flags["PREEMPT_DYNAMIC"]:
 		if m, err := dynamicMode(); err == nil {
-			if m == "none" || m == "voluntary" {
+			if m == preemptModeNone || m == preemptModeVoluntary {
 				return false, ""
 			}
 			return true, "PREEMPT_DYNAMIC in mode " + m
 		}
-		if m := cmdline(); m == "none" || m == "voluntary" {
+		if m := cmdline(); m == preemptModeNone || m == preemptModeVoluntary {
 			return false, ""
 		}
 		return true, "PREEMPT_DYNAMIC in an unknown mode (no /sys/kernel/debug/sched/preempt, no preempt= of the command line)"
@@ -555,47 +611,53 @@ func applyAttachPlan(spec *ebpf.CollectionSpec, plan *attachPlan) {
 			}
 		}
 	}
-	for _, h := range attachHooks {
-		if plan.unused[h.name] {
-			// neither side attaches
-			for _, name := range h.slow {
-				if !slowUsed[name] {
-					stubProgram(spec.Programs[name])
-				}
+	for i := range attachHooks {
+		stubUnusedSide(spec, plan, &attachHooks[i], slowUsed)
+	}
+	if plan.syscallPrefix != "" && plan.syscallPrefix != x64SyscallPrefix {
+		for _, p := range spec.Programs {
+			if p.Type == ebpf.Tracing && strings.HasPrefix(p.AttachTo, x64SyscallPrefix) {
+				p.AttachTo = plan.syscallPrefix + strings.TrimPrefix(p.AttachTo, x64SyscallPrefix)
 			}
-			for _, name := range append(append([]string{}, h.fast...), h.btf) {
-				stubProgram(spec.Programs[name])
-			}
-			continue
-		}
-		if plan.fast[h.name] {
-			for _, name := range h.slow {
-				if !slowUsed[name] {
-					stubProgram(spec.Programs[name])
-				}
-			}
-			if h.btf != "" {
-				if btfSpec := spec.Programs[h.btf]; plan.btf[h.name] && btfSpec != nil && len(h.fast) > 0 {
-					// the BTF-typed raw tracepoint is loaded in place of the raw tracepoint twin (Loader.AddTracePointHook)
-					spec.Programs[h.fast[0]] = btfSpec.Copy()
-				}
-				stubProgram(spec.Programs[h.btf])
-			}
-			continue
-		}
-		for _, name := range h.fast {
-			stubProgram(spec.Programs[name])
-		}
-		if h.btf != "" {
-			stubProgram(spec.Programs[h.btf])
 		}
 	}
-	if plan.syscallPrefix != "" && plan.syscallPrefix != "__x64_sys_" {
-		for _, p := range spec.Programs {
-			if p.Type == ebpf.Tracing && strings.HasPrefix(p.AttachTo, "__x64_sys_") {
-				p.AttachTo = plan.syscallPrefix + strings.TrimPrefix(p.AttachTo, "__x64_sys_")
+}
+
+// stubUnusedSide turns the programs of the side of the hook that the plan does not use into stubs (a classic program
+// only when no hook of slowUsed uses it)
+func stubUnusedSide(spec *ebpf.CollectionSpec, plan *attachPlan, h *attachHook, slowUsed map[string]bool) {
+	if plan.unused[h.name] {
+		// neither side attaches
+		for _, name := range h.slow {
+			if !slowUsed[name] {
+				stubProgram(spec.Programs[name])
 			}
 		}
+		for _, name := range append(append([]string{}, h.fast...), h.btf) {
+			stubProgram(spec.Programs[name])
+		}
+		return
+	}
+	if plan.fast[h.name] {
+		for _, name := range h.slow {
+			if !slowUsed[name] {
+				stubProgram(spec.Programs[name])
+			}
+		}
+		if h.btf != "" {
+			if btfSpec := spec.Programs[h.btf]; plan.btf[h.name] && btfSpec != nil && len(h.fast) > 0 {
+				// the BTF-typed raw tracepoint is loaded in place of the raw tracepoint twin (Loader.AddTracePointHook)
+				spec.Programs[h.fast[0]] = btfSpec.Copy()
+			}
+			stubProgram(spec.Programs[h.btf])
+		}
+		return
+	}
+	for _, name := range h.fast {
+		stubProgram(spec.Programs[name])
+	}
+	if h.btf != "" {
+		stubProgram(spec.Programs[h.btf])
 	}
 }
 

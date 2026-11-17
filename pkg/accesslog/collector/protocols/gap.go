@@ -49,7 +49,7 @@ import (
 // Nothing of this happens when nothing is dropped: the event path then loads two counters.
 
 var (
-	// gapHandling turns the gap handling on; the tests turn it off for the behaviour without it
+	// gapHandling turns the gap handling on; the tests turn it off for the behavior without it
 	gapHandling = true
 
 	gapMarks = struct {

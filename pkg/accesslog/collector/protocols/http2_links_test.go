@@ -286,7 +286,7 @@ func TestHTTP2StartReorderNotLate(t *testing.T) {
 
 // TestHTTP2StartMidStreamNotAGap: a connection captured mid stream starts with an event whose previous upload
 // was before the analysis: it is waited for during the start window, then given up without counting a gap (the
-// parser went past nothing), so a later decode error keeps the per-block behaviour of a mid stream capture
+// parser went past nothing), so a later decode error keeps the per-block behavior of a mid stream capture
 func TestHTTP2StartMidStreamNotAGap(t *testing.T) {
 	defer func(old time.Duration) { http2ArrivalWaitDuration = old }(http2ArrivalWaitDuration)
 	http2ArrivalWaitDuration = 50 * time.Millisecond

@@ -150,7 +150,7 @@ func TestBufferOutOfOrderInsert(t *testing.T) {
 }
 
 // TestBufferRemoveInTheMiddle: removing an element in the middle (through a position that points at
-// it) keeps the neighbours linked, and the removed element reads detached with its event
+// it) keeps the neighbors linked, and the removed element reads detached with its event
 func TestBufferRemoveInTheMiddle(t *testing.T) {
 	defer withEventSlab(maxEventSlab)()
 	b := NewBuffer()
@@ -227,7 +227,7 @@ func TestBufferWraparound(t *testing.T) {
 }
 
 // TestTakeDataEventsKeepsStalePositions: an element of a taken list keeps its event, so a position that
-// outlives the take still reads it, but it is detached like a removed element: it links to no neighbour, so
+// outlives the take still reads it, but it is detached like a removed element: it links to no neighbor, so
 // it keeps no other slab alive, and the new list starts empty in slabs of its own
 func TestTakeDataEventsKeepsStalePositions(t *testing.T) {
 	defer withEventSlab(maxEventSlab)()

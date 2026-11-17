@@ -86,7 +86,7 @@
 
 #define H2C_FRAME_HEADER_LEN HTTP2_FRAME_HEADER_LEN
 // the bytes of a call to upload when its end lies in a DATA payload, from what h2c_handle_call reports
-// (*upload_size): it has the summarised bytes in front of the call in its upper half
+// (*upload_size): it has the summarized bytes in front of the call in its upper half
 #define H2C_UPLOAD_CUT(v) ((v) & 0xffffffff)
 // the largest unused frame is a PING, 9 + 8 bytes; a buffered writer flushes a few of them at once
 #define H2C_CONTROL_FRAMES_MAX_PER_CALL 4
@@ -208,7 +208,7 @@ static __always_inline void h2c_upload_held_header(void *ctx, struct active_conn
     args->socket_data_id = held->data_id;
     args->data_direction = data_direction;
     args->ext = held->ext;
-    // the first positional upload of the direction since the summarised calls carries their bytes (only ever
+    // the first positional upload of the direction since the summarized calls carries their bytes (only ever
     // above 0 with the summaries on)
     upload_data_args_ext_set_sum_before(&args->ext, held->sum_pending);
     upload_data_args_ext_set_sum_run(&args->ext, held->sum_run_stream | ((__u64)held->sum_run_frames << 32));
@@ -473,7 +473,7 @@ static __noinline int h2c_cursor_walk(struct h2c_direction_t *c, struct h2c_walk
             return 1;
         }
         c->remaining = http2_frame_length(c->head);
-        // the stream id of a header split over calls is not kept: its payload is not summarised
+        // the stream id of a header split over calls is not kept: its payload is not summarized
         c->stream_known = 0;
     }
     // the rest of a header from the call before, or the payload of the frame the call starts in (0 when neither)
@@ -513,7 +513,7 @@ struct h2c_call_t {
     // payload; once h2c_sum_handle decided the call is uploaded positionally: a run waits for the upload
     // (h2c_batch_cut), with bit 1 when its last frame is open (the upload is never a compact skipped record)
     __u8 run;
-    // the summarised bytes in front of the call when it is uploaded positionally (common/h2c_sum.h); the run they
+    // the summarized bytes in front of the call when it is uploaded positionally (common/h2c_sum.h); the run they
     // are waits per CPU for the upload (h2c_take_pos)
     __u32 sum_before;
 };
@@ -604,7 +604,7 @@ static __noinline int h2c_follow_frames(void *ctx, struct h2c_call_t *call) {
         if (readable >= sizeof(preface) && bpf_probe_read(preface, sizeof(preface), src) == 0 &&
             preface[0] == H2C_PREFACE_0 && preface[1] == H2C_PREFACE_1 && preface[2] == H2C_PREFACE_2) {
             pos = sizeof(preface);
-            // the requests come this way: the runs are only summarised the other way (h2c_sum_call)
+            // the requests come this way: the runs are only summarized the other way (h2c_sum_call)
             stream->request_direction = data_direction;
         } else if (size < sizeof(preface)) {
             // a preface split over calls is not followed
@@ -959,8 +959,8 @@ static __noinline int h2c_sum_walked(void *ctx, struct h2c_call_t *call, struct 
 // and its payload, the payload ending with the call (a writer that writes each frame with one call, as Go's
 // framer does whenever its buffer is empty: the server writes a large response body this way). Today such a
 // call is uploaded cut behind its header (h2c_walk_reach), and the parser reads nothing of it but the length
-// and the stream to count the payload into the body. It is summarised as a whole, header included, into a run
-// of the direction: consecutive such calls of one stream, with nothing summarised in front of them otherwise
+// and the stream to count the payload into the body. It is summarized as a whole, header included, into a run
+// of the direction: consecutive such calls of one stream, with nothing summarized in front of them otherwise
 // (sum_pending counts the bytes of the run, sum_run_stream and sum_run_frames say what they are). The next
 // positional upload of the direction carries the run, and the parser counts the frames of the stream in front
 // of it (buffer.SummaryGap with a stream).
@@ -993,7 +993,7 @@ static __noinline int h2c_sum_call(void *ctx, struct h2c_call_t *call) {
             return H2C_SUM_NONE;
         }
         // a run only follows a positional upload or a run of the same stream (a call that starts with the rest of
-        // the open frame of a run only follows that run: sum_open is 0 without one), or the summarised payload of a
+        // the open frame of a run only follows that run: sum_open is 0 without one), or the summarized payload of a
         // frame whose header was uploaded positionally (the head of the run, which ends where the call starts)
         if ((c->sum_run_stream != sid && c->sum_run_stream != 0) ||
             c->sum_pending + size > H2C_SUM_RUN_MAX_BYTES || (c->sum_run_frames & H2C_SUM_RUN_MAX_FRAMES) >= H2C_SUM_RUN_MAX_FRAMES) {
@@ -1080,8 +1080,8 @@ static __noinline int h2c_sum_call(void *ctx, struct h2c_call_t *call) {
 }
 
 // h2c_sum_handle is what the summaries make of a followed call (result, H2C_CALL_*): H2C_SUM_TAKEN when it was
-// summarised (a call inside a DATA payload, or a whole DATA frame of a run: call->run), and the call is not
-// uploaded. Otherwise a positional upload follows unless the call is dropped: it carries the bytes summarised in
+// summarized (a call inside a DATA payload, or a whole DATA frame of a run: call->run), and the call is not
+// uploaded. Otherwise a positional upload follows unless the call is dropped: it carries the bytes summarized in
 // front of it (call->sum_before) and the run they are, which waits per CPU for whichever upload of the call
 // follows (every one takes it: h2c_take_pos). A function of its own: the program that inlines the
 // follower has no stack to spare for it.
@@ -1104,7 +1104,7 @@ static __noinline int h2c_sum_handle(void *ctx, struct h2c_call_t *call, int res
     __u64 open = c->sum_open | ((__u32)c->sum_open_hi << 16);
     __u64 m = 0 - h2c_nz(open);
     call->run = h2c_nz(run) | (m & 2);
-    // (the upper 8 bits of the rest go in the upper byte of the summarised bytes, common/h2c_sum.h)
+    // (the upper 8 bits of the rest go in the upper byte of the summarized bytes, common/h2c_sum.h)
     call->sum_before |= (__u32)(open >> 16) << 24;
     struct h2c_sum_scratch_t *scratch = h2c_sum_scratch();
     if (scratch != NULL) {
@@ -1125,7 +1125,7 @@ static __noinline int h2c_sum_handle(void *ctx, struct h2c_call_t *call, int res
 // look up; h2c_fast_call does exactly what h2c_handle_call would do with three kinds of calls, with nothing else, and
 // the generic path takes every other call (the caller goes on with it when this returns 0):
 //
-// A (summarised payload): a call inside the payload of a DATA frame without PADDED (the cursor is aligned, no header
+// A (summarized payload): a call inside the payload of a DATA frame without PADDED (the cursor is aligned, no header
 //   is cut, the rest of the payload covers the call), whose stream is known and whose summary exists and takes it
 //   (same minute, function generation and function, below its limits), that does not end a frame with END_STREAM
 //   and may follow the run in front of it: what h2c_follow_frames (H2C_CALL_SKIP_PAYLOAD) and h2c_sum_handle /
@@ -1589,7 +1589,7 @@ static __noinline int h2c_upgrade(void *ctx, struct active_connection_t *conn, s
 // cleartext call of a connection followed from its start is ever dropped (with drop_h2c_unused_frame on)
 // or skipped (with skip_h2c_data_payload or skip_http1_body_payload on). A call that is uploaded as usual
 // may be uploaded only up to the lower 32 bits of *upload_size bytes, when that is above 0: the rest lies in a
-// DATA payload. The upper 32 bits are the summarised payload bytes in front of the call (common/h2c_sum.h); the
+// DATA payload. The upper 32 bits are the summarized payload bytes in front of the call (common/h2c_sum.h); the
 // run they are waits per CPU for whichever upload of the call follows (h2c_take_pos), with what the follower
 // knows of its frames (H2C_FRAMES_*).
 //
@@ -1684,7 +1684,7 @@ static __always_inline bool h2c_handle_call(void *ctx, struct active_connection_
             *upload_size = 0;
             return true;
         }
-        // a positional upload follows: the bytes summarised in front of it in the upper half of *upload_size
+        // a positional upload follows: the bytes summarized in front of it in the upper half of *upload_size
         *upload_size |= (__u64)call.sum_before << 32;
     }
     if (result == H2C_CALL_SKIP_PAYLOAD) {

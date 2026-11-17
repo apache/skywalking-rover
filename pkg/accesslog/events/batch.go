@@ -92,9 +92,9 @@ func BatchRecordCount(sample []byte) int {
 		return 0
 	}
 	count := int(binary.LittleEndian.Uint32(sample[batchCountOff:]))
-	max := (len(sample) - batchHeaderSize) / batchRecordSize
-	if count > max {
-		count = max
+	fit := (len(sample) - batchHeaderSize) / batchRecordSize
+	if count > fit {
+		count = fit
 	}
 	if count < 0 {
 		count = 0

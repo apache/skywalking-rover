@@ -39,9 +39,10 @@ func TestAppendWhileReading(t *testing.T) {
 		for i := 0; i < events; i++ {
 			id := uint64(i + 1)
 			// every fourth event arrives before its predecessor
-			if i%4 == 2 {
+			switch i % 4 {
+			case 2:
 				id++
-			} else if i%4 == 3 {
+			case 3:
 				id--
 			}
 			buf.AppendDataEvent(&testEvent{dataID: id, data: []byte("0123456789"), start: id})

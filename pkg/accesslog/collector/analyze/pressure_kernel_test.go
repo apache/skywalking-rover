@@ -21,9 +21,10 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/cilium/ebpf"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"github.com/cilium/ebpf"
 )
 
 // TestSocketDataPressure runs the h2c traffic of Go's client and server with the memory pressure flag
@@ -33,7 +34,7 @@ import (
 // of its own call, so its kernel log is that of the call; per connection and direction the shed calls
 // and their sizes are the calls and the bytes really made, and the previous data ids still name sent
 // calls. With the flag clear the calls are uploaded with their data, byte for byte.
-func TestSocketDataPressure(t *testing.T) {
+func TestSocketDataPressure(t *testing.T) { //nolint:funlen // one scenario whose steps share the loaded BPF and the state of the run
 	requireBPF(t)
 	loader, err := h2cLoadBPF()
 	if err != nil {

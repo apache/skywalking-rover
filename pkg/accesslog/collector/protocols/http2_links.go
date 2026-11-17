@@ -377,6 +377,8 @@ func (l *http2Links) remember(dataID uint64) {
 // (it expired, or a gap released it), and the events behind it must not wait for it. A root that is still in the
 // buffers is remembered (staleRoots), so the parser takes it as the gap it is when it reaches it. It looks at
 // most once per gap wait.
+//
+//nolint:gocyclo // one pass over the waiting chains, its cases read best together
 func (l *http2Links) pruneStale(wait time.Duration) {
 	if len(l.waiting) == 0 && (len(l.byPrev) > 0 || len(l.byPrevMore) > 0) {
 		// a backstop: nothing waits, so nothing waits for any upload
@@ -453,7 +455,7 @@ func (s *http2LinkSet) len() int {
 	if s.zero {
 		n++
 	}
-	for _, id := range s.slots {
+	for _, id := range &s.slots {
 		if id != 0 {
 			n++
 		}

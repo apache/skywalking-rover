@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -37,6 +36,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -53,7 +53,7 @@ type batchReadStats struct {
 // batch_h2c_records is set to `batch`. The reader expands every batch perf event into the per-call events
 // it stands for (aclevents.DecodeBatchRecordInto), so a connection's events are the same whether or not BPF
 // batched them, which is what the equivalence assertions rely on.
-func withAccessLogBatch(t *testing.T, drop, batch bool, traffic func(run *h2cKernelRun)) (*h2cKernelRun, batchReadStats) {
+func withAccessLogBatch(t *testing.T, drop, batch bool, traffic func(run *h2cKernelRun)) (*h2cKernelRun, batchReadStats) { //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	t.Helper()
 	loader, err := h2cLoadBPF()
 	if err != nil {
@@ -187,22 +187,23 @@ func goH2CManyStreams(t *testing.T, run *h2cKernelRun, requests, streams, body i
 		if err != nil {
 			return
 		}
+		//nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		server := &http2.Server{MaxConcurrentStreams: 256, MaxUploadBufferPerConnection: 8 << 20, MaxUploadBufferPerStream: 2 << 20}
-		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
 				_, _ = w.Write(payload)
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
 		return run.record(raw, "client", true), nil
 	}}
-	defer transport.CloseIdleConnections()
+	defer transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	httpClient := &http.Client{Transport: transport}
 	sem := make(chan struct{}, streams)
 	var wg sync.WaitGroup

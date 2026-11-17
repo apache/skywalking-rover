@@ -77,7 +77,7 @@ static __always_inline bool upload_data_args_ext_coalesce(struct upload_data_arg
 static __always_inline void fill_socket_data_event_coalesced(struct socket_data_upload_event *event, __u64 data_id_span) {
 }
 
-// upload_data_args_ext_set_sum_before sets the bytes of h2c DATA payload summarised in front of a positional
+// upload_data_args_ext_set_sum_before sets the bytes of h2c DATA payload summarized in front of a positional
 // upload (summarize_h2c_payload, common/h2c_sum.h): only an event that carries them has the field, not here
 static __always_inline void upload_data_args_ext_set_sum_before(struct upload_data_args_ext *ext, __u32 bytes) {
 }

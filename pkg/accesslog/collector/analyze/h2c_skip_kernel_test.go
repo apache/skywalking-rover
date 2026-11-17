@@ -30,9 +30,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"golang.org/x/net/http2"
 )
 
 // The tests below run real h2c traffic with access_log.protocol_analyze.skip_h2c_data_payload off and on.
@@ -100,7 +101,7 @@ func checkSkippedCalls(t *testing.T, conn *h2cKernelConn) (stats h2cSkipConnStat
 			t.Fatalf("%s %s: %d calls sent events, %d calls were made", conn.name, directionName(d), len(calls), len(script.calls))
 		}
 		for i, c := range calls {
-			real := script.calls[i].data
+			realData := script.calls[i].data
 			if skippable[i] {
 				stats.skippable[d]++
 			}
@@ -108,16 +109,16 @@ func checkSkippedCalls(t *testing.T, conn *h2cKernelConn) (stats h2cSkipConnStat
 				stats.cuttable[d]++
 			}
 			switch {
-			case c.cut && (c.total != uint64(len(real)) || len(c.data) != tailSkippable[i] || !bytes.Equal(c.data, real[:len(c.data)])):
+			case c.cut && (c.total != uint64(len(realData)) || len(c.data) != tailSkippable[i] || !bytes.Equal(c.data, realData[:len(c.data)])):
 				t.Fatalf("%s %s: call %d (%d bytes) is cut behind %d bytes with the size %d, the oracle cuts it behind %d",
-					conn.name, directionName(d), i, len(real), len(c.data), c.total, tailSkippable[i])
+					conn.name, directionName(d), i, len(realData), len(c.data), c.total, tailSkippable[i])
 			case c.cut:
 				stats.cut[d]++
-			case !c.skipped && !bytes.Equal(c.data, real):
+			case !c.skipped && !bytes.Equal(c.data, realData):
 				t.Fatalf("%s %s: call %d is not uploaded as its bytes", conn.name, directionName(d), i)
-			case c.skipped && (c.total != uint64(len(real)) || !skippable[i]):
+			case c.skipped && (c.total != uint64(len(realData)) || !skippable[i]):
 				t.Fatalf("%s %s: call %d (%d bytes) was skipped with the size %d, inside a plain DATA payload: %t",
-					conn.name, directionName(d), i, len(real), c.total, skippable[i])
+					conn.name, directionName(d), i, len(realData), c.total, skippable[i])
 			case c.skipped:
 				stats.skipped[d]++
 			}
@@ -155,18 +156,18 @@ func h2cUnskipped(conn *h2cKernelConn) *h2cKernelConn {
 				copied.events[d] = append(copied.events[d], e)
 				continue
 			}
-			real := conn.real[d][offset : offset+conn.calls[d][call]]
-			for sent, seq := 0, uint16(0); sent < len(real); seq++ {
-				chunk := min(len(real)-sent, buffer.MaxEventBufferSize)
+			realData := conn.real[d][offset : offset+conn.calls[d][call]]
+			for sent, seq := 0, uint16(0); sent < len(realData); seq++ {
+				chunk := min(len(realData)-sent, buffer.MaxEventBufferSize)
 				c := e.Detach()
 				c.PayloadSkipped0, c.Sequence0, c.DataLen, c.HaveReduce, c.Finished = 0, seq, uint16(chunk), 0, 0
-				if len(real)-sent > buffer.MaxEventBufferSize {
+				if len(realData)-sent > buffer.MaxEventBufferSize {
 					c.HaveReduce = 1
 				}
-				if sent+chunk == len(real) {
+				if sent+chunk == len(realData) {
 					c.Finished = 1
 				}
-				c.Buffer = append([]byte(nil), real[sent:sent+chunk]...)
+				c.Buffer = append([]byte(nil), realData[sent:sent+chunk]...)
 				copied.events[d] = append(copied.events[d], c)
 				sent += chunk
 			}
@@ -195,8 +196,9 @@ func goH2CBodyTraffic(t *testing.T, run *h2cKernelRun, requests, requestBody, re
 		if err != nil {
 			return
 		}
+		//nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		server := &http2.Server{MaxUploadBufferPerConnection: 4 << 20, MaxUploadBufferPerStream: 1 << 20}
-		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(settle)
 				_, _ = io.Copy(io.Discard, r.Body)
@@ -204,14 +206,14 @@ func goH2CBodyTraffic(t *testing.T, run *h2cKernelRun, requests, requestBody, re
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
 		return run.record(raw, "client", true), nil
 	}}
-	defer transport.CloseIdleConnections()
+	defer transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	httpClient := &http.Client{Transport: transport}
 	for i := 0; i < requests; i++ {
 		resp, err := httpClient.Post(fmt.Sprintf("http://%s/upload/%d", listener.Addr(), i), "application/octet-stream",
@@ -233,13 +235,13 @@ func goH2CBodyTraffic(t *testing.T, run *h2cKernelRun, requests, requestBody, re
 // agent's access logs and kernel logs over them are those of the same calls uploaded with their bytes,
 // the access logs match the run without the skipping, and the server uploads next to nothing of the
 // request bodies it reads.
-func TestH2CSkipDataPayload(t *testing.T) {
+func TestH2CSkipDataPayload(t *testing.T) { //nolint:funlen // one scenario whose steps share the loaded BPF and the state of the run
 	withH2CSkipDataPayload(t)
 	requireBPF(t)
 	const requests, bodySize = 16, 256 * 1024
 	var summaries [2][]string
 	var data, records [2][3]int
-	comparable := true
+	canCompare := true
 	for i, skip := range []bool{false, true} {
 		run := withAccessLogBPFModes(t, false, skip, func(run *h2cKernelRun) {
 			goH2CBodyTraffic(t, run, requests, bodySize, bodySize)
@@ -298,14 +300,14 @@ func TestH2CSkipDataPayload(t *testing.T) {
 				summaries[i] = append(summaries[i], line)
 			}
 			if !clean {
-				comparable = false
+				canCompare = false
 				t.Logf("skip=%t %s: %d access logs of %d, %d framing errors, %d gaps: not compared with the other run", skip,
 					conn.name, len(result.protocolLogs), requests, m.FramingErrors, m.Gaps)
 			}
 		}
 		sort.Strings(summaries[i])
 	}
-	if comparable && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
+	if canCompare && fmt.Sprint(summaries[0]) != fmt.Sprint(summaries[1]) {
 		t.Fatalf("the access logs differ:\noff %v\non  %v", summaries[0], summaries[1])
 	}
 	for _, d := range []enums.SocketDataDirection{enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress} {

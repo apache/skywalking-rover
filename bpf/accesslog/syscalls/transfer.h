@@ -301,9 +301,9 @@ static __always_inline void process_write_data(void *ctx, __u64 id, struct sock_
     // the bytes to upload when the end of the call lies in an h2c DATA payload, 0 for all (syscalls/h2c.h)
     __u64 upload_size = 0;
     // a receive with MSG_PEEK hands no bytes to the reader: no follower sees it (their cursors stay where the stream
-    // is), it is never dropped, skipped, cut, batched or summarised, and it is uploaded without its bytes below
+    // is), it is never dropped, skipped, cut, batched or summarized, and it is uploaded without its bytes below
     bool peek = (args->recv_flags & SOCK_RECV_FLAG_MSG_PEEK) != 0;
-    // (the upper 32 bits: the h2c DATA payload bytes summarised in front of this call, which its upload
+    // (the upper 32 bits: the h2c DATA payload bytes summarized in front of this call, which its upload
     // carries, common/h2c_sum.h, and the run of whole DATA frames they are: h2c_take_pos)
     if (!peek && h2c_handle_call(ctx, conn, stream, args, conid, bytes_count, curr_nacs, data_direction, func_name, protocol_before_call,
                         ssl, socket_data_pressure(), &upload_size)) {

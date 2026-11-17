@@ -339,7 +339,7 @@ func (s *retentionStream) run(n int) {
 // TestCompactRecordsAreNotRetained: streaming records through the buffers with the analysis and the list
 // renewals keeps a bounded memory, whatever the number of records: the records and the element slabs that
 // nothing refers to anymore are collected, and what the agent keeps (positions, kernel logs) keeps only
-// itself and its own slab alive, never a chain of slabs or the records of its neighbours
+// itself and its own slab alive, never a chain of slabs or the records of its neighbors
 func TestCompactRecordsAreNotRetained(t *testing.T) {
 	SetEventListSlab(32)
 	defer SetEventListSlab(1)

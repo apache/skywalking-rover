@@ -98,7 +98,7 @@ func l24Fields(event events.Event) (events.L24Metrics, bool) {
 
 // l24WritePackages are the L4 package count and size of a write with its L2 to L4 details: the sk_buffs
 // __tcp_transmit_skb sent while the call was in progress when there were any, those of the event otherwise
-func l24WritePackages(m *events.L24Metrics, packages uint32, size uint64) (uint32, uint64) {
+func l24WritePackages(m *events.L24Metrics, packages uint32, size uint64) (packageCount uint32, packageSize uint64) {
 	if m.L4TransmitPackageCount > 0 {
 		return m.L4TransmitPackageCount, m.L4TransmitPackageSize
 	}

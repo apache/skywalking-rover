@@ -18,6 +18,7 @@
 package analyze
 
 import (
+	"bytes"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -28,9 +29,10 @@ import (
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
-	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"google.golang.org/protobuf/proto"
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
+
+	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 )
 
 // TestMessageDetailsMatchesDetachThenMerge: messageDetails gives what detaching every socket call and
@@ -200,7 +202,7 @@ func TestHTTPProtocolLogAsTheMessages(t *testing.T) {
 		}
 		gotBytes, err1 := proto.MarshalOptions{Deterministic: true}.Marshal(got.ProtocolLog())
 		wantBytes, err2 := proto.MarshalOptions{Deterministic: true}.Marshal(want.ProtocolLog())
-		if err1 != nil || err2 != nil || string(gotBytes) != string(wantBytes) {
+		if err1 != nil || err2 != nil || !bytes.Equal(gotBytes, wantBytes) {
 			t.Fatalf("case %d: %x (%v), expected %x (%v)", i, gotBytes, err1, wantBytes, err2)
 		}
 	}

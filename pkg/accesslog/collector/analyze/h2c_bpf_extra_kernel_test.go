@@ -20,11 +20,9 @@ package analyze
 import (
 	"bytes"
 	"encoding/binary"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"os"
-	"runtime"
 	"sort"
 	"sync"
 	"testing"
@@ -33,9 +31,9 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
 	"golang.org/x/net/http2"
-	"golang.org/x/sys/unix"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
@@ -60,7 +58,7 @@ type h2cBPFSwitches struct {
 
 // withH2CEvents loads the access log BPF with the switches, runs the traffic and returns every event of the socket
 // data queue it decoded, with its arrival time
-func withH2CEvents(t *testing.T, sw h2cBPFSwitches, traffic func()) []h2cTimedEvent {
+func withH2CEvents(t *testing.T, sw h2cBPFSwitches, traffic func()) []h2cTimedEvent { //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	t.Helper()
 	loader, err := h2cLoadBPF()
 	if err != nil {
@@ -77,7 +75,7 @@ func withH2CEvents(t *testing.T, sw h2cBPFSwitches, traffic func()) []h2cTimedEv
 	}{{loader.DropH2cUnusedFrame, sw.drop}, {loader.SkipH2cDataPayload, sw.skip}, {loader.BatchH2cRecords, sw.batch},
 		{loader.SummarizeH2cPayload, sw.summarize}, {loader.SkipHttp1BodyPayload, sw.skipHTTP1}} {
 		set(v.v, v.value)
-		defer set(v.v, uint32(0))
+		defer set(v.v, uint32(0)) //nolint:gocritic // every switch is reset when the run ends
 	}
 	set(loader.BootTimeUnixNs, uint64(host.BootTime.UnixNano()))
 	h2cClearMap(t, loader.H2cStreamMap)
@@ -191,24 +189,6 @@ func h2cFrame(typ http2.FrameType, flags http2.Flags, stream uint32, payload []b
 	h := []byte{byte(len(payload) >> 16), byte(len(payload) >> 8), byte(len(payload)), byte(typ), byte(flags), 0, 0, 0, 0}
 	binary.BigEndian.PutUint32(h[5:], stream)
 	return append(h, payload...)
-}
-
-// onCPU runs f on a thread pinned to the CPU
-func onCPU(t *testing.T, cpu int, f func()) {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		// the thread stays locked: it ends with the goroutine, so no other goroutine runs pinned to the CPU
-		runtime.LockOSThread()
-		var set unix.CPUSet
-		set.Set(cpu)
-		if err := unix.SchedSetaffinity(0, &set); err != nil {
-			t.Errorf("pin to CPU %d: %v", cpu, err)
-			return
-		}
-		f()
-	}()
-	<-done
 }
 
 // TestH2CIovEntries writes one call with writev of 12 iov entries, a HEADERS frame in entries 8 and 9 (behind

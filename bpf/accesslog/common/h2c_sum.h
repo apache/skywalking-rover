@@ -26,7 +26,7 @@
 // A socket call that lies wholly inside the payload of a DATA frame (H2C_CALL_SKIP_PAYLOAD, syscalls/h2c.h)
 // is not uploaded at all: its size, its times and its L4 counters are added to the summary of its stream and
 // direction in h2c_sum_map. Every other call (anything with a frame header, a tail-cut call, a call whose
-// stream is not known) is uploaded as before, and the bytes summarised since the previous positional upload
+// stream is not known) is uploaded as before, and the bytes summarized since the previous positional upload
 // of the direction travel with the next positional upload of the direction (sum_before), so the user-space
 // parser counts them as skipped payload in front of it and the frames stay where they are. The calls the
 // summaries take never move socket_data_last_id_map: the previous data id of a positional upload names the
@@ -35,7 +35,7 @@
 // A summary goes to the user space as a record of the per-CPU batch (H2C_BATCH_KIND_SUMMARY) and its entry is
 // deleted, in the program that sees:
 // - the end of the stream's direction: the last payload call of a DATA frame with END_STREAM (that call
-//   itself is uploaded positionally, as a skipped call, carrying the summarised bytes in front of it, so the
+//   itself is uploaded positionally, as a skipped call, carrying the summarized bytes in front of it, so the
 //   parser can finish the stream at once), a positional call in which such a payload ends, or one that ends
 //   with such a frame (h2c_sum_walked in syscalls/h2c.h);
 // - a call that cannot join it: another wall clock minute (the kernel log merge never crosses one), another
@@ -54,18 +54,18 @@
 // is lost. The map is a plain hash on purpose, not an LRU: an evicted entry would lose its calls silently.
 //
 // Runs (syscalls/h2c.h h2c_sum_call). A call that carries one DATA frame header, without END_STREAM or PADDED, of a
-// stream whose payload runs to the end of the call or beyond is summarised as a whole, header included, into a run of
-// the direction: the next positional upload carries the run (the stream and the frame headers in the summarised bytes
+// stream whose payload runs to the end of the call or beyond is summarized as a whole, header included, into a run of
+// the direction: the next positional upload carries the run (the stream and the frame headers in the summarized bytes
 // in front of it), and the parser takes it where it expects a frame header, as that many frames of the stream.
 // A run also takes:
 // - a frame whose payload continues in the next calls of the direction (a reader that reads the header and the start
 //   of the payload in one call and the rest in others, as Go's HTTP/2 client does, or a lone 9 byte header read, as
-//   Go's server reads a request body): the calls of the rest of its payload are summarised as any payload call, and the
+//   Go's server reads a request body): the calls of the rest of its payload are summarized as any payload call, and the
 //   last frame of the run is open while its payload has not ended;
 // - a call that starts with the rest of the payload of the open last frame of the run, followed by the header of the
 //   next frame of the stream (the bytes in front of its header are the lead, the run's open frame ends there);
 // - the frames of both directions;
-// - a frame at a frame boundary behind the summarised payload calls of a frame whose header was uploaded positionally
+// - a frame at a frame boundary behind the summarized payload calls of a frame whose header was uploaded positionally
 //   (the first DATA frame behind a HEADERS frame read in the same call, as Go's client reads a response): the run
 //   starts behind that payload, its head, and its frames carry H2C_SUM_RUN_HEAD. The parser, which discards the
 //   payload of that frame when it gets to the run, takes the head as the end of the frame (the rest of the bytes it
@@ -73,7 +73,7 @@
 // A positional upload that follows an open run (a call whose first bytes are the rest of the payload of the last frame
 // of the run) carries H2C_SUM_RUN_OPEN with the stream of the run, and the rest of that payload from the start of the
 // call (24 bits): its lower 16 bits as the first frame offset of the call (h2c_frames with H2C_FRAMES_KNOWN, set
-// however the walk of the call went), its upper 8 bits in the upper byte of sum_before (the summarised bytes in front
+// however the walk of the call went), its upper 8 bits in the upper byte of sum_before (the summarized bytes in front
 // of an upload never exceed 24 bits, H2C_SUM_RUN_MAX_BYTES). The parser counts that many bytes behind the run into the
 // payload of its last frame (HTTP2 handleSummaryRun), which then ends where the frame ends. Such an upload is never a
 // compact record of a skipped call (whose first frame offset does not fit): it goes as an event.
@@ -122,16 +122,16 @@ static __always_inline __u64 h2c_lt(__u64 a, __u64 b) {
 // a summary holds at most this many calls, so its counters never wrap in the user space
 #define H2C_SUM_MAX_CALLS 0xffff
 #define H2C_SUM_MAX_L4_COUNT 0xffff0000
-// a run of whole DATA frames in front of a positional upload at most: the user space keeps the summarised bytes
+// a run of whole DATA frames in front of a positional upload at most: the user space keeps the summarized bytes
 // in front of a record in 24 bits (buffer.CompactRecord), and the frames in 15 (the mask of the frame count)
 #define H2C_SUM_RUN_MAX_BYTES 0xffffff
 #define H2C_SUM_RUN_MAX_FRAMES 0x7fff
-// the frames of a run that starts behind summarised payload of the frame in front of its first frame (the head):
+// the frames of a run that starts behind summarized payload of the frame in front of its first frame (the head):
 // the parser takes the head as the end of that frame (buffer.Buffer.DiscardBytes)
 #define H2C_SUM_RUN_HEAD 0x8000
 // the stream of a run whose last frame is open behind it: the rest of its payload from the start of the
 // call that carries the run is the first frame offset of that call (its lower 16 bits; the upper 8 go in the upper
-// byte of the summarised bytes, h2c_take_pos in syscalls/h2c.h)
+// byte of the summarized bytes, h2c_take_pos in syscalls/h2c.h)
 #define H2C_SUM_RUN_OPEN 0x80000000U
 
 struct h2c_sum_key_t {
@@ -236,7 +236,7 @@ static __always_inline void h2c_set_pos_frames(__u32 frames) {
     }
 }
 
-// h2c_clear_pos forgets what was left for an upload that does not come (the call was summarised)
+// h2c_clear_pos forgets what was left for an upload that does not come (the call was summarized)
 static __always_inline void h2c_clear_pos() {
     struct h2c_sum_scratch_t *scratch = h2c_sum_scratch();
     if (scratch != NULL) {
@@ -326,7 +326,7 @@ static __noinline int h2c_sum_emit_stream(void *ctx, __u64 conid, __u64 random_i
     return 0;
 }
 
-// h2c_sum_close sends what the closing connection's directions summarise of their current stream, before the
+// h2c_sum_close sends what the closing connection's directions summarize of their current stream, before the
 // close is notified. The entries it cannot reach (other streams, other minutes) are drained by the user space
 // for the closed connection.
 static __noinline int h2c_sum_close(void *ctx, __u64 conid, __u64 random_id) {

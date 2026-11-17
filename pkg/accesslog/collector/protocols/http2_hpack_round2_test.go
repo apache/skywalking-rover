@@ -174,7 +174,7 @@ func TestHTTP2ValidMethod(t *testing.T) {
 
 // ---- h2c upgrade (RFC 7540 3.2) ---------------------------------------------------------------------------------
 
-// http2UpgradeConn is a connection analysed by the HTTP/1 and the HTTP/2 parser, as the queue does: the HTTP/1 data
+// http2UpgradeConn is a connection analyzed by the HTTP/1 and the HTTP/2 parser, as the queue does: the HTTP/1 data
 // first (smaller data ids)
 type http2UpgradeConn struct {
 	*http2TestConn
@@ -242,7 +242,7 @@ func TestHTTP2UpgradeFromHTTP1(t *testing.T) {
 				u.feedProto(enums.ConnectionProtocolHTTP, hpIn, request, 1)
 				u.feedProto(enums.ConnectionProtocolHTTP2, hpOut, first, 2)
 			case "request-late":
-				// the 101 is analysed before the HTTP/1 analysis has the request: it waits for it
+				// the 101 is analyzed before the HTTP/1 analysis has the request: it waits for it
 				u.feedProto(enums.ConnectionProtocolHTTP2, hpOut, first, 2)
 				u.analyzeAll()
 				if n := len(u.analyzer.streams); n != 0 {
@@ -291,6 +291,6 @@ func TestHTTP2UpgradeOtherProtocol(t *testing.T) {
 		t.Fatalf("websocket taken for h2c")
 	}
 	if !http2IsH2CUpgradeHead([]byte("HTTP/1.1 101 Switching Protocols\r\nupgrade: H2C\r\n\r\n")) {
-		t.Fatalf("h2c not recognised")
+		t.Fatalf("h2c not recognized")
 	}
 }

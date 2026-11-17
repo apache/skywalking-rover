@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"sort"
@@ -36,6 +35,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
 )
@@ -105,7 +105,7 @@ func h2cFastData(stream uint32, flags http2.Flags, n int) []byte {
 // (held), requests and responses on three streams with their DATA frames written whole, through writev and read in
 // every shape the follower knows (a lone header, a header with the start of the payload, the payload in pieces, a
 // piece that ends the frame), a PADDED frame, streams interleaved, END_STREAM frames
-func h2cFastTraffic(t *testing.T) (serverPort uint16) {
+func h2cFastTraffic(t *testing.T) (serverPort uint16) { //nolint:funlen // one scripted traffic scenario, kept in one piece so its steps read in order
 	server, client := h2cTCPPair(t)
 	serverPort = uint16(server.LocalAddr().(*net.TCPAddr).Port)
 	s := &h2cFastSession{t: t, server: server, client: client}
@@ -226,7 +226,7 @@ func h2cFastTraffic(t *testing.T) (serverPort uint16) {
 	return serverPort
 }
 
-func h2cFastRun(t *testing.T, loader *bpf.Loader) *h2cFastOutput {
+func h2cFastRun(t *testing.T, loader *bpf.Loader) *h2cFastOutput { //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	t.Helper()
 	set := func(v *ebpf.Variable, value interface{}) {
 		if err := v.Set(value); err != nil {
@@ -241,7 +241,7 @@ func h2cFastRun(t *testing.T, loader *bpf.Loader) *h2cFastOutput {
 			t.Fatal(err)
 		}
 		set(v, uint32(1))
-		defer set(v, before)
+		defer set(v, before) //nolint:gocritic // every switch is set back when the run ends
 	}
 	set(loader.BootTimeUnixNs, uint64(host.BootTime.UnixNano()))
 	h2cClearMap(t, loader.H2cStreamMap)

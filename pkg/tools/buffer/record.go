@@ -37,7 +37,7 @@ import (
 // Every record is an allocation of its own (NewCompactRecord, one size class of 96 bytes), made when the
 // reader splits the batch, and the buffers hold a pointer to it like to any event: nothing is shared between
 // records, so a record that something still refers to (a kernel log in the flush queue, a position, a slice)
-// keeps only itself alive, never a slab of its neighbours. Nothing changes a record once it is routed but
+// keeps only itself alive, never a slab of its neighbors. Nothing changes a record once it is routed but
 // ReleaseBuffer, which only marks its cut bytes as given back, what releasing an event does to its buffer.
 type CompactRecord struct {
 	StartTime0         uint64
@@ -63,7 +63,7 @@ type CompactRecord struct {
 	CutLen uint8
 	// state holds recordReleased, recordCharged and recordCut
 	state uint8
-	// sumBefore is the h2c DATA payload bytes BPF summarised in front of the call (SummarisedBeforeBuffer), 24
+	// sumBefore is the h2c DATA payload bytes BPF summarized in front of the call (SummarizedBeforeBuffer), 24
 	// bits little endian: they lie in the payload of one frame, whose length is 24 bits. The record keeps its
 	// size class with it.
 	sumBefore [3]uint8
@@ -78,7 +78,7 @@ const (
 	recordCharged
 	// recordCut tells a call cut behind CutLen bytes from one uploaded without its content
 	recordCut
-	// recordRun tells the summarised bytes in front of the call are a run of whole DATA frames (SummaryRun),
+	// recordRun tells the summarized bytes in front of the call are a run of whole DATA frames (SummaryRun),
 	// whose stream and frames are kept in the last bytes of CutData (from recordRunAt)
 	recordRun
 )
@@ -97,12 +97,12 @@ func (r *CompactRecord) SetCut() {
 	r.state |= recordCut
 }
 
-// SetSumBefore sets the summarised bytes in front of the call (24 bits, see sumBefore)
+// SetSumBefore sets the summarized bytes in front of the call (24 bits, see sumBefore)
 func (r *CompactRecord) SetSumBefore(n uint32) {
 	r.sumBefore = [3]uint8{uint8(n), uint8(n >> 8), uint8(n >> 16)}
 }
 
-// SetSumRun sets the run the summarised bytes in front of the call are: frames whole DATA frames of the stream
+// SetSumRun sets the run the summarized bytes in front of the call are: frames whole DATA frames of the stream
 // (stream 0: none, they are payload of one frame). Set after the cut bytes; false when they leave no room for
 // it (more than recordRunAt of them), which BPF never sends.
 func (r *CompactRecord) SetSumRun(stream uint32, frames uint16) bool {
@@ -281,8 +281,8 @@ func (r *CompactRecord) EndTime() uint64 {
 	return r.EndTime0
 }
 
-// SummarisedBefore implements SummarisedBeforeBuffer
-func (r *CompactRecord) SummarisedBefore() uint32 {
+// SummarizedBefore implements SummarizedBeforeBuffer
+func (r *CompactRecord) SummarizedBefore() uint32 {
 	return uint32(r.sumBefore[0]) | uint32(r.sumBefore[1])<<8 | uint32(r.sumBefore[2])<<16
 }
 

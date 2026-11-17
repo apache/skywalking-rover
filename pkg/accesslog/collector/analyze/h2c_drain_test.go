@@ -18,7 +18,6 @@
 package analyze
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -27,6 +26,7 @@ import (
 	"github.com/cilium/ebpf"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )

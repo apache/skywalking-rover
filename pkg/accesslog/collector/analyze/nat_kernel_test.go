@@ -99,7 +99,7 @@ type natResult struct {
 }
 
 // natConnect loads the programs with the NAT mode given, connects to the Service and returns what the connect event says
-func natConnect(t *testing.T, mode string) natResult {
+func natConnect(t *testing.T, mode string) natResult { //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	t.Helper()
 	loader, err := bpf.NewLoaderWithOptions(bpf.LoaderOptions{NATHook: mode})
 	if err != nil {
@@ -171,10 +171,8 @@ func natConnect(t *testing.T, mode string) natResult {
 	for name, p := range map[string]*ebpf.Program{"nf_confirm": loader.NfConfirm, "fentry_nf_confirm": loader.FentryNfConfirm,
 		"nf_conntrack_hash_insert": loader.NfConntrackHashInsert, "fexit_nf_conntrack_confirm": loader.FexitNfConntrackConfirm,
 		"kprobe_nf_conntrack_confirm": loader.KprobeNfConntrackConfirm} {
-		if info, err := p.Info(); err == nil {
-			if n, ok := info.RunCount(); ok && n > 0 {
-				runs = append(runs, fmt.Sprintf("%s=%d", name, n))
-			}
+		if stats, err := p.Stats(); err == nil && stats.RunCount > 0 {
+			runs = append(runs, fmt.Sprintf("%s=%d", name, stats.RunCount))
 		}
 	}
 	res.runs = strings.Join(runs, " ")

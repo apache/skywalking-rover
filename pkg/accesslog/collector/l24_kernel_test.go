@@ -93,7 +93,7 @@ func (c *countingConn) Write(p []byte) (int, error) {
 // runL24Traffic loads the access log programs with the L2 to L4 details on or off, attaches what a plain read and write
 // go through (and the l24 hooks with the switch on, as L24Collector does), runs a ping-pong HTTP/1 exchange over the
 // loopback and gives every event of its connections
-func runL24Traffic(t *testing.T, l2l3 bool) *l24KernelRun {
+func runL24Traffic(t *testing.T, l2l3 bool) *l24KernelRun { //nolint:funlen // one end-to-end kernel scenario read top to bottom
 	t.Helper()
 	loader, err := bpf.NewLoaderWithOptions(bpf.LoaderOptions{KernelMetricsL2L3: l2l3})
 	if err != nil {
@@ -119,20 +119,19 @@ func runL24Traffic(t *testing.T, l2l3 bool) *l24KernelRun {
 	} {
 		loader.AddSyscall(call.name, call.enter, call.exit, call.fe, call.fex)
 	}
-	loader.AddKprobeHook("tcp_sendmsg", loader.TcpSendmsg, loader.FentryTcpSendmsg)
+	loader.AddKprobeHook(symbolTCPSendmsg, loader.TcpSendmsg, loader.FentryTcpSendmsg)
 	loader.AddTracePointHook("skb", "skb_copy_datagram_iovec", loader.TracepointSkbCopyDatagramIovec, loader.RawTpSkbCopyDatagramIovec)
 	loader.AddKprobeHook("security_socket_sendmsg", loader.SecuritySocketSendmsg, loader.FentrySecuritySocketSendmsg)
 	loader.AddKprobeHook("security_socket_recvmsg", loader.SecuritySocketRecvmsg, loader.FentrySecuritySocketRecvmsg)
-	loader.AddLink(link.Kprobe, map[string]*ebpf.Program{"tcp_connect": loader.TcpConnect})
-	loader.AddLink(link.Kretprobe, map[string]*ebpf.Program{"sock_alloc": loader.SockAllocRet})
+	loader.AddLink(link.Kprobe, map[string]*ebpf.Program{symbolTCPConnect: loader.TcpConnect})
+	loader.AddLink(link.Kretprobe, map[string]*ebpf.Program{symbolSockAlloc: loader.SockAllocRet})
 	ctx := &common.AccessLogContext{BPF: loader, Config: &common.Config{}}
-	programs := l24Programs(ctx)
-	for _, h := range l24Hooks {
+	for _, h := range l24Hooks(loader) {
 		loaded := loader.L24ProgramLoaded(h.program)
-		if loaded != l2l3 && !(l2l3 && loader.L24RefusedPrograms()[h.program] != nil) {
+		if loaded != l2l3 && (!l2l3 || loader.L24RefusedPrograms()[h.program] == nil) {
 			t.Fatalf("l2l3=%t: program %s loaded: %t", l2l3, h.program, loaded)
 		}
-		info, err := programs[h.program].Info()
+		info, err := h.prog.Info()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +141,7 @@ func runL24Traffic(t *testing.T, l2l3 bool) *l24KernelRun {
 		if !loaded {
 			continue
 		}
-		if err := attachL24Hook(ctx, h, programs[h.program]); err != nil {
+		if err := attachL24Hook(ctx, h, h.prog); err != nil {
 			t.Logf("%s %s %s does not attach here: %v", h.program, h.kind, h.symbol, err)
 		}
 	}
@@ -296,7 +295,7 @@ func l24Normalized(run *l24KernelRun, e *events.SocketDataUploadEvent) events.So
 // (the loopback), the time in the IP layer and the device queue, and for a write the packages __tcp_transmit_skb sent.
 // Off: the l24 programs are stubs, no l24 event is sent, the kernel logs are those of the L4 counters alone, and the
 // socket data events of the exchange are the same, field by field and byte by byte, as with the switch on.
-func TestL2L3KernelMetrics(t *testing.T) {
+func TestL2L3KernelMetrics(t *testing.T) { //nolint:funlen // one end-to-end kernel scenario read top to bottom
 	if os.Geteuid() != 0 {
 		t.Skip("loading BPF programs needs root")
 	}

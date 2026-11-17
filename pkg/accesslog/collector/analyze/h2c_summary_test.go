@@ -20,7 +20,6 @@ package analyze
 import (
 	"bytes"
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"sort"
 	"testing"
 	"time"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/apache/skywalking-rover/pkg/tools/host"
@@ -37,7 +37,7 @@ import (
 // The summaries of the skipped h2c DATA payload (summarize_h2c_payload, bpf/accesslog/common/h2c_sum.h). These
 // tests model what BPF does with the calls of a script with the summaries on (h2cSummarize): a call that lies
 // wholly inside the payload of a DATA frame whose header it knows is added to the summary of its stream and
-// direction instead of being uploaded, the next positional upload of the direction carries the summarised
+// direction instead of being uploaded, the next positional upload of the direction carries the summarized
 // bytes, the previous data id of an upload names the previous positional upload; the summary of a stream goes
 // with the last payload call of a frame with END_STREAM (which is uploaded as before), at a wall clock minute,
 // at the epoch flushes of the user space, and at the end (the close). Then they run the uploads of today and
@@ -119,7 +119,7 @@ type h2cRunCall struct {
 // which exactly one frame header starts, a whole DATA frame header without END_STREAM or PADDED of a stream, at its
 // start or behind the rest of a DATA payload without PADDED the call starts in, whose payload runs to the end of the
 // call or beyond, in either direction once the client preface was seen
-func h2cRunCalls(s *h2cScript) map[int]h2cRunCall {
+func h2cRunCalls(s *h2cScript) map[int]h2cRunCall { //nolint:funlen // a model of the BPF logic, kept in one piece to follow the C code step by step
 	result := make(map[int]h2cRunCall)
 	seen := false
 	for _, c := range s.calls {
@@ -205,7 +205,7 @@ func h2cRunOpen(e *events.SocketDataUploadEvent) bool {
 
 // h2cSummaryOptions shapes the model
 type h2cSummaryOptions struct {
-	// refuseEvery makes every that many calls BPF would summarise find no entry (an overflow: uploaded on their own)
+	// refuseEvery makes every that many calls BPF would summarize find no entry (an overflow: uploaded on their own)
 	refuseEvery int
 	// flushEvery flips the epoch and drains the entries of the old one after every that many positional
 	// uploads (0: never)
@@ -228,8 +228,8 @@ type h2cSumDelivery struct {
 }
 
 type h2cSumModelStats struct {
-	summarised, overflow, positional, summaries int
-	// the summarised calls that were whole frames of a run, and the positional uploads that carried a run
+	summarized, overflow, positional, summaries int
+	// the summarized calls that were whole frames of a run, and the positional uploads that carried a run
 	runCalls, runs int
 	// the run calls of a frame that stayed open or that started with the rest of one, and the runs
 	// whose last frame was open
@@ -245,7 +245,7 @@ type h2cSumKey struct {
 }
 
 // h2cSummarize is what BPF uploads of today's uploads (evs, in the order of their calls) with the summaries on
-func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDelivery, h2cSumModelStats) {
+func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDelivery, h2cSumModelStats) { //nolint:funlen // a model of the BPF logic, kept in one piece to follow the C code step by step
 	calls := h2cPayloadCalls(s)
 	runCalls := h2cRunCalls(s)
 	var result, late []h2cSumDelivery
@@ -253,11 +253,11 @@ func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDe
 	entries := make(map[h2cSumKey]*events.H2CSummary)
 	var order []h2cSumKey
 	var pending [3]uint32
-	// the run each direction summarises (h2c_sum_call): its stream, 0 when none, and its frames
+	// the run each direction summarizes (h2c_sum_call): its stream, 0 when none, and its frames
 	var runStream [3]uint32
 	var runFrames [3]uint16
 	// the rest of the payload of the open last frame of the run of each direction, 0 when none, and
-	// whether the run starts behind a head (summarised payload of the frame in front of it)
+	// whether the run starts behind a head (summarized payload of the frame in front of it)
 	var runOpen [3]int
 	var runHead [3]bool
 	var epoch uint8
@@ -276,7 +276,8 @@ func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDe
 	tries := 0
 	add := func(stream uint32, call int, ev *events.SocketDataUploadEvent) bool {
 		d := ev.Direction0
-		if tries++; o.refuseEvery > 0 && tries%o.refuseEvery == 0 {
+		tries++
+		if o.refuseEvery > 0 && tries%o.refuseEvery == 0 {
 			stats.overflow++
 			return false
 		}
@@ -306,7 +307,7 @@ func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDe
 		v.L4PackageCount += ev.L4PackageCount
 		v.Calls++
 		pending[d] += uint32(ev.TotalSize0)
-		stats.summarised++
+		stats.summarized++
 		return true
 	}
 	for _, e := range evs {
@@ -314,7 +315,7 @@ func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDe
 		d := ev.Direction0
 		// a call that carries a DATA frame header, at its start or behind the rest of the open
 		// frame of the run of its stream, joins the run; the frame stays open while its payload goes on
-		// (a run that starts behind summarised payload of the frame in front of it starts behind a head)
+		// (a run that starts behind summarized payload of the frame in front of it starts behind a head)
 		if rc, ok := runCalls[e.call]; ok && ev.PayloadSkipped0 == 0 && ev.Sequence0 == 0 &&
 			(runStream[d] == rc.stream || (runStream[d] == 0 && rc.lead == 0)) &&
 			rc.lead == runOpen[d] && uint64(pending[d])+ev.TotalSize0 <= 0xffffff && runFrames[d] < 0x7fff {
@@ -370,7 +371,7 @@ func h2cSummarize(s *h2cScript, evs []h2cEvent, o h2cSummaryOptions) ([]h2cSumDe
 			stats.runs++
 			if open := runOpen[d]; open > 0 {
 				// the rest of the open frame from the start of the call: the lower 16 bits as its first frame offset, the
-				// upper 8 in the upper byte of the summarised bytes
+				// upper 8 in the upper byte of the summarized bytes
 				positional.SumStream |= 1 << 31
 				positional.H2CFrames0, positional.FirstFrameOff = 1, uint16(open)
 				positional.SumBefore |= uint32(open>>16) << 24
@@ -454,7 +455,7 @@ func sortedProtocolOutput(o *h2cRecordOutput) []string {
 			b.WriteString("|")
 			b.Write(k)
 		}
-		b.WriteString(fmt.Sprintf("|%v|", o.protocolTransfers[i]))
+		fmt.Fprintf(&b, "|%v|", o.protocolTransfers[i])
 		b.Write(o.protocolEncoded[i])
 		result = append(result, b.String())
 	}
@@ -473,27 +474,27 @@ func sortedBytes(list [][]byte) []string {
 
 // assertSameMessages requires the same protocol logs with the same kernel logs, and with completeKernels the
 // same kernel logs without a protocol as well
-func assertSameMessages(t *testing.T, today, summarised *h2cRecordOutput, completeKernels bool) {
+func assertSameMessages(t *testing.T, today, summarized *h2cRecordOutput, completeKernels bool) {
 	t.Helper()
 	if len(today.protocolLogs) == 0 {
 		t.Fatalf("no protocol log")
 	}
-	a, b := sortedProtocolOutput(today), sortedProtocolOutput(summarised)
+	a, b := sortedProtocolOutput(today), sortedProtocolOutput(summarized)
 	if len(a) != len(b) {
 		t.Fatalf("%d protocol logs today, %d with the summaries", len(a), len(b))
 	}
 	for i := range a {
 		if a[i] != b[i] {
-			t.Fatalf("protocol log %d differs:\ntoday:      %q\nsummarised: %q", i, a[i], b[i])
+			t.Fatalf("protocol log %d differs:\ntoday:      %q\nsummarized: %q", i, a[i], b[i])
 		}
 	}
-	if today.metrics != summarised.metrics {
-		t.Fatalf("parser metrics: today %s, summarised %s", today.metrics, summarised.metrics)
+	if today.metrics != summarized.metrics {
+		t.Fatalf("parser metrics: today %s, summarized %s", today.metrics, summarized.metrics)
 	}
 	if completeKernels {
-		ka, kb := sortedBytes(today.kernelLogs), sortedBytes(summarised.kernelLogs)
+		ka, kb := sortedBytes(today.kernelLogs), sortedBytes(summarized.kernelLogs)
 		if fmt.Sprint(ka) != fmt.Sprint(kb) {
-			t.Fatalf("kernel logs without a protocol differ: today %d, summarised %d", len(ka), len(kb))
+			t.Fatalf("kernel logs without a protocol differ: today %d, summarized %d", len(ka), len(kb))
 		}
 	}
 }
@@ -615,15 +616,15 @@ func TestH2CSummariesLikeToday(t *testing.T) {
 						deliveries, stats := h2cSummarize(s, evs, v.o)
 						name := fmt.Sprintf("%s/drop=%t/minute=%t/every=%d/%s", script.name, drop, minute, every, v.name)
 						t.Run(name, func(t *testing.T) {
-							summarised := h2cSumRun(t, deliveries, every)
-							assertSameMessages(t, today, summarised, true)
-							if summarised.inUse != today.inUse || summarised.inflight != today.inflight {
-								t.Fatalf("held: today %d events %d bytes, summarised %d events %d bytes", today.inUse,
-									today.inflight, summarised.inUse, summarised.inflight)
+							summarized := h2cSumRun(t, deliveries, every)
+							assertSameMessages(t, today, summarized, true)
+							if summarized.inUse != today.inUse || summarized.inflight != today.inflight {
+								t.Fatalf("held: today %d events %d bytes, summarized %d events %d bytes", today.inUse,
+									today.inflight, summarized.inUse, summarized.inflight)
 							}
 						})
 						if every == 1 && v.name == "plain" {
-							total.summarised += stats.summarised
+							total.summarized += stats.summarized
 							total.runCalls += stats.runCalls
 							total.runs += stats.runs
 							total.overflow += stats.overflow
@@ -636,14 +637,14 @@ func TestH2CSummariesLikeToday(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("calls summarised %d (%d whole frames in %d runs), summaries %d; deliveries %d with the summaries, %d today",
-		total.summarised, total.runCalls, total.runs, total.summaries, records, recordsToday)
-	if total.summarised == 0 || total.summaries == 0 {
-		t.Fatalf("nothing was summarised")
+	t.Logf("calls summarized %d (%d whole frames in %d runs), summaries %d; deliveries %d with the summaries, %d today",
+		total.summarized, total.runCalls, total.runs, total.summaries, records, recordsToday)
+	if total.summarized == 0 || total.summaries == 0 {
+		t.Fatalf("nothing was summarized")
 	}
 }
 
-// TestH2CSummariesReset is a stream whose request body is summarised and that the client resets before it
+// TestH2CSummariesReset is a stream whose request body is summarized and that the client resets before it
 // ends: no protocol log (as today), and every summary of it goes as a kernel log of its own
 func TestH2CSummariesReset(t *testing.T) {
 	withH2CSkipDataPayload(t)
@@ -673,18 +674,18 @@ func TestH2CSummariesReset(t *testing.T) {
 	evs := s.h2cCutUploads(bpfNow(), false)
 	today := h2cSumRun(t, h2cTodayDeliveries(evs), 1)
 	deliveries, stats := h2cSummarize(s, evs, h2cSummaryOptions{flushEvery: 4})
-	summarised := h2cSumRun(t, deliveries, 1)
-	assertSameMessages(t, today, summarised, false)
+	summarized := h2cSumRun(t, deliveries, 1)
+	assertSameMessages(t, today, summarized, false)
 	if len(today.protocolLogs) != 1 {
 		t.Fatalf("%d protocol logs", len(today.protocolLogs))
 	}
 	// the reset stream's summaries go on their own: today its calls are not reported at all
-	extra := len(summarised.kernelLogs) - len(today.kernelLogs)
+	extra := len(summarized.kernelLogs) - len(today.kernelLogs)
 	if extra <= 0 {
-		t.Fatalf("the summaries of the reset stream were not sent: %d kernel logs, %d today", len(summarised.kernelLogs),
+		t.Fatalf("the summaries of the reset stream were not sent: %d kernel logs, %d today", len(summarized.kernelLogs),
 			len(today.kernelLogs))
 	}
-	t.Logf("%d calls summarised in %d summaries, %d kernel logs of the reset stream's summaries", stats.summarised,
+	t.Logf("%d calls summarized in %d summaries, %d kernel logs of the reset stream's summaries", stats.summarized,
 		stats.summaries, extra)
 }
 
@@ -739,7 +740,7 @@ func TestH2CSummariesLoss(t *testing.T) {
 	defer protocols.SetHTTP2GapWaitDuration(old)
 	w, o := protocols.SetHTTP2SummaryTimes(0, 0)
 	defer protocols.SetHTTP2SummaryTimes(w, o)
-	inUse0, _, _, _ := buffer.MemoryStats()
+	inUse0, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	for _, script := range h2cSummaryScripts {
 		s := script.build()
 		evs := s.h2cCutUploads(bpfNow(), false)
@@ -778,7 +779,7 @@ func TestH2CSummariesLoss(t *testing.T) {
 				return r.finish()
 			}
 			was, got := run(lose(today)), run(lose(deliveries))
-			t.Logf("%s lost call %d: today %d protocol logs %d kernel logs (%s); summarised %d protocol logs %d kernel logs (%s)",
+			t.Logf("%s lost call %d: today %d protocol logs %d kernel logs (%s); summarized %d protocol logs %d kernel logs (%s)",
 				script.name, call, len(was.protocolLogs), len(was.kernelLogs), was.metrics, len(got.protocolLogs),
 				len(got.kernelLogs), got.metrics)
 			if len(got.protocolLogs) != len(was.protocolLogs) {

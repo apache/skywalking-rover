@@ -87,7 +87,7 @@ func (a *http1Analyze) HandleHTTPData(metrics *protocols.HTTP1Metrics, connectio
 			Host:               host,
 		},
 		Response: v3.AccessLogHTTPProtocolResponse{
-			StatusCode:         int32(response.Original().StatusCode),
+			StatusCode:         int32(response.Original().StatusCode), //nolint:bodyclose // parsed from captured data, nothing to close
 			SizeOfHeadersBytes: uint64(response.HeaderBuffer().DataSize()),
 			SizeOfBodyBytes:    uint64(response.BodyBuffer().DataSize()),
 		},

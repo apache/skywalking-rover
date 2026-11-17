@@ -84,7 +84,7 @@ var (
 func testEnv() planEnv {
 	return planEnv{
 		goarch: "amd64",
-		kernelFunc: func(name, module string) (*btf.Func, error) {
+		kernelFunc: func(name, _ string) (*btf.Func, error) {
 			if name == "nf_confirm" {
 				return nfConfirmFunc(nfConnArg), nil
 			}
@@ -97,7 +97,7 @@ func testEnv() planEnv {
 	}
 }
 
-func TestPlanAttach(t *testing.T) {
+func TestPlanAttach(t *testing.T) { //nolint:funlen // table-driven test
 	natUnused := map[string]bool{"nf_confirm": true}
 	tests := []struct {
 		name   string
@@ -111,7 +111,7 @@ func TestPlanAttach(t *testing.T) {
 		reason     string
 	}{
 		{name: "tracepoint mode", mode: "tracepoint", wantMode: AttachTracepoint, slow: []string{"read", "nf_confirm"},
-			reason: "attach mode tracepoint"},
+			reason: reasonAttachModeTracepoint},
 		{name: "upper case and blanks", mode: " Tracepoint ", wantMode: AttachTracepoint, slow: []string{"read"}},
 		{name: "not x86_64", env: func(e *planEnv) { e.goarch = "arm64" }, wantMode: AttachTracepoint, slow: []string{"read"},
 			reason: "x86_64"},
@@ -125,13 +125,13 @@ func TestPlanAttach(t *testing.T) {
 			wantMode: AttachTrampoline, fast: []string{"read", "close", "tcp_sendmsg"}},
 		{name: "unknown mode is auto", mode: "fast", unused: natUnused, wantMode: AttachAuto, fast: []string{"read"}},
 		{name: "no __x64_sys_read", env: func(e *planEnv) {
-			e.kernelFunc = func(name, module string) (*btf.Func, error) { return nil, errors.New("not found") }
+			e.kernelFunc = func(_, _ string) (*btf.Func, error) { return nil, errors.New("not found") }
 		}, wantMode: AttachTracepoint, slow: []string{"read"}, reason: "__x64_sys_read"},
 		{name: "every twin attaches", unused: natUnused, wantMode: AttachAuto,
 			fast: []string{"read", "write", "accept4", "security_socket_recvmsg", "tcp_sendmsg", "skb_copy_datagram_iovec"},
 			btf:  []string{"skb_copy_datagram_iovec"}},
 		{name: "a twin that does not attach", unused: natUnused, env: func(e *planEnv) {
-			e.probe = func(p *ebpf.ProgramSpec, raw string) error {
+			e.probe = func(p *ebpf.ProgramSpec, _ string) error {
 				if p.Name == "fexit_exit_close" {
 					return errors.New("no")
 				}
@@ -139,7 +139,7 @@ func TestPlanAttach(t *testing.T) {
 			}
 		}, wantMode: AttachAuto, fast: []string{"read"}, slow: []string{"close"}, reason: "fexit_exit_close: no"},
 		{name: "tp_btf does not attach: raw tracepoint", unused: natUnused, env: func(e *planEnv) {
-			e.probe = func(p *ebpf.ProgramSpec, raw string) error {
+			e.probe = func(p *ebpf.ProgramSpec, _ string) error {
 				if p.Name == "tp_btf_skb_copy_datagram_iovec" {
 					return errors.New("no")
 				}
@@ -157,7 +157,7 @@ func TestPlanAttach(t *testing.T) {
 		{name: "legacy NAT: nf_confirm(priv, skb, state) keeps the kprobe", unused: map[string]bool{}, env: func(e *planEnv) {
 			e.kernelFunc = func(name, module string) (*btf.Func, error) {
 				if name == "nf_confirm" {
-					if module != "nf_conntrack" {
+					if module != moduleNfConntrack {
 						t.Errorf("nf_confirm looked up in module %q", module)
 					}
 					return nfConfirmFunc(hookStateArg), nil
@@ -166,7 +166,7 @@ func TestPlanAttach(t *testing.T) {
 			}
 		}, wantMode: AttachAuto, fast: []string{"read"}, slow: []string{"nf_confirm"}, reason: "not struct nf_conn"},
 		{name: "legacy NAT: nf_confirm not in the BTF keeps the kprobe", unused: map[string]bool{}, env: func(e *planEnv) {
-			e.kernelFunc = func(name, module string) (*btf.Func, error) {
+			e.kernelFunc = func(name, _ string) (*btf.Func, error) {
 				if name == "nf_confirm" {
 					return nil, errors.New("not found")
 				}

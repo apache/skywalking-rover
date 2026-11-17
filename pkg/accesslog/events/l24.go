@@ -236,6 +236,7 @@ func (s *L24Store) Sweep() int {
 	for i := range s.shards {
 		sh := &s.shards[i]
 		sh.mu.Lock()
+		//nolint:gocritic // ranging over the map values, the copy is cheaper than a second lookup of each key
 		for key, e := range sh.entries {
 			if e.expire <= now {
 				delete(sh.entries, key)

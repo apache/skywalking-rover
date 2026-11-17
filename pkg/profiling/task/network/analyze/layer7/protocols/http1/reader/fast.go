@@ -47,8 +47,8 @@ import (
 // HTTP2-Settings: the HTTP/2 parser reads them from the request once its head bytes may have been released).
 var fastHeaderNames = [...]string{
 	hostHeader:             "Host",
-	contentLengthHeader:    "Content-Length",
-	transferEncodingHeader: "Transfer-Encoding",
+	contentLengthHeader:    headerContentLength,
+	transferEncodingHeader: headerTransferEncoding,
 	"Content-Type",
 	"Content-Encoding",
 	"Upgrade",
@@ -62,6 +62,12 @@ var fastHeaderNames = [...]string{
 // maxFastKeptHeaders is the most header lines of fastHeaderNames the fast scanner keeps of a message,
 // more go to textproto
 const maxFastKeptHeaders = 16
+
+// the body framing headers, in their canonical form
+const (
+	headerContentLength    = "Content-Length"
+	headerTransferEncoding = "Transfer-Encoding"
+)
 
 // indexes of fastHeaderNames
 const (
@@ -219,13 +225,19 @@ func fastRequestMethod(method string) string {
 	return ""
 }
 
+// the protocol versions the fast scanner reads
+const (
+	protoHTTP11 = "HTTP/1.1"
+	protoHTTP10 = "HTTP/1.0"
+)
+
 // fastHTTPVersion recognizes HTTP/1.1 and HTTP/1.0, proto is "" for any other version (textproto path)
 func fastHTTPVersion(b []byte) (proto string, major, minor int) {
 	switch string(b) {
-	case "HTTP/1.1":
-		return "HTTP/1.1", 1, 1
-	case "HTTP/1.0":
-		return "HTTP/1.0", 1, 0
+	case protoHTTP11:
+		return protoHTTP11, 1, 1
+	case protoHTTP10:
+		return protoHTTP10, 1, 0
 	}
 	return "", 0, 0
 }
@@ -233,7 +245,7 @@ func fastHTTPVersion(b []byte) (proto string, major, minor int) {
 // parseOriginFormURI is url.ParseRequestURI for a plain origin-form request target: an absolute path
 // of bytes that need no unescaping and an optional query. Nil for any other target.
 func parseOriginFormURI(requestURI string) *url.URL {
-	if len(requestURI) == 0 || requestURI[0] != '/' || (len(requestURI) > 1 && requestURI[1] == '/') {
+	if requestURI == "" || requestURI[0] != '/' || (len(requestURI) > 1 && requestURI[1] == '/') {
 		return nil
 	}
 	path, query := requestURI, ""
@@ -262,6 +274,8 @@ func parseOriginFormURI(requestURI string) *url.URL {
 // line, a key that is not a token (or with a space before the colon), a missing colon, a control or
 // non-ASCII byte in a value (a CR without LF included), a repeated framing header, an incomplete or
 // too long line. host is the first Host value.
+//
+//nolint:gocyclo,funlen // one pass over the header lines per message, its early exits read best together
 func readHeadersFast(bufReader *bufio.Reader) (header http.Header, host string, ok bool) {
 	// the kept values are collected in one scratch buffer (on the stack while it is small enough) and
 	// turned into a single string at the end: one allocation for all values instead of one per value

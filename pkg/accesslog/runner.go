@@ -162,15 +162,16 @@ func (r *Runner) Start(ctx context.Context) error {
 	r.sender.Start(ctx)
 	for _, c := range r.collectors {
 		if err := c.Start(r.mgr, r.context); err != nil {
-			// what started is stopped: the module does not stop a runner that did not start
-			r.stop()
+			// what started is stopped: the module does not stop a runner that did not start, the start error is
+			// the one returned
+			_ = r.stop()
 			return err
 		}
 		r.started = append(r.started, c)
 	}
 
 	if err := r.context.BPF.HasError(); err != nil {
-		r.stop()
+		_ = r.stop()
 		return err
 	}
 
@@ -241,10 +242,10 @@ func (r *Runner) buildKernelLogs(kernels chan common.KernelLog, batch *sender.Ba
 			}
 			maxCount--
 			if maxCount == 0 {
-				return
+				return logCount
 			}
 		default:
-			return
+			return logCount
 		}
 	}
 }
@@ -282,10 +283,10 @@ func (r *Runner) buildProtocolLogs(protocols chan common.ProtocolLog, batch *sen
 			}
 			maxCount--
 			if maxCount == 0 {
-				return
+				return logCount
 			}
 		default:
-			return
+			return logCount
 		}
 	}
 }

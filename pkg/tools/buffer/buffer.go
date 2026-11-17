@@ -668,7 +668,7 @@ func (r *Buffer) accountUpload(event SocketDataBuffer, prev, next *eventElement)
 	if _, gap := event.(*SummaryGap); gap {
 		// a summary gap uploads nothing (BufferLen 0) and goes in front of the event of its data id: it is left
 		// out like a single chunk call, and the event behind it does not count it as a second event of its id
-		// (sameUploadID), so a gap does not put every summarised call into the map
+		// (sameUploadID), so a gap does not put every summarized call into the map
 		return
 	}
 	prevSame, nextSame := uploadNeighbor(prev, id, false), uploadNeighbor(next, id, true)
@@ -1038,21 +1038,28 @@ func (r *Buffer) ReducedBytesBetween(start, end *Position) int64 {
 			break // the reduced bytes follow the last byte of the element, which is not consumed yet
 		}
 		if buf.IsFinished() && buf.HaveReduceDataAfterChunk() {
-			// the chunks of the socket call before `start` were not walked, so the uploaded bytes of the
-			// whole call are taken from the buffer's own accounting when it has them
-			total := r.UploadedBytes(buf.DataID())
-			if counted := uploaded.get(buf.DataID()); total < counted {
-				total = counted
-			}
-			if missing := int64(buf.TotalSize()) - total; missing > 0 {
-				result += missing
-			}
+			result += r.missingAfterChunk(buf, &uploaded)
 		}
 		if end != nil && e == end.element {
 			break
 		}
 	}
 	return result
+}
+
+// missingAfterChunk is what ReducedBytesBetween counts for buf, a finished chunk flagged HaveReduceDataAfterChunk:
+// the bytes of its socket call BPF did not upload, uploaded holding the bytes of the chunks walked so far
+func (r *Buffer) missingAfterChunk(buf SocketDataBuffer, uploaded *uploadCounter) int64 {
+	// the chunks of the socket call before `start` were not walked, so the uploaded bytes of the
+	// whole call are taken from the buffer's own accounting when it has them
+	total := r.UploadedBytes(buf.DataID())
+	if counted := uploaded.get(buf.DataID()); total < counted {
+		total = counted
+	}
+	if missing := int64(buf.TotalSize()) - total; missing > 0 {
+		return missing
+	}
+	return 0
 }
 
 func (r *Buffer) DataSize() int64 {
@@ -1191,7 +1198,7 @@ func CombineSlices(validated bool, originalBuffer *Buffer, buffers ...*Buffer) *
 // every slice makes the assembly quadratic in the number of frames. dst is changed in place only when
 // it is a buffer CombineSlices or AppendSlices built, which belongs to the message that holds it and to
 // nothing else; the caller must not have handed it out. Otherwise the result is a new buffer.
-func AppendSlices(validated bool, originalBuffer *Buffer, dst *Buffer, buffers ...*Buffer) *Buffer {
+func AppendSlices(validated bool, originalBuffer, dst *Buffer, buffers ...*Buffer) *Buffer {
 	if dst == nil || !dst.combined || dst.dataEvents == nil || dst.dataEvents.Len() == 0 {
 		return CombineSlices(validated, originalBuffer, append([]*Buffer{dst}, buffers...)...)
 	}
@@ -1212,6 +1219,8 @@ func AppendSlices(validated bool, originalBuffer *Buffer, dst *Buffer, buffers .
 // HTTP/2 stream growing by a DATA frame, which made a buffer and a list per frame only to copy them. It only
 // appends onto a buffer AppendSlices would append onto in place (built by CombineSlices or AppendSlices, holding
 // events); otherwise it returns false and changes nothing, and the caller takes the way through the slice.
+//
+//nolint:gocyclo // per DATA frame on the HTTP/2 body path, it mirrors Slice and AppendSlices step by step
 func AppendSliceOf(validated bool, dst, src *Buffer, start, end *Position, virtual int64) bool {
 	if dst == nil || !dst.combined || dst.dataEvents == nil || dst.dataEvents.Len() == 0 {
 		return false
@@ -1493,6 +1502,8 @@ func (r *Buffer) noteSkippedRead(ev SocketDataBuffer) {
 // its end, or why it cannot continue: io.EOF when there is none yet, ErrNotComplete when it does not
 // directly follow, ErrTruncated (with stopAtTruncation, when checkTruncation is set) when BPF did not
 // upload the rest of the current socket call.
+//
+//nolint:gocyclo // per element on the read path, its cases are the ways a read can stop
 func (r *Buffer) nextReadable(element *eventElement, curEvent SocketDataBuffer, checkTruncation bool) (
 	next *eventElement, nextEvent SocketDataBuffer, err error) {
 	next = r.nextElement(element)
@@ -1547,8 +1558,8 @@ type DiscardResult struct {
 	Consumed int
 	Virtual  int64
 	Unread   int64
-	// Summarised is the part of Virtual that SummaryGaps stood for (summarize_h2c_payload)
-	Summarised int64
+	// the part of Virtual that SummaryGaps stood for (summarize_h2c_payload)
+	Summarized int64
 }
 
 // DiscardBytes moves the reading position forward by n bytes of the stream without copying them.
@@ -1566,6 +1577,8 @@ type DiscardResult struct {
 //
 // The truncation needs the upload accounting of AppendDataEvent (uploadedBytes): it is meant for a view
 // buffer (NewViewBuffer) the events are appended to, not for a slice or a combination.
+//
+//nolint:gocyclo // one walk over the elements on the body skipping path, its cases read best together
 func (r *Buffer) DiscardBytes(n int) (result DiscardResult, err error) {
 	if r.current == nil || r.current.element == nil {
 		if n <= 0 {
@@ -1620,7 +1633,7 @@ func (r *Buffer) DiscardBytes(n int) (result DiscardResult, err error) {
 				gap.Head = left
 				result.Consumed = n
 				result.Virtual += int64(left)
-				result.Summarised += int64(left)
+				result.Summarized += int64(left)
 				return result, nil
 			}
 			return result, ErrPayloadSkipped
@@ -1635,7 +1648,7 @@ func (r *Buffer) DiscardBytes(n int) (result DiscardResult, err error) {
 			result.Consumed += size
 			result.Virtual += int64(size)
 			if gap := summaryGapOf(nextEvent); gap != nil {
-				result.Summarised += int64(gap.Size)
+				result.Summarized += int64(gap.Size)
 			}
 		}
 		r.current.element = next
@@ -1661,6 +1674,7 @@ func (r *Buffer) isTruncatedAfter(ev SocketDataBuffer) bool {
 	return r.stopAtTruncation && !r.validated && ev.IsFinished() && ev.HaveReduceDataAfterChunk()
 }
 
+//nolint:revive // exported as in upstream rover, only this package calls it
 func (r *Buffer) ReadFromCurrent(p []byte) (element *eventElement, n int) {
 	element = r.current.element
 	curEvent := element.Value.(SocketDataBuffer)
@@ -1936,7 +1950,7 @@ func (r *Buffer) removeElement0(element *eventElement) *eventElement {
 	result := element.Next()
 	b, ok := element.Value.(SocketDataBuffer)
 	if ok && b.IsFinished() {
-		// the socket call is complete, its upload accounting is not needed anymore (the neighbours
+		// the socket call is complete, its upload accounting is not needed anymore (the neighbors
 		// are looked at while the element is still linked)
 		r.forgetUpload(element, b.DataID())
 	}
@@ -2107,7 +2121,8 @@ func (r *Buffer) seek(key *eventKey) *eventElement {
 				return e
 			}
 			e = next
-			if steps++; steps == markStride {
+			steps++
+			if steps == markStride {
 				// a mark behind the one the walk started from (the marks after it sort after the key)
 				i++
 				r.marks = slices.Insert(r.marks, i, e)
@@ -2145,7 +2160,8 @@ func (r *Buffer) seekBack(key *eventKey) *eventElement {
 	planted := r.markScratch[:0]
 	steps := 0
 	for e = e.Prev(); e != nil && !e.atOrBefore(key); e = e.Prev() {
-		if steps++; steps == markStride {
+		steps++
+		if steps == markStride {
 			planted = append(planted, e)
 			steps = 0
 		}

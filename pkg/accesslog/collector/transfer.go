@@ -36,6 +36,9 @@ import (
 
 var transferCollectInstance = NewTransferCollector(nil)
 
+// symbolTCPSendmsg is the kernel function tcp_sendmsg, hooked for the socket role and by the l24 programs
+const symbolTCPSendmsg = "tcp_sendmsg"
+
 // ExtraProtocols makes the protocols an agent analyzes besides HTTP/1.x and HTTP/2 (such as TLS), once per
 // analyzing partition
 type ExtraProtocols func(mgr *module.Manager, context *common.AccessLogContext) []protocols.Protocol
@@ -65,7 +68,7 @@ func (t *TransferCollector) Start(mgr *module.Manager, context *common.AccessLog
 	// the hooks with a trampoline twin attach it where the kernel runs it (rover pkg/accesslog/bpf/attach.go):
 	// access_log.bpf.attach_mode tracepoint keeps the tracepoints and kprobes
 	b := context.BPF
-	b.AddKprobeHook("tcp_sendmsg", b.TcpSendmsg, b.FentryTcpSendmsg)
+	b.AddKprobeHook(symbolTCPSendmsg, b.TcpSendmsg, b.FentryTcpSendmsg)
 
 	b.AddTracePointHook("skb", "skb_copy_datagram_iovec", b.TracepointSkbCopyDatagramIovec, b.RawTpSkbCopyDatagramIovec)
 
@@ -117,7 +120,8 @@ func (t *TransferCollector) startEventQueue(mgr *module.Manager, context *common
 	if t.extra != nil {
 		extra = func() []protocols.Protocol { return t.extra(mgr, context) }
 	}
-	t.eventQueue = btf.NewEventQueue("socket data analyzer", context.Config.ProtocolAnalyze.AnalyzeParallelCount(), context.Config.ProtocolAnalyze.QueueSize,
+	t.eventQueue = btf.NewEventQueue("socket data analyzer", context.Config.ProtocolAnalyze.AnalyzeParallelCount(),
+		context.Config.ProtocolAnalyze.QueueSize,
 		func(num int) btf.PartitionContext {
 			analyzers := []protocols.Protocol{
 				protocols.NewHTTP1Analyzer(context, http1Analyze),

@@ -25,17 +25,18 @@ import (
 	"time"
 	"unsafe"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
+	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/hpack"
-	"golang.org/x/sys/unix"
-	"google.golang.org/protobuf/encoding/prototext"
-	"google.golang.org/protobuf/proto"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
@@ -358,11 +359,11 @@ func h2cAnalyze(t *testing.T, events []h2cEvent, analyzeEvery int) *h2cResult {
 		ConnectionMgr: h2cTestConnectionManager(),
 		Config:        testAccessLogConfig(),
 	}
-	proto := protocols.NewHTTP2Analyzer(ctx, NewHTTP2Analyze(ctx))
-	partition := protocols.NewPartitionContext(ctx, 0, []protocols.Protocol{proto})
+	analyzer := protocols.NewHTTP2Analyzer(ctx, NewHTTP2Analyze(ctx))
+	partition := protocols.NewPartitionContext(ctx, 0, []protocols.Protocol{analyzer})
 	conn := partition.GetConnectionContext(1, 1, enums.ConnectionProtocolHTTP2, events[0].event.DataID0)
 	analyze := func() {
-		if err := proto.Analyze(conn, &protocols.AnalyzeHelper{}); err != nil {
+		if err := analyzer.Analyze(conn, &protocols.AnalyzeHelper{}); err != nil {
 			t.Fatalf("analyze: %v", err)
 		}
 	}
@@ -554,7 +555,7 @@ func TestH2CDropUnusedFramesKeepsTheLogs(t *testing.T) {
 // h2cSplitReadScript is a request and its response on the server side, where the client returns credit
 // with a WINDOW_UPDATE whose 9 byte header is read, then the server writes a DATA frame, then the
 // payload is read in `payloadReads` reads. It returns the script and the index of the header read.
-func h2cSplitReadScript(dropped bool, payloadReads ...[]byte) (*h2cScript, int) {
+func h2cSplitReadScript(dropped bool, payloadReads ...[]byte) (script *h2cScript, headerCall int) {
 	client, server := newH2CEndpoint(), newH2CEndpoint()
 	in, out := enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress
 	s := &h2cScript{}
@@ -566,7 +567,7 @@ func h2cSplitReadScript(dropped bool, payloadReads ...[]byte) (*h2cScript, int) 
 	s.call(out, server.headers(1, false, h2cResponse()...), false)
 	s.call(out, server.data(1, false, h2cFrameSize), false)
 	update := client.windowUpdate(1, h2cFrameSize)
-	headerCall := len(s.calls)
+	headerCall = len(s.calls)
 	s.call(in, update[:9], dropped)
 	s.call(out, server.data(1, false, h2cFrameSize), false)
 	offset := 9

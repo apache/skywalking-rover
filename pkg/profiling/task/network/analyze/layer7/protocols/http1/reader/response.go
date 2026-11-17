@@ -66,13 +66,14 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 	headerStartPosition := buf.Position()
 	var resp *http.Response
 	if !r.textprotoOnly {
-		resp = readResponseHeadFast(bufReader)
+		resp = readResponseHeadFast(bufReader) //nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 	}
 	headerComplete := true
 	if resp == nil {
 		// the fast scanner was not sure about the message: parse it again from its start with textproto
 		rewindForTextproto(buf, headerStartPosition, bufReader)
 		var err error
+		//nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 		if resp, headerComplete, err = readResponseHeadTextproto(bufReader); err != nil {
 			return nil, enums.ParseResultSkipPackage, err
 		}
@@ -102,7 +103,7 @@ func (r *Reader) ReadResponse(req *Request, buf *buffer.Buffer, readBody bool) (
 }
 
 // readResponseHeadTextproto parses the status line and the headers with net/textproto, it is the
-// reference behaviour of readResponseHeadFast. headerComplete is false when the headers cannot be parsed,
+// reference behavior of readResponseHeadFast. headerComplete is false when the headers cannot be parsed,
 // the response is still returned then (without headers)
 func readResponseHeadTextproto(bufReader *bufio.Reader) (resp *http.Response, headerComplete bool, err error) {
 	tp := textproto.NewReader(bufReader)

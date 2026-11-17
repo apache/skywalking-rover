@@ -252,7 +252,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestLimitDiscovery(t *testing.T) {
+func TestLimitDiscovery(t *testing.T) { //nolint:funlen // one subtest per cgroup layout over a shared fixture
 	const pid = 4242
 	pod := "kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod1.slice"
 	v2Tree := func(t *testing.T, ctrLimit string) string {
@@ -413,7 +413,7 @@ func TestGoSoftLimit(t *testing.T) {
 		t.Fatalf("calls %d, limit %d: %s", calls, got, desc)
 	}
 	calls = 0
-	stubSoftLimit(t, func(v int64) int64 { calls++; return 0 }, true)
+	stubSoftLimit(t, func(int64) int64 { calls++; return 0 }, true)
 	if desc := applyGoSoftLimit(2 << 30); calls != 0 || !strings.Contains(desc, "GOMEMLIMIT=1500MiB") {
 		t.Fatalf("an explicit GOMEMLIMIT must be kept: calls %d, %s", calls, desc)
 	}

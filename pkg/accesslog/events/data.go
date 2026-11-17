@@ -81,7 +81,7 @@ type SocketDataUploadEvent struct {
 	// merge_kernel_logs): their sizes and L4 counters summed, the start of the first, the end of the last.
 	// 0 for the event of one call.
 	DataIDSpan uint16
-	// SumBefore is the h2c DATA payload bytes BPF summarised in front of the call (summarize_h2c_payload,
+	// SumBefore is the h2c DATA payload bytes BPF summarized in front of the call (summarize_h2c_payload,
 	// bpf/accesslog/common/h2c_sum.h): the parser counts them as skipped payload in front of it
 	// (buffer.SummaryGap). 0 without the summaries.
 	SumBefore uint32
@@ -183,6 +183,7 @@ func (s *SocketDataUploadEvent) DetachTo(c *SocketDataUploadEvent) {
 	c.Buffer = nil
 }
 
+//nolint:funlen // the flat decode of the BPF record, field by field, on the per-event read path
 func (s *SocketDataUploadEvent) ReadFrom(r btf.Reader) {
 	// a real sample comes in a BytesReader; the reader measures the event once with another one (no sample)
 	_, sample := r.(*btf.BytesReader)
@@ -330,7 +331,7 @@ func init() {
 	directions := [...]string{"", "ingress", "egress"}
 	telemetry.RegisterSeries("rover_socket_data_event_size_total",
 		"Socket data events by protocol, direction and payload size bucket. Buckets are not "+
-			"cumulative: each event is counted in exactly one, labelled by its inclusive byte range",
+			"cumulative: each event is counted in exactly one, labeled by its inclusive byte range",
 		telemetry.Counter, func() []telemetry.Sample {
 			samples := make([]telemetry.Sample, 0, len(protocols)*2*len(eventSizeBounds))
 			for p := range protocols {
@@ -338,6 +339,7 @@ func init() {
 					low := 0
 					for i, bound := range eventSizeBounds {
 						samples = append(samples, telemetry.Sample{
+							//nolint:goconst // a label name, the other "direction" is a BPF member name in a test
 							Labels: map[string]string{"protocol": protocols[p], "direction": directions[d],
 								"bytes": fmt.Sprintf("%d-%d", low, bound)},
 							Value: float64(eventSizes[p][d][i].Load()),
@@ -418,9 +420,9 @@ func (s *SocketDataUploadEvent) PrevDataID() uint64 {
 	return s.PrevDataID0
 }
 
-// SummarisedBefore implements buffer.SummarisedBeforeBuffer: the lower 24 bits of SumBefore (the upper 8 are a part of
+// SummarizedBefore implements buffer.SummarizedBeforeBuffer: the lower 24 bits of SumBefore (the upper 8 are a part of
 // the rest of an open run, SummaryRunOpenRest)
-func (s *SocketDataUploadEvent) SummarisedBefore() uint32 {
+func (s *SocketDataUploadEvent) SummarizedBefore() uint32 {
 	return s.SumBefore & 0xffffff
 }
 

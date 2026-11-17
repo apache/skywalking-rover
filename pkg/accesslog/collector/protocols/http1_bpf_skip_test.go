@@ -45,7 +45,8 @@ func TestHTTP1BodySkippedByBPF(t *testing.T) {
 		c := newHTTP1TestConn(t)
 		step := 0
 		maybeAnalyze := func() {
-			if step++; step%every == 0 {
+			step++
+			if step%every == 0 {
 				c.analyze()
 			}
 		}

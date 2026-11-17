@@ -57,11 +57,11 @@ func randomKernelSteps(rnd *rand.Rand, n int) []kernelStep {
 	clock := testBootOffset + uint64(55*time.Second)
 	for i := 0; i < n; i++ {
 		conn := 1 + rnd.Intn(3)
-		switch k := rnd.Intn(20); {
-		case k == 0:
+		switch rnd.Intn(20) {
+		case 0:
 			c := corpus[13+rnd.Intn(6)] // connect, accept or close
 			steps = append(steps, kernelStep{conn: conn, message: func() *v3.AccessLogKernelLog { return cloneKernelLog(c) }})
-		case k == 1:
+		case 1:
 			c := corpus[rnd.Intn(13)] // a read or a write
 			steps = append(steps, kernelStep{conn: conn, message: func() *v3.AccessLogKernelLog { return cloneKernelLog(c) }})
 		default:
@@ -177,8 +177,8 @@ func TestTryMergeTransferLogLikeTheMessages(t *testing.T) {
 			t.Fatalf("case %d: merged differently", i)
 		}
 		var e1, e2 wireEncoder
-		e1.transferLog(messageKernelLogsField, &dt)
-		e2.kernelLog(messageKernelLogsField, dm)
+		e1.transferLog(&dt)
+		e2.kernelLog(dm)
 		if !bytes.Equal(e1.buf, e2.buf) {
 			t.Fatalf("case %d: %x, the message %x", i, e1.buf, e2.buf)
 		}
@@ -194,8 +194,8 @@ func TestTransferLogMessageEncodesLikeTheTransferLog(t *testing.T) {
 			continue
 		}
 		var e1, e2 wireEncoder
-		e1.transferLog(messageKernelLogsField, &tl)
-		e2.kernelLog(messageKernelLogsField, transferLogMessage(&tl))
+		e1.transferLog(&tl)
+		e2.kernelLog(transferLogMessage(&tl))
 		if !bytes.Equal(e1.buf, e2.buf) {
 			t.Fatalf("detail %d: message %x, TransferLog %x", i, e2.buf, e1.buf)
 		}

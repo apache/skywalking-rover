@@ -230,7 +230,7 @@ func (s *H2CSummaries) Flush() {
 			reason = events.SummaryReasonCloseDrain
 		} else if !s.isActive(active, summary.ConnectionID, summary.RandomID) {
 			reason = events.SummaryReasonStale
-		} else if summary.Epoch != uint8(old) {
+		} else if uint32(summary.Epoch) != old {
 			// an entry of an active connection in the new epoch: it is still being made
 			continue
 		}

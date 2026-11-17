@@ -20,7 +20,6 @@ package analyze
 import (
 	"bytes"
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"strings"
 	"testing"
 
@@ -29,13 +28,14 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 // The runs of whole DATA frames (h2c_sum_call in skywalking-rover/bpf/accesslog/syscalls/h2c.h): a writer that
 // writes each DATA frame of a response with one call (Go's server, for a large body) makes calls that BPF cuts
 // behind their 9 byte header, one record each. With the summaries, consecutive such calls of one stream in the
-// direction of the responses are summarised header and all, and the next positional upload of the direction
+// direction of the responses are summarized header and all, and the next positional upload of the direction
 // carries them as a run of frames of the stream. The tests below model it (h2cSummarize) over scripts of that
 // shape and require today's protocol logs and kernel logs, byte for byte, through events and through records.
 
@@ -156,8 +156,8 @@ func TestH2CRunsLikeToday(t *testing.T) {
 					})
 					if every == 1 && name == "plain" && !minute {
 						t.Logf("drop=%t: %d uploads today; with the summaries %d positional + %d summaries, %d calls "+
-							"summarised of which %d whole frames in %d runs", drop, len(evs), stats.positional,
-							stats.summaries, stats.summarised, stats.runCalls, stats.runs)
+							"summarized of which %d whole frames in %d runs", drop, len(evs), stats.positional,
+							stats.summaries, stats.summarized, stats.runCalls, stats.runs)
 					}
 				}
 			}
@@ -176,7 +176,7 @@ func h2cSumRunRecords(t *testing.T, deliveries []h2cSumDelivery, every int) *h2c
 			s := *d.summary
 			run.agentPartition.Consume(&s)
 		case h2cBatchable(d.event) && (d.event.SumStream == 0 || d.event.DataLen <= 10) &&
-			!(h2cRunOpen(d.event) && d.event.PayloadSkipped0 == 1):
+			(!h2cRunOpen(d.event) || d.event.PayloadSkipped0 != 1):
 			// (BPF sends a skipped call that carries an open run as an event: a record has no room for its rest)
 			run.deliver(i, h2cDelivery{call: d.call, sample: encodeH2CBatch([]*events.SocketDataUploadEvent{d.event})})
 		default:
@@ -220,13 +220,13 @@ func TestH2CRunUnknownStream(t *testing.T) {
 	if stats.runs != 2 {
 		t.Fatalf("%d runs, expected the one of each stream: %+v", stats.runs, stats)
 	}
-	summarised := h2cSumRunReleased(t, deliveries)
-	assertSameMessages(t, today, summarised, false)
+	summarized := h2cSumRunReleased(t, deliveries)
+	assertSameMessages(t, today, summarized, false)
 	if len(today.protocolLogs) != 1 {
 		t.Fatalf("%d protocol logs", len(today.protocolLogs))
 	}
-	if extra := len(summarised.kernelLogs) - len(today.kernelLogs); extra != 1 {
-		t.Fatalf("%d kernel logs, %d today: the summary of the unknown stream must go on its own", len(summarised.kernelLogs),
+	if extra := len(summarized.kernelLogs) - len(today.kernelLogs); extra != 1 {
+		t.Fatalf("%d kernel logs, %d today: the summary of the unknown stream must go on its own", len(summarized.kernelLogs),
 			len(today.kernelLogs))
 	}
 }
@@ -424,8 +424,8 @@ func TestH2CRunsSplitLikeToday(t *testing.T) {
 					})
 					if every == 1 && (name == "plain" || name == "ext-off") {
 						t.Logf("%s drop=%t %s: %d uploads today; with the summaries %d positional + %d summaries, %d calls "+
-							"summarised of which %d run calls (%d split) in %d runs (%d open, %d behind a head, %d of the requests)",
-							script.name, drop, name, len(evs), stats.positional, stats.summaries, stats.summarised, stats.runCalls,
+							"summarized of which %d run calls (%d split) in %d runs (%d open, %d behind a head, %d of the requests)",
+							script.name, drop, name, len(evs), stats.positional, stats.summaries, stats.summarized, stats.runCalls,
 							stats.runSplit, stats.runs, stats.openRuns, stats.headRuns, h2cRequestRuns(s, deliveries))
 					}
 				}

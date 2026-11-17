@@ -47,12 +47,21 @@ const (
 	http2HeaderKeyCount
 )
 
+// the names of the header fields HTTP2Headers keeps (":host" is no pseudo header, see http2HeaderKeyOf)
+const (
+	http2FieldAuthority = ":authority"
+	http2FieldHost      = ":host"
+	http2FieldMethod    = ":method"
+	http2FieldPath      = ":path"
+	http2FieldStatus    = ":status"
+)
+
 var http2HeaderNames = [http2HeaderKeyCount]string{
-	http2HeaderAuthority: ":authority",
-	http2HeaderHost:      ":host",
-	http2HeaderMethod:    ":method",
-	http2HeaderPath:      ":path",
-	http2HeaderStatus:    ":status",
+	http2HeaderAuthority: http2FieldAuthority,
+	http2HeaderHost:      http2FieldHost,
+	http2HeaderMethod:    http2FieldMethod,
+	http2HeaderPath:      http2FieldPath,
+	http2HeaderStatus:    http2FieldStatus,
 	http2HeaderB3:        tracing.HeaderB3,
 	http2HeaderSW8:       tracing.HeaderSW8,
 	http2HeaderB3SpanID:  tracing.HeaderB3SpanID,
@@ -63,17 +72,17 @@ var http2HeaderNames = [http2HeaderKeyCount]string{
 // as the lookups in the map the headers used to be stored in did (HTTP/2 header names are lower case).
 func http2HeaderKeyOf(name string) (http2HeaderKey, bool) {
 	switch name {
-	case ":authority":
+	case http2FieldAuthority:
 		return http2HeaderAuthority, true
-	case ":host", "host":
+	case http2FieldHost, "host":
 		// ":host" is no pseudo header; the regular "host" field stands in for a missing ":authority"
 		// (RFC 9113 8.3.1), it is what the analyzers fall back to
 		return http2HeaderHost, true
-	case ":method":
+	case http2FieldMethod:
 		return http2HeaderMethod, true
-	case ":path":
+	case http2FieldPath:
 		return http2HeaderPath, true
-	case ":status":
+	case http2FieldStatus:
 		return http2HeaderStatus, true
 	case tracing.HeaderB3:
 		return http2HeaderB3, true

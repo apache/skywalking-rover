@@ -159,7 +159,7 @@ func sendDetachedNoProtocolEvents(ctx *common.AccessLogContext, buffers []buffer
 }
 
 // messageDetailBuffer is the buffer of a message whose call has a kernel log detail in the message (detailSource),
-// nil when it has none: a summary gap carries none, the summaries bring the details of the summarised calls
+// nil when it has none: a summary gap carries none, the summaries bring the details of the summarized calls
 func messageDetailBuffer(b buffer.SocketDataBuffer) buffer.SocketDataBuffer {
 	if b == nil || buffer.IsSummaryGap(b) {
 		return nil
@@ -176,6 +176,35 @@ func messageDetailBuffer(b buffer.SocketDataBuffer) buffer.SocketDataBuffer {
 // record (H2CRecord) is copied straight into the event it stands for, which is the copy that event gives.
 func messageDetails(buffers []buffer.SocketDataBuffer) []events.SocketDetail {
 	merge := common.MergeKernelLogsEnabled()
+	count := countMessageDetails(buffers, merge)
+	copies := make([]events.SocketDataUploadEvent, count)
+	details := make([]events.SocketDetail, 0, count)
+	var last *events.SocketDataUploadEvent
+	latestDataID, seen := uint64(0), false
+	for _, b := range buffers {
+		if b = messageDetailBuffer(b); b == nil {
+			continue
+		}
+		event := detailSource(b)
+		dataID := event.DataID()
+		if seen && latestDataID == dataID {
+			continue
+		}
+		latestDataID, seen = dataID, true
+		if merge && last != nil && last.CanMergeDetail(event.(events.SocketDetail)) {
+			last.MergeDetail(event.(events.SocketDetail))
+			continue
+		}
+		last = &copies[len(details)]
+		events.DetachTo(event, last)
+		details = append(details, last)
+	}
+	return details
+}
+
+// countMessageDetails is how many details messageDetails gives for the buffers: one per call, or one per
+// operation with the merge of the kernel logs on. It panics on a buffer that is no native event.
+func countMessageDetails(buffers []buffer.SocketDataBuffer, merge bool) int {
 	count := 0
 	// a merge only reads the syscall and the start time of the first call of the operation
 	var first events.SocketDetail
@@ -200,29 +229,7 @@ func messageDetails(buffers []buffer.SocketDataBuffer) []events.SocketDetail {
 		first = event.(events.SocketDetail)
 		count++
 	}
-	copies := make([]events.SocketDataUploadEvent, count)
-	details := make([]events.SocketDetail, 0, count)
-	var last *events.SocketDataUploadEvent
-	latestDataID, seen = 0, false
-	for _, b := range buffers {
-		if b = messageDetailBuffer(b); b == nil {
-			continue
-		}
-		event := detailSource(b)
-		dataID := event.DataID()
-		if seen && latestDataID == dataID {
-			continue
-		}
-		latestDataID, seen = dataID, true
-		if merge && last != nil && last.CanMergeDetail(event.(events.SocketDetail)) {
-			last.MergeDetail(event.(events.SocketDetail))
-			continue
-		}
-		last = &copies[len(details)]
-		events.DetachTo(event, last)
-		details = append(details, last)
-	}
-	return details
+	return count
 }
 
 // analyzeTraceContext tells whether the HTTP logs carry the tracing context of their requests

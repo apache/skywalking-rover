@@ -73,7 +73,7 @@ func TestFingerInsertLikeBackSearch(t *testing.T) {
 			default:
 				if rng.Intn(3) == 0 {
 					taken := b.TakeDataEvents()
-					if !reflect.DeepEqual(taken, ref) && !(len(taken) == 0 && len(ref) == 0) {
+					if !reflect.DeepEqual(taken, ref) && (len(taken) != 0 || len(ref) != 0) {
 						t.Fatalf("round %d: taken %v", round, taken)
 					}
 					ref = nil
@@ -94,7 +94,7 @@ func TestFingerInsertLikeBackSearch(t *testing.T) {
 
 // TestAppendSliceOfLikeAppendSlices: appending a frame through AppendSliceOf gives the body AppendSlices gives
 // it with the slice of the frame: the same values in the same wrappers, the same size, virtual bytes and end
-func TestAppendSliceOfLikeAppendSlices(t *testing.T) {
+func TestAppendSliceOfLikeAppendSlices(t *testing.T) { //nolint:funlen // one randomized equivalence check read top to bottom
 	rng := rand.New(rand.NewSource(3))
 	for round := 0; round < 2000; round++ {
 		src := NewBuffer()
@@ -207,7 +207,7 @@ func TestAppendSliceOfLikeAppendSlices(t *testing.T) {
 // TestSeekInsertLikeBackSearch: in deep lists, where the place of an event is far from the finger and the marks
 // find it (seek), the events still go where the search from the back put them: per-CPU batches over long spans,
 // ties, reads from the front, removals in the middle and from the back (ReleaseEventsFrom), whole takes
-func TestSeekInsertLikeBackSearch(t *testing.T) {
+func TestSeekInsertLikeBackSearch(t *testing.T) { //nolint:funlen // one randomized equivalence check read top to bottom
 	defer withEventSlab(maxEventSlab)()
 	rng := rand.New(rand.NewSource(11))
 	marked := 0

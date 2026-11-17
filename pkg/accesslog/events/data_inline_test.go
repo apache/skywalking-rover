@@ -87,7 +87,7 @@ func TestSmallEventKeepsDataInline(t *testing.T) {
 
 // TestSmallEventAccounting: the admission counter comes back to where it was for inline and pooled events
 func TestSmallEventAccounting(t *testing.T) {
-	before, _, _, _ := buffer.MemoryStats()
+	before, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	for _, size := range []int{9, inlineDataSize, inlineDataSize + 1, 2000} {
 		if !buffer.AcquireEvent() {
 			t.Fatal("the memory protection is off in the test")

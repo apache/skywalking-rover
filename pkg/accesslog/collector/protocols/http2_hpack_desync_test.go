@@ -102,7 +102,7 @@ func TestHTTP2HeaderDesyncAfterLoss(t *testing.T) {
 }
 
 // TestHTTP2HeaderDecodeErrorWithoutGapNotMarked: a connection captured mid stream fails to decode too, but
-// without any lost event (no gap) it keeps the per-block behaviour (its static-table-only blocks still
+// without any lost event (no gap) it keeps the per-block behavior (its static-table-only blocks still
 // decode), so it is not marked desynced and not counted.
 func TestHTTP2HeaderDecodeErrorWithoutGapNotMarked(t *testing.T) {
 	c := newHTTP2TestConn(t)

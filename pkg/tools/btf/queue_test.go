@@ -97,7 +97,7 @@ func perfOutputProgram(t *testing.T, events *ebpf.Map) *ebpf.Program {
 
 // newTestPerfRing is a perf event array and a program that writes the value 42 into it on every run. It
 // needs root.
-func newTestPerfRing(t *testing.T) (*ebpf.Map, func()) {
+func newTestPerfRing(t *testing.T) (ring *ebpf.Map, closeRing func()) {
 	t.Helper()
 	if os.Geteuid() != 0 {
 		t.Skip("needs root")

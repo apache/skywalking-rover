@@ -41,7 +41,7 @@ type Config struct {
 // KernelMetricsConfig selects the metrics of the kernel logs besides those every log has
 type KernelMetricsConfig struct {
 	// L2L3: the kernel logs of the reads and writes carry the L2 and L3 metrics of their socket calls (the interface,
-	// the time in the IP layer, the netfilter hooks, the neighbour resolution and the device queue) and the L4 duration,
+	// the time in the IP layer, the netfilter hooks, the neighbor resolution and the device queue) and the L4 duration,
 	// retransmits and transmitted packages, taken by the programs of bpf/accesslog/l24 that only attach with it on
 	L2L3 bool `mapstructure:"l2_l3"`
 }
@@ -135,7 +135,7 @@ type ProtocolAnalyzeConfig struct {
 	// SummarizeH2CPayload: with BatchH2CRecords on, do not send the h2c socket calls that lie wholly inside a
 	// DATA payload at all: BPF sums them up per stream (common/h2c_sum.h) and the parser counts their bytes from
 	// the positional events, so the access logs and the kernel logs of the messages stay the same. Only the
-	// agents built with the summarising BPF side use it.
+	// agents built with the summarizing BPF side use it.
 	SummarizeH2CPayload bool `mapstructure:"summarize_h2c_payload"`
 	// AnalyzeTraceContext: the HTTP logs carry the tracing context of their requests (the SkyWalking sw8 and the Zipkin
 	// b3 headers). Off, no header is looked at for it.

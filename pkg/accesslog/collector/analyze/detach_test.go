@@ -18,13 +18,13 @@
 package analyze
 
 import (
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 

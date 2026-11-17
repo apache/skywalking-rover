@@ -38,7 +38,7 @@ import (
 // A batch is sent when it is full, before a full upload of the connection with records in it, and at a
 // close; a CPU whose connections went quiet would keep its records. So a goroutine locked to each CPU of the
 // agent's allowed set writes one byte to a pipe of its own, at once and then every second: the BPF write
-// probe recognises the agent's tgid and that fd, marks the CPU it runs on as kickable, flushes that CPU's
+// probe recognizes the agent's tgid and that fd, marks the CPU it runs on as kickable, flushes that CPU's
 // buffer, and does not record the write. A CPU only batches once its kick has run (h2c_batch_is_kickable),
 // so a CPU that cannot be pinned and kicked never leaves records waiting. The period matches the sender's
 // flush period, so it adds at most about a second to the delivery and changes no reported value; it is below
@@ -94,18 +94,9 @@ func StartH2CBatchKick(loader *bpf.Loader) (stop func(), err error) {
 	if hostNS, err := inHostPIDNamespace(); err == nil && !hostNS {
 		return nil, fmt.Errorf("the agent is not in the host pid namespace (needs hostPID); the batch kick is disabled")
 	}
-	var allowed unix.CPUSet
-	if err := unix.SchedGetaffinity(0, &allowed); err != nil {
-		return nil, fmt.Errorf("read the cpu affinity: %v", err)
-	}
-	var cpus []int
-	for c := 0; c < maxAffinityCPUs; c++ {
-		if allowed.IsSet(c) {
-			cpus = append(cpus, c)
-		}
-	}
-	if len(cpus) == 0 {
-		return nil, fmt.Errorf("the cpu affinity set is empty")
+	cpus, err := allowedCPUs()
+	if err != nil {
+		return nil, err
 	}
 
 	reader, writer, err := os.Pipe()
@@ -152,6 +143,24 @@ func StartH2CBatchKick(loader *bpf.Loader) (stop func(), err error) {
 	log.Infof("the per-CPU h2c call batches are kicked every %s on %d CPUs (tgid %d, fd %d)", h2cBatchKickPeriod,
 		len(cpus), os.Getpid(), writer.Fd())
 	return cleanup, nil
+}
+
+// allowedCPUs are the CPUs of the agent's allowed set, an error when it cannot be read or is empty
+func allowedCPUs() ([]int, error) {
+	var allowed unix.CPUSet
+	if err := unix.SchedGetaffinity(0, &allowed); err != nil {
+		return nil, fmt.Errorf("read the cpu affinity: %v", err)
+	}
+	var cpus []int
+	for c := 0; c < maxAffinityCPUs; c++ {
+		if allowed.IsSet(c) {
+			cpus = append(cpus, c)
+		}
+	}
+	if len(cpus) == 0 {
+		return nil, fmt.Errorf("the cpu affinity set is empty")
+	}
+	return cpus, nil
 }
 
 // h2cBatchKickCPU locks itself to an OS thread bound to the CPU and writes a byte to the kick pipe at once,

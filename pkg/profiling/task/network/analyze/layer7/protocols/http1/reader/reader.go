@@ -205,7 +205,7 @@ func (m *MessageOpt) buildBodyReader(contentType string) (io.Reader, error) {
 }
 
 func (m *MessageOpt) appointedLength() (int, error) {
-	contentLengthStr := m.Headers().Get("Content-Length")
+	contentLengthStr := m.Headers().Get(headerContentLength)
 	if contentLengthStr == "" {
 		return -1, nil
 	}
@@ -217,7 +217,7 @@ func (m *MessageOpt) appointedLength() (int, error) {
 }
 
 func (m *MessageOpt) isChunked() bool {
-	return m.Headers().Get("Transfer-Encoding") == "chunked"
+	return m.Headers().Get(headerTransferEncoding) == "chunked"
 }
 
 func (m *MessageOpt) readBodyUntilCurrentPackageFinished(buf *buffer.Buffer, reader *bufio.Reader) (*buffer.Buffer, enums.ParseResult, error) {

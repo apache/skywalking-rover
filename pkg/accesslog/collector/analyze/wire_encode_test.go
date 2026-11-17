@@ -24,13 +24,14 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/accesslog/forwarder"
 	"github.com/apache/skywalking-rover/pkg/accesslog/sender"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"google.golang.org/protobuf/proto"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
 )
@@ -47,8 +48,8 @@ func http1AnalyzeExchanges(t *testing.T, exchanges [][2]string) *h2cResult {
 		ConnectionMgr: h2cTestConnectionManager(),
 		Config:        testAccessLogConfig(),
 	}
-	proto := protocols.NewHTTP1Analyzer(ctx, NewHTTP1Analyze(nil, ctx))
-	partition := protocols.NewPartitionContext(ctx, 0, []protocols.Protocol{proto})
+	analyzer := protocols.NewHTTP1Analyzer(ctx, NewHTTP1Analyze(nil, ctx))
+	partition := protocols.NewPartitionContext(ctx, 0, []protocols.Protocol{analyzer})
 	conn := partition.GetConnectionContext(1, 1, enums.ConnectionProtocolHTTP, 1)
 	base := bpfNow()
 	var dataID uint64
@@ -63,7 +64,7 @@ func http1AnalyzeExchanges(t *testing.T, exchanges [][2]string) *h2cResult {
 			event.Protocol0 = enums.ConnectionProtocolHTTP
 			conn.AppendData(event)
 		}
-		if err := proto.Analyze(conn, &protocols.AnalyzeHelper{}); err != nil {
+		if err := analyzer.Analyze(conn, &protocols.AnalyzeHelper{}); err != nil {
 			t.Fatalf("analyze: %v", err)
 		}
 	}

@@ -19,7 +19,6 @@ package analyze
 
 import (
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"math/rand"
 	"strings"
 	"testing"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
@@ -101,7 +101,7 @@ func h2cDuplexScript(rng *rand.Rand, rounds, streams, body int) *h2cScript {
 }
 
 // h2cRaceExits makes the uploads of the events as BPF makes them when the reads and the writes of the
-// connection run at once: two neighbouring calls of the two directions overlap with probability p, the
+// connection run at once: two neighboring calls of the two directions overlap with probability p, the
 // later one returns first, and the previous data id of an upload is the call that returned last before it
 // (socket_data_last_id_map). It returns the events in the order they are uploaded.
 func h2cRaceExits(rng *rand.Rand, evs []h2cEvent, p float64) []h2cEvent {
@@ -153,6 +153,7 @@ func h2cLiveBatching(t *testing.T, rng *rand.Rand, uploads []h2cEvent, cpus int,
 	lastKick, lastAnalyze := start, start
 	var longestKick time.Duration
 	for i, u := range uploads {
+		//nolint:revive // a busy wait: sleeping would not keep the calls this close to their times
 		for time.Since(start) < time.Duration(i)*callEvery {
 		}
 		now := bpfNow() - uint64(lag)
@@ -243,7 +244,7 @@ func TestH2CBatchedRecordsLive(t *testing.T) {
 		}
 	}
 	if conclusive == 0 {
-		t.Skip("the machine stalled every run past the modelled timing")
+		t.Skip("the machine stalled every run past the modeled timing")
 	}
 }
 
@@ -251,7 +252,7 @@ func TestH2CBatchedRecordsLive(t *testing.T) {
 // payload (a batched record), the last one with the next frame of the client, while the server writes a PING
 // between the first two reads and the response after the last; with several streams in a row. It returns the script and, per stream, the indexes of the
 // calls of the race: the read inside the payload, the PING written meanwhile and the read after.
-func h2cOverlapScript(streams int) (*h2cScript, [][3]int) {
+func h2cOverlapScript(streams int) (script *h2cScript, raceCalls [][3]int) {
 	s := &h2cScript{}
 	client, server := newH2CEndpoint(), newH2CEndpoint()
 	in, out := enums.SocketDataDirectionIngress, enums.SocketDataDirectionEgress
@@ -263,7 +264,7 @@ func h2cOverlapScript(streams int) (*h2cScript, [][3]int) {
 	for i := 0; i < streams; i++ {
 		id := uint32(1 + 2*i)
 		headers := client.headers(id, false, h2cRequest(fmt.Sprintf("/overlap/%d", id))...)
-		request := append(headers, client.data(id, true, h2cFrameSize)...)
+		request := append(append([]byte(nil), headers...), client.data(id, true, h2cFrameSize)...)
 		first := len(headers) + 9 + 100
 		s.call(in, request[:first], false)
 		s.call(in, request[first:first+8000], false)

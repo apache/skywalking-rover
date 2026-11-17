@@ -207,14 +207,14 @@ func transferLogMessage(t *forwarder.TransferLog) *v3.AccessLogKernelLog {
 
 func (l *BatchLogs) appendEncodedTransferLog(logs *ConnectionLogs, t *forwarder.TransferLog) {
 	e := wireEncoder{buf: l.scratch[:0]}
-	e.transferLog(messageKernelLogsField, t)
+	e.transferLog(t)
 	l.keep(&e, &logs.kernels)
 }
 
 func (l *BatchLogs) appendEncodedKernelLog(logs *ConnectionLogs, log *v3.AccessLogKernelLog) {
 	// the encoder is a local variable: its buffer is written without the write barrier of the heap
 	e := wireEncoder{buf: l.scratch[:0]}
-	e.kernelLog(messageKernelLogsField, log)
+	e.kernelLog(log)
 	l.keep(&e, &logs.kernels)
 }
 

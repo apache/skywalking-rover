@@ -23,9 +23,10 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/http2"
+
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
-	"golang.org/x/net/http2"
 )
 
 // With access_log.protocol_analyze.skip_h2c_data_payload on, the BPF side uploads a socket call of a

@@ -30,7 +30,7 @@ static __always_inline void fill_upload_data_args_ext(struct upload_data_args_ex
     ext->remote_port = conn->filter.remote_port;
     ext->in_flight = args->in_flight;
     ext->pad = 0;
-    // only a positional h2c upload carries summarised bytes, set after this (upload_data_args_ext_set_sum_before)
+    // only a positional h2c upload carries summarized bytes, set after this (upload_data_args_ext_set_sum_before)
     ext->sum_before = 0;
     ext->sum_stream = 0;
     ext->sum_frames = 0;

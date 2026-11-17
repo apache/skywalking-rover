@@ -52,7 +52,7 @@ func DetachRecordTo(r *H2CRecord, c *SocketDataUploadEvent) {
 		Direction0:         r.Direction0,
 		LocalPort:          r.LocalPort,
 		RemotePort:         r.RemotePort,
-		SumBefore:          r.SummarisedBefore(),
+		SumBefore:          r.SummarizedBefore(),
 	}
 	c.SumStream, c.SumFrames = r.SummaryRun()
 	c.H2CFrames0, c.FirstFrameOff = r.H2CFrames()

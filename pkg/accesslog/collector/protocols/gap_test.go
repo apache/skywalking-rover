@@ -53,6 +53,7 @@ func (a *countingHTTP1) HandleHTTPData(m *HTTP1Metrics, _ *PartitionConnection, 
 			uploaded += e.BufferLen()
 		}
 	}
+	//nolint:bodyclose // the response is parsed from captured socket data, its body is an in-memory buffer reader
 	if uploaded == gapTestBody && strings.HasPrefix(req.Original().URL.Path, fmt.Sprintf("/c%d/", m.ConnectionID)) &&
 		resp.Original().StatusCode == 200 {
 		a.complete.Add(1)
@@ -189,7 +190,7 @@ func (s *gapSimulation) close() {
 }
 
 func eventsInUse() int64 {
-	inUse, _, _, _ := buffer.MemoryStats()
+	inUse, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	return inUse
 }
 

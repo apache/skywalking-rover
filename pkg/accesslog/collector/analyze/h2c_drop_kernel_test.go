@@ -23,7 +23,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -34,14 +33,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
-	"github.com/apache/skywalking-rover/pkg/tools/btf"
-	"github.com/apache/skywalking-rover/pkg/tools/enums"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/net/http2"
+
+	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
+	aclevents "github.com/apache/skywalking-rover/pkg/accesslog/events"
+	"github.com/apache/skywalking-rover/pkg/tools/btf"
+	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 
 // The tests below attach the access log BPF programs to this process (the event layout of
@@ -392,14 +393,14 @@ func goH2CTraffic(t *testing.T, run *h2cKernelRun, requests int) {
 		if err != nil {
 			return
 		}
-		(&http2.Server{}).ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		(&http2.Server{}).ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
 				_, _ = w.Write(body)
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
@@ -407,7 +408,7 @@ func goH2CTraffic(t *testing.T, run *h2cKernelRun, requests int) {
 		// the transport may dial more than once while its first connection is being set up
 		return run.record(raw, "client", true), nil
 	}}
-	defer transport.CloseIdleConnections()
+	defer transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	httpClient := &http.Client{Transport: transport}
 	var wg sync.WaitGroup
 	concurrency := make(chan struct{}, 8)
@@ -604,17 +605,17 @@ func verifyKernelRun(t *testing.T, run *h2cKernelRun) (uploaded int) {
 	t.Helper()
 	for _, conn := range run.conns {
 		for d := enums.SocketDataDirectionIngress; d <= enums.SocketDataDirectionEgress; d++ {
-			real, events := conn.real[d], conn.events[d]
+			realData, events := conn.real[d], conn.events[d]
 			uploaded += len(events)
 			got := uploadedStream(t, events)
 			if !run.drop {
-				if !bytes.Equal(got, real) {
+				if !bytes.Equal(got, realData) {
 					t.Fatalf("dropping off, %s %s: the uploaded stream (%d bytes) is not the real one (%d bytes)",
-						conn.name, directionName(d), len(got), len(real))
+						conn.name, directionName(d), len(got), len(realData))
 				}
 				continue
 			}
-			realFrames, realComplete := h2cFrames(t, real, conn.preface(d))
+			realFrames, realComplete := h2cFrames(t, realData, conn.preface(d))
 			gotFrames, gotComplete := h2cFrames(t, got, conn.preface(d))
 			// the real stream may end inside a frame when the connection is closed; the uploaded one may
 			// not unless the real one does: a missing frame end means BPF dropped a call that belonged to it

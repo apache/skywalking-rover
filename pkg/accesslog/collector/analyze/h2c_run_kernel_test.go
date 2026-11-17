@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -35,6 +34,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 
 	v3 "skywalking.apache.org/repo/goapi/collect/ebpf/accesslog/v3"
@@ -57,22 +57,23 @@ func goH2CDownloads(t *testing.T, run *h2cKernelRun, requests, streams, reqBody,
 		if err != nil {
 			return
 		}
+		//nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		server := &http2.Server{MaxConcurrentStreams: 256}
-		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{
+		server.ServeConn(run.record(raw, "server", false), &http2.ServeConnOpts{ //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
 				_, _ = w.Write(payload)
 			}),
 		})
 	}()
-	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+	transport := &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) { //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 		raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
 		return run.record(raw, "client", true), nil
 	}}
-	defer transport.CloseIdleConnections()
+	defer transport.CloseIdleConnections() //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	client := &http.Client{Transport: transport}
 	sem := make(chan struct{}, streams)
 	var wg sync.WaitGroup
@@ -123,10 +124,10 @@ func h2cPositionals(evs []*events.SocketDataUploadEvent) []h2cPositional {
 // stream at a time and 8 at once, with the summaries off and on (the production switches), and checks with them on:
 //   - BPF does what the model of the summaries (h2cSummarize, which TestH2CRunsLikeToday and
 //     TestH2CSummaryRealCalls hold to today's output) predicts from the recorded calls: the same positional
-//     uploads of each direction, with the same summarised bytes and runs in front of them, and the same
-//     summarised calls (drop off, so a call is one upload); the uploads and the summaries account for every
+//     uploads of each direction, with the same summarized bytes and runs in front of them, and the same
+//     summarized calls (drop off, so a call is one upload); the uploads and the summaries account for every
 //     recorded call and byte exactly once;
-//   - every summarised byte is in a summary and in a gap, BPF's map is empty after the traffic;
+//   - every summarized byte is in a summary and in a gap, BPF's map is empty after the traffic;
 //   - the agent reports every request, with its sizes and status, without a framing error, a gap, a late or a
 //     dropped stream, and with as many kernel logs as with the summaries off;
 //
@@ -143,7 +144,7 @@ func TestH2CRunsKernel(t *testing.T) {
 			// BPF against the model, drop off
 			runModel, sumsModel, _ := withAccessLogSummary(t, false, true, traffic)
 			if h2cRunUploads(runModel) == 0 {
-				t.Fatalf("no call was summarised into a run")
+				t.Fatalf("no call was summarized into a run")
 			}
 			h2cSumConserved(t, runModel, sumsModel)
 			compared := 0
@@ -177,7 +178,7 @@ func TestH2CRunsKernel(t *testing.T) {
 				t.Fatalf("kernel logs per protocol log: %v off, %v on", offLogs.kernelsPerLog, onLogs.kernelsPerLog)
 			}
 			t.Logf("server responses (egress), per stream: %.2f records with the summaries off (%d full events), "+
-				"%.2f with them on (%d positional of which %d full events, %d summaries); %d calls summarised into %d "+
+				"%.2f with them on (%d positional of which %d full events, %d summaries); %d calls summarized into %d "+
 				"runs", float64(offRecords.total())/requests, offRecords.full,
 				float64(onRecords.total())/requests, onRecords.positional, onRecords.full, onRecords.summaries,
 				on.summaryCalls, onRecords.runs)
@@ -186,8 +187,8 @@ func TestH2CRunsKernel(t *testing.T) {
 }
 
 // h2cRunsLikeModel compares, for each direction of the connection, the positional uploads of BPF with those the
-// model of the summaries makes of the recorded calls, and the calls BPF summarised with those the model
-// summarises; false when the recording and the uploads do not line up (a write the kernel split), not compared
+// model of the summaries makes of the recorded calls, and the calls BPF summarized with those the model
+// summarizes; false when the recording and the uploads do not line up (a write the kernel split), not compared
 func h2cRunsLikeModel(t *testing.T, conn *h2cKernelConn, summaries []*events.H2CSummary, o h2cSummaryOptions) bool {
 	t.Helper()
 	s := &h2cScript{}
@@ -208,15 +209,15 @@ func h2cRunsLikeModel(t *testing.T, conn *h2cKernelConn, summaries []*events.H2C
 			}
 		}
 		model, got := h2cPositionals(modelEvents), h2cPositionals(conn.events[d])
-		summarised := 0
+		summarized := 0
 		for _, sum := range summaries {
 			if sum.LocalPort == conn.port && sum.Direction0 == d {
-				summarised += int(sum.Calls)
+				summarized += int(sum.Calls)
 			}
 		}
-		if len(got)+summarised != len(conn.calls[d]) {
-			t.Logf("%s %s: %d calls recorded, %d positional + %d summarised: not compared", conn.name, directionName(d),
-				len(conn.calls[d]), len(got), summarised)
+		if len(got)+summarized != len(conn.calls[d]) {
+			t.Logf("%s %s: %d calls recorded, %d positional + %d summarized: not compared", conn.name, directionName(d),
+				len(conn.calls[d]), len(got), summarized)
 			return false
 		}
 		if fmt.Sprint(model) != fmt.Sprint(got) {
@@ -272,7 +273,7 @@ func h2cRunsServerReport(t *testing.T, run *h2cKernelRun, summaries []*events.H2
 				continue
 			}
 			records.positional++
-			if e.PayloadSkipped0 == 0 && !(e.HaveReduce == 1 && e.DataLen <= 16) {
+			if e.PayloadSkipped0 == 0 && (e.HaveReduce != 1 || e.DataLen > 16) {
 				records.full++
 			}
 			if e.SumStream != 0 {

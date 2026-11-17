@@ -23,7 +23,7 @@ import (
 )
 
 // withFreeLists runs f with empty free lists and the counters cleared
-func withFreeLists(t testing.TB, budget int64, f func()) {
+func withFreeLists(_ testing.TB, budget int64, f func()) {
 	saved := freeLists
 	events, bytes, free, overhead := eventsInUse.Load(), bytesInUse.Load(), freeBytes.Load(), eventOverhead.Load()
 	defer func() {

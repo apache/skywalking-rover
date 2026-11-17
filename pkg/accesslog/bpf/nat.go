@@ -49,6 +49,13 @@ const (
 	natHookKprobe  = "kprobe"
 )
 
+const (
+	// progFexitNfConntrackConfirm is the fexit program of __nf_conntrack_confirm
+	progFexitNfConntrackConfirm = "fexit_nf_conntrack_confirm"
+	// nfConntrackHashInsert is the kernel function the legacy NAT hook (and the last fallback) probes
+	nfConntrackHashInsert = "__nf_conntrack_hash_insert"
+)
+
 // natPlan is how the loader reads the NAT address
 type natPlan struct {
 	mode string
@@ -76,12 +83,12 @@ func planNATHookEnv(mode string, spec *ebpf.CollectionSpec, env planEnv) *natPla
 		plan.reason = "NAT hook " + mode
 		return plan
 	}
-	p := spec.Programs["fexit_nf_conntrack_confirm"]
+	p := spec.Programs[progFexitNfConntrackConfirm]
 	switch {
 	case p == nil:
 		plan.reason = "the object has no fexit_nf_conntrack_confirm"
-	case env.goarch != "amd64":
-		plan.reason = "not x86_64"
+	case env.goarch != goarchAMD64:
+		plan.reason = "not x86_64" //nolint:goconst // only repeated by the names of the test cases
 	default:
 		if err := env.kernelBTF(); err != nil {
 			plan.reason = fmt.Sprintf("no kernel BTF: %v", err)
@@ -100,7 +107,7 @@ func (p *natPlan) unusedHooks() map[string]bool {
 	if p.mode == natHookLegacy {
 		return map[string]bool{}
 	}
-	return map[string]bool{"nf_confirm": true}
+	return map[string]bool{hookNfConfirm: true}
 }
 
 func (p *natPlan) String() string {
@@ -119,7 +126,7 @@ func (p *natPlan) String() string {
 // applyNATPlan stubs the fexit program where it is not used (it cannot load without BTF)
 func applyNATPlan(spec *ebpf.CollectionSpec, plan *natPlan) {
 	if !plan.fexit {
-		stubProgram(spec.Programs["fexit_nf_conntrack_confirm"])
+		stubProgram(spec.Programs[progFexitNfConntrackConfirm])
 	}
 }
 
@@ -133,8 +140,8 @@ func (l *Loader) NATHookPlan() string {
 func (l *Loader) AddNATHooks() error {
 	switch {
 	case l.nat.mode == natHookLegacy:
-		_ = l.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"__nf_conntrack_hash_insert": l.NfConntrackHashInsert})
-		return l.AddKprobeHookOrError("nf_confirm", l.NfConfirm, l.FentryNfConfirm)
+		_ = l.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{nfConntrackHashInsert: l.NfConntrackHashInsert})
+		return l.AddKprobeHookOrError(hookNfConfirm, l.NfConfirm, l.FentryNfConfirm)
 	case l.nat.fexit:
 		return l.AddTracingOrError(l.FexitNfConntrackConfirm)
 	case l.nat.mode == natHookConfirm:
@@ -146,5 +153,5 @@ func (l *Loader) AddNATHooks() error {
 	if err := l.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"__nf_conntrack_confirm": l.KprobeNfConntrackConfirm}); err == nil {
 		return nil
 	}
-	return l.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{"__nf_conntrack_hash_insert": l.NfConntrackHashInsert})
+	return l.AddLinkOrError(link.Kprobe, map[string]*ebpf.Program{nfConntrackHashInsert: l.NfConntrackHashInsert})
 }

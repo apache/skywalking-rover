@@ -62,7 +62,7 @@ func kernelLog() *v3.AccessLogKernelLog {
 }
 
 // testBatch has, for every connection, kernel logs and protocol logs named "<connection>-p<n>"
-func testBatch(connections, kernels, protocols int) (*BatchLogs, map[string][]string) {
+func testBatch(connections, kernels, protocols int) (batchLogs *BatchLogs, names map[string][]string) {
 	batch := newBatchLogs()
 	expected := map[string][]string{}
 	for c := 0; c < connections; c++ {
@@ -461,7 +461,7 @@ func (r *rawCollector) handle(_ any, stream grpc.ServerStream) error {
 // messages the sender built before it sent pre-encoded logs: the node on the first message of the stream,
 // the connection on the first message of every connection, the kernel logs of a connection together (merged),
 // and a message per protocol log with its kernel logs, built or encoded straight from the events
-func TestWireBytesAsTheMessages(t *testing.T) {
+func TestWireBytesAsTheMessages(t *testing.T) { //nolint:funlen // one scripted batch checked message by message
 	collector := &rawCollector{}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer(grpc.ForceServerCodecV2(rawCodec{}), grpc.UnknownServiceHandler(collector.handle))

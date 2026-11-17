@@ -241,7 +241,7 @@ func (m *Linker) ReadEventAsync(emap *ebpf.Map, bufReader RingBufferReader, data
 }
 
 // ReadEventAsyncWithBufferSize reads the ring with one goroutine. parallels is deprecated: the library
-// serialises the reads of a ring, so more than one reader only costs a hand-off per event and delivers the
+// serializes the reads of a ring, so more than one reader only costs a hand-off per event and delivers the
 // events of a connection out of order.
 func (m *Linker) ReadEventAsyncWithBufferSize(emap *ebpf.Map, bufReader RingBufferReader, perCPUBuffer,
 	parallels int, dataSupplier func() interface{}) {
@@ -254,7 +254,7 @@ func (m *Linker) readEventAsync(emap *ebpf.Map, bufReader RingBufferReader, perC
 	parallels int, dataSupplier func() interface{}, opts readerOptions) {
 	if parallels > 1 {
 		warnParallelsOnce.Do(func() {
-			log.Warnf("parse_parallels %d is ignored: every ring is read by one goroutine, the library serialises the reads", parallels)
+			log.Warnf("parse_parallels %d is ignored: every ring is read by one goroutine, the library serializes the reads", parallels)
 		})
 	}
 	rd, err := perf.NewReaderWithOptions(emap, perCPUBuffer, perf.ReaderOptions{WakeupEvents: opts.wakeupEvents})
@@ -320,6 +320,8 @@ func (c *drainClock) reset(now time.Time) {
 // asyncReadEvent reads the ring and hands every event to bufReader. With drained (batching), it reads on
 // without blocking while the ring holds events, and calls drained once it is empty, before it blocks
 // again, and at least every maxDelay while it never runs empty.
+//
+//nolint:gocyclo,funlen // the per-event read loop of the ring, its cases are the outcomes of one read
 func (m *Linker) asyncReadEvent(rd *perf.Reader, emap *ebpf.Map, recordPool *perfRecordBuilder,
 	dataSupplier func() interface{}, bufReader RingBufferReader, drained func(), maxDelay time.Duration) {
 	batching := drained != nil

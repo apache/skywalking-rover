@@ -64,7 +64,7 @@ func gapTestRecordMarked(t *testing.T, ssl uint8, sequence uint16, mark uint8, d
 	w(uint16(1)) // local port
 	w(uint16(2)) // remote port
 	w(uint16(0)) // data id span
-	w(uint32(0)) // summarised bytes in front
+	w(uint32(0)) // summarized bytes in front
 	w(uint32(0)) // the stream of the run in front
 	w(uint16(0)) // the frames of the run
 	w(uint16(0)) // pad
@@ -128,7 +128,7 @@ func TestDroppedSampleObserverChain(t *testing.T) {
 // a refused event (the request start told by the first bytes it carries), and decodes into an event
 // without a protocol that keeps every detail of its call (the kernel log) and no data
 func TestShedRecord(t *testing.T) {
-	_, dropped0, _, _ := buffer.MemoryStats()
+	_, dropped0, _, _ := buffer.MemoryStats() //nolint:dogsled // only the dropped count is read
 	shed := gapTestRecordMarked(t, 0, 0, recordPayloadShed, []byte("OPTIONS "))
 	// the size of the call, not of the bytes it carries
 	binary.LittleEndian.PutUint64(shed[recordTotalSizeOffset:], 70_000)

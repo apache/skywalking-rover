@@ -76,7 +76,7 @@ func TestBatchDecodeAndRefusedSample(t *testing.T) {
 			prevDataID: 41, total: 16393, l4Size: 16400, localPort: 8081, remote: 50000, l4Count: 11, funcName: 1, inFlight: 2},
 	)
 	if !IsBatchRecord(sample) || BatchRecordCount(sample) != 2 {
-		t.Fatalf("batch not recognised")
+		t.Fatalf("batch not recognized")
 	}
 	for i := 0; i < 2; i++ {
 		var fast SocketDataUploadEvent
@@ -149,7 +149,7 @@ func TestSplitH2CBatchRecords(t *testing.T) {
 	unknown := append([]testRecord{}, recs[:3]...)
 	unknown[1].kind = 9
 	sample = buildBatch(unknown...)
-	inUse0, _, _, _ := buffer.MemoryStats()
+	inUse0, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	unknown0 := h2cUnknownRecords.Load()
 	var got []*H2CRecord
 	SplitH2CBatch(sample, func(data interface{}) { got = append(got, data.(*H2CRecord)) }, nil)
@@ -264,9 +264,9 @@ func TestBatchRecordRun(t *testing.T) {
 		}
 		stream, frames := rec.SummaryRun()
 		DetachRecordTo(rec, &c)
-		if !ok || rec.SummarisedBefore() != r.before || stream != r.stream || frames != r.frames ||
+		if !ok || rec.SummarizedBefore() != r.before || stream != r.stream || frames != r.frames ||
 			c.SumStream != r.stream || c.SumFrames != r.frames || !bytes.Equal(rec.BufferData(), e.BufferData()) {
-			t.Fatalf("record %d as a compact record: %v %d %d %d %+v", i, ok, rec.SummarisedBefore(), stream, frames, c)
+			t.Fatalf("record %d as a compact record: %v %d %d %d %+v", i, ok, rec.SummarizedBefore(), stream, frames, c)
 		}
 	}
 	// the splitter hands the record it cannot keep over as the event

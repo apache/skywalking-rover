@@ -119,7 +119,7 @@ func (r *Reader) ReadRequest(buf *buffer.Buffer, readBody bool) (*Request, enums
 }
 
 // readRequestHeadTextproto parses the request line and the headers with net/textproto, it is the
-// reference behaviour of readRequestHeadFast
+// reference behavior of readRequestHeadFast
 func readRequestHeadTextproto(bufReader *bufio.Reader) (*http.Request, error) {
 	tp := textproto.NewReader(bufReader)
 	req := &http.Request{}

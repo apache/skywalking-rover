@@ -19,8 +19,8 @@ package analyze
 
 import (
 	"encoding/binary"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
 

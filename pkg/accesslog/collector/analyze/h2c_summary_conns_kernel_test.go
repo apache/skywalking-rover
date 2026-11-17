@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"io"
 	"net"
 	"net/http"
@@ -35,9 +34,10 @@ import (
 
 	"github.com/cilium/ebpf/perf"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/bpf"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
 	"github.com/apache/skywalking-rover/pkg/tools/btf"
@@ -54,7 +54,7 @@ type h2cSideCounts struct {
 // `requests` requests of 8 streams and 256KB both ways, with the production switches (drop, skip, batch) and
 // the summaries as given, and counts by side and direction the full events, the ones that carry more than 1KB
 // of data (payload uploaded in full), and the batch records
-func h2cManyConnsRun(t *testing.T, summarize, late bool, conns, requests int) (client, server h2cSideCounts,
+func h2cManyConnsRun(t *testing.T, summarize, late bool, conns, requests int) (client, server h2cSideCounts, //nolint:funlen // it loads the BPF, sets its switches, runs the traffic and reads the events in one place, all sharing the loader and the reader
 	lost uint64) {
 	t.Helper()
 	loader, err := h2cLoadBPF()
@@ -77,10 +77,10 @@ func h2cManyConnsRun(t *testing.T, summarize, late bool, conns, requests int) (c
 			t.Fatal(err)
 		}
 	}
-	defer loader.SummarizeH2cPayload.Set(uint32(0))
-	defer loader.BatchH2cRecords.Set(uint32(0))
-	defer loader.SkipH2cDataPayload.Set(uint32(0))
-	defer loader.DropH2cUnusedFrame.Set(uint32(0))
+	defer func() { _ = loader.SummarizeH2cPayload.Set(uint32(0)) }()
+	defer func() { _ = loader.BatchH2cRecords.Set(uint32(0)) }()
+	defer func() { _ = loader.SkipH2cDataPayload.Set(uint32(0)) }()
+	defer func() { _ = loader.DropH2cUnusedFrame.Set(uint32(0)) }()
 	h2cClearMap(t, loader.H2cStreamMap)
 	h2cClearMap(t, loader.ActiveConnectionMap)
 	h2cClearMap(t, loader.H2cSumMap)
@@ -235,7 +235,7 @@ func TestH2CSummaryManyConns(t *testing.T) {
 // server, `requests` requests per worker. With late, the connections are opened before the test process is
 // monitored (as when the agent discovers the pod after the client connected) and it is monitored once the
 // traffic runs. It returns the local ports of the connections: true for the client side.
-func h2cClusterTraffic(t *testing.T, loader *bpf.Loader, conns, requests int, late bool) map[uint16]bool {
+func h2cClusterTraffic(t *testing.T, loader *bpf.Loader, conns, requests int, late bool) map[uint16]bool { //nolint:funlen // one scripted traffic scenario, kept in one piece so its steps read in order
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -261,7 +261,7 @@ func h2cClusterTraffic(t *testing.T, loader *bpf.Loader, conns, requests int, la
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(payload)
 	})
-	srv := &http.Server{Handler: h2c.NewHandler(handler, &http2.Server{MaxConcurrentStreams: 1024})}
+	srv := &http.Server{Handler: h2c.NewHandler(handler, &http2.Server{MaxConcurrentStreams: 1024})} //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 	go func() { _ = srv.Serve(&notingListener{Listener: listener, note: note}) }()
 	defer srv.Close()
 	pid := uint32(os.Getpid())
@@ -272,7 +272,7 @@ func h2cClusterTraffic(t *testing.T, loader *bpf.Loader, conns, requests int, la
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for c := 0; c < conns; c++ {
-		tr := &http2.Transport{AllowHTTP: true, DisableCompression: true,
+		tr := &http2.Transport{AllowHTTP: true, DisableCompression: true, //nolint:staticcheck // the x/net/http2 endpoints make the recorded h2c traffic this test checks
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				raw, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 				if err == nil {
@@ -307,7 +307,7 @@ func h2cClusterTraffic(t *testing.T, loader *bpf.Loader, conns, requests int, la
 				}
 			}()
 		}
-		defer tr.CloseIdleConnections()
+		defer tr.CloseIdleConnections() //nolint:gocritic,staticcheck // the x/net/http2 clients are closed once all traffic is done
 	}
 	close(start)
 	if late {

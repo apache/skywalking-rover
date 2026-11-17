@@ -19,7 +19,6 @@ package analyze
 
 import (
 	"fmt"
-	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"math/rand"
 	"strings"
 	"testing"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/apache/skywalking-rover/pkg/accesslog/collector/protocols"
 	"github.com/apache/skywalking-rover/pkg/accesslog/common"
+	"github.com/apache/skywalking-rover/pkg/accesslog/events"
 	"github.com/apache/skywalking-rover/pkg/tools/buffer"
 	"github.com/apache/skywalking-rover/pkg/tools/enums"
 )
@@ -140,14 +140,14 @@ func overloadRun(_ *testing.T, budgetEvents int64, offered, overloadRounds, reco
 	for _, c := range conns {
 		partition.GetConnectionContext(c.id, c.id, enums.ConnectionProtocolHTTP, 1).ReleasePendingData()
 	}
-	return
+	return overDone, overStarted, recDone, recStarted
 }
 
 // TestGapHandlingWithAgentEvents: under overload the protocol logs that come out are whole (every call of
 // the message as a kernel log), after it every message completes, and the events in use go back to
 // where they were
 func TestGapHandlingWithAgentEvents(t *testing.T) {
-	inUse, _, _, _ := buffer.MemoryStats()
+	inUse, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	overDone, overStarted, recDone, recStarted := overloadRun(t, 600, 2000, 40, 40)
 	t.Logf("agent events: %d of %d messages complete under overload (the budget holds 30%% of a round), %d of %d after",
 		overDone, overStarted, recDone, recStarted)

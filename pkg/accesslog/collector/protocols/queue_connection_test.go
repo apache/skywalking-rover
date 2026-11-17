@@ -46,7 +46,7 @@ func (f *fixedProtocol) Analyze(*PartitionConnection, *AnalyzeHelper) error { re
 // protocolNumbers are the protocols the tests record, including a number beyond the known protocols
 var protocolNumbers = []enums.ConnectionProtocol{enums.ConnectionProtocolHTTP, enums.ConnectionProtocolHTTP2, 9}
 
-func newFixedProtocols() ([]Protocol, map[enums.ConnectionProtocol]*fixedProtocol) {
+func newFixedProtocols() (protocols []Protocol, fixed map[enums.ConnectionProtocol]*fixedProtocol) {
 	list := make([]Protocol, 0, len(protocolNumbers))
 	byNumber := make(map[enums.ConnectionProtocol]*fixedProtocol)
 	for _, number := range protocolNumbers {

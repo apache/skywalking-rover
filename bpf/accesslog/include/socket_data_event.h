@@ -70,7 +70,7 @@ struct socket_data_upload_event {
     // an event of a run of skipped HTTP/1 body calls (coalesce_http1_body_payload, syscalls/h1.h) stands for
     // the calls with the data ids data_id - data_id_span to data_id; 0 for every other event
     __u16 data_id_span;
-    // summarize_h2c_payload (common/h2c_sum.h): the bytes of DATA payload of the direction that BPF summarised
+    // summarize_h2c_payload (common/h2c_sum.h): the bytes of DATA payload of the direction that BPF summarized
     // since the previous positional upload of the direction, which come in front of this call in the stream
     // of the direction: the parser counts them as skipped payload before it. Only set on the first chunk
     // event of a call (every chunk carries it, the user space reads it from sequence 0); 0 otherwise.
@@ -112,7 +112,7 @@ _Static_assert(__builtin_offsetof(struct socket_data_upload_event, sum_stream) =
 _Static_assert(sizeof(struct upload_data_args_ext) == 32 && __builtin_offsetof(struct upload_data_args_ext, pad) == 18 &&
                __builtin_offsetof(struct upload_data_args_ext, sum_before) == 20 &&
                __builtin_offsetof(struct upload_data_args_ext, sum_stream) == 24,
-               "the extension of a batch record is 32 bytes, its summarised bytes at 20, its run at 24");
+               "the extension of a batch record is 32 bytes, its summarized bytes at 20, its run at 24");
 
 static __always_inline void fill_socket_data_event_ext(struct socket_data_upload_event *event, struct upload_data_args_ext *ext) {
     event->l4_package_count = ext->l4_package_count;
@@ -160,13 +160,13 @@ static __always_inline void fill_socket_data_event_coalesced(struct socket_data_
     event->data_id_span = data_id_span;
 }
 
-// upload_data_args_ext_set_sum_before sets the summarised bytes in front of a positional upload
+// upload_data_args_ext_set_sum_before sets the summarized bytes in front of a positional upload
 // (summarize_h2c_payload, common/h2c_sum.h)
 static __always_inline void upload_data_args_ext_set_sum_before(struct upload_data_args_ext *ext, __u32 bytes) {
     ext->sum_before = bytes;
 }
 
-// upload_data_args_ext_set_sum_run sets the run the summarised bytes in front of a positional upload are, from
+// upload_data_args_ext_set_sum_run sets the run the summarized bytes in front of a positional upload are, from
 // what h2c_handle_call reports: the stream in the lower 32 bits, the frames above, 0 when they are payload of
 // one frame
 static __always_inline void upload_data_args_ext_set_sum_run(struct upload_data_args_ext *ext, __u64 run) {

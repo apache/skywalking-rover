@@ -44,6 +44,8 @@ import (
 var deterministic = proto.MarshalOptions{Deterministic: true}
 
 // encodedFields is every message the encoder writes, with its fields as "<number> <kind>[ repeated][ oneof]"
+//
+//nolint:goconst // a table of field layouts, messages with equal layouts are unrelated
 var encodedFields = map[protoreflect.Name]string{
 	"EBPFAccessLogMessage":            "1 message, 2 message, 3 message repeated, 4 message",
 	"EBPFAccessLogNodeInfo":           "1 string, 2 message repeated, 3 message, 4 string, 5 message",
@@ -351,12 +353,13 @@ func (e *wireEncoder) timestamp(num protowire.Number, m *v3.EBPFTimestamp) {
 // kernelLog and protocolLogs, and the messages they hold, write no unknown fields: only proto.Unmarshal,
 // proto.Merge or SetUnknown give a message unknown fields, and the agent applies none of them to the logs it
 // builds (TestNoUnknownFieldsInTheLogs), so the per-log GetUnknown calls are saved. The header keeps them.
-func (e *wireEncoder) kernelLog(num protowire.Number, m *v3.AccessLogKernelLog) {
+// A kernel log is always an element of the kernel logs field of the message.
+func (e *wireEncoder) kernelLog(m *v3.AccessLogKernelLog) {
 	if !wireEncodingCovered {
-		e.fallback(num, m)
+		e.fallback(messageKernelLogsField, m)
 		return
 	}
-	start := e.begin(num)
+	start := e.begin(messageKernelLogsField)
 	// an element of a repeated field is written even when nil
 	if m != nil {
 		switch op := m.Operation.(type) {
@@ -390,9 +393,10 @@ func (e *wireEncoder) kernelLog(num protowire.Number, m *v3.AccessLogKernelLog) 
 }
 
 // transferLog writes the kernel log of the TransferLog, the bytes kernelLog writes for the messages its
-// KernelLogBuilder builds: an operation with both times set, the syscall and the metrics messages in order
-func (e *wireEncoder) transferLog(num protowire.Number, t *forwarder.TransferLog) {
-	start := e.begin(num)
+// KernelLogBuilder builds: an operation with both times set, the syscall and the metrics messages in order,
+// as an element of the kernel logs field of the message
+func (e *wireEncoder) transferLog(t *forwarder.TransferLog) {
+	start := e.begin(messageKernelLogsField)
 	operation := protowire.Number(4)
 	if t.Write {
 		operation = 5
@@ -562,7 +566,7 @@ func (e *wireEncoder) httpProtocol(num protowire.Number, m *v3.AccessLogHTTPProt
 // encodeProtocolLog is the kernelLogs and protocolLog (when set) fields of the message of a protocol log
 func (e *wireEncoder) encodeProtocolLog(kernels []*v3.AccessLogKernelLog, protocol *v3.AccessLogProtocolLogs) {
 	for _, k := range kernels {
-		e.kernelLog(messageKernelLogsField, k)
+		e.kernelLog(k)
 	}
 	if protocol != nil {
 		e.protocolLogs(messageProtocolLogField, protocol)
@@ -583,12 +587,12 @@ func (e *wireEncoder) encodeTransferProtocolLog(details []events.SocketDetail, p
 	var pendingMessage *v3.AccessLogKernelLog
 	flush := func() {
 		if hasPending {
-			e.transferLog(messageKernelLogsField, &pending)
+			e.transferLog(&pending)
 			count++
 			hasPending = false
 		}
 		if pendingMessage != nil {
-			e.kernelLog(messageKernelLogsField, pendingMessage)
+			e.kernelLog(pendingMessage)
 			count++
 			pendingMessage = nil
 		}
@@ -600,7 +604,7 @@ func (e *wireEncoder) encodeTransferProtocolLog(details []events.SocketDetail, p
 					continue
 				}
 				if !merge {
-					e.transferLog(messageKernelLogsField, &t)
+					e.transferLog(&t)
 					count++
 					continue
 				}
@@ -617,7 +621,7 @@ func (e *wireEncoder) encodeTransferProtocolLog(details []events.SocketDetail, p
 			continue
 		}
 		if !merge {
-			e.kernelLog(messageKernelLogsField, k)
+			e.kernelLog(k)
 			count++
 			continue
 		}
@@ -636,7 +640,7 @@ func (e *wireEncoder) encodeTransferProtocolLog(details []events.SocketDetail, p
 
 // EncodeTransferProtocolLog is the kernelLogs and protocolLog fields AppendTransferProtocolLog adds, and the count
 // of kernel logs: the bytes of the message of the logs BuildKernelLogFromEvent builds for the details
-func EncodeTransferProtocolLog(details []events.SocketDetail, protocol *v3.AccessLogProtocolLogs) ([]byte, int, error) {
+func EncodeTransferProtocolLog(details []events.SocketDetail, protocol *v3.AccessLogProtocolLogs) (message []byte, kernelLogs int, err error) {
 	e := &wireEncoder{}
 	count := e.encodeTransferProtocolLog(details, protocol, false)
 	return e.buf, count, e.err

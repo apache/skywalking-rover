@@ -28,11 +28,11 @@ import (
 // TestStripAtomicFetch: the atomics with a result (fetch-add 0x01, xchg 0xe1, cmpxchg 0xf1) become moves, a plain
 // atomic add (0x00) stays, and the instruction count does not change
 func TestStripAtomicFetch(t *testing.T) {
-	atomic := func(imm int64) asm.Instruction {
-		return asm.Instruction{OpCode: asm.StoreXAddOp(asm.DWord), Dst: asm.R1, Src: asm.R2, Constant: imm}
+	atomic := func(op asm.AtomicOp) asm.Instruction {
+		return op.Mem(asm.R1, asm.R2, asm.DWord, 0)
 	}
 	spec := &ebpf.CollectionSpec{Programs: map[string]*ebpf.ProgramSpec{"p": {Instructions: asm.Instructions{
-		atomic(0x00), atomic(0x01), atomic(0xe1), atomic(0xf1), asm.Mov.Imm(asm.R0, 0), asm.Return(),
+		atomic(asm.AddAtomic), atomic(asm.FetchAdd), atomic(asm.Xchg), atomic(asm.CmpXchg), asm.Mov.Imm(asm.R0, 0), asm.Return(),
 	}}}}
 	if n := StripAtomicFetch(spec); n != 3 {
 		t.Fatalf("stripped %d, want 3", n)
@@ -41,7 +41,7 @@ func TestStripAtomicFetch(t *testing.T) {
 	if len(insns) != 6 {
 		t.Fatalf("%d instructions", len(insns))
 	}
-	if insns[0].OpCode.Mode() != asm.XAddMode {
+	if insns[0].OpCode.AtomicOp() != asm.AddAtomic {
 		t.Errorf("the plain atomic add was stripped: %v", insns[0])
 	}
 	for i := 1; i <= 3; i++ {

@@ -91,7 +91,7 @@ func (c *testConn) call(dir enums.SocketDataDirection, data string) bool {
 // send decodes the data as calls of the sizes, and returns which were skipped
 func (c *testConn) send(dir enums.SocketDataDirection, data string, sizes ...int) []bool {
 	var result []bool
-	for len(data) > 0 {
+	for data != "" {
 		n := len(data)
 		if len(sizes) > 0 {
 			n = min(sizes[0], n)
@@ -689,7 +689,7 @@ func inFlight(n uint16) func(*Call) {
 // sendWith is send with every call edited
 func (c *testConn) sendWith(dir enums.SocketDataDirection, data string, edit func(*Call), sizes ...int) []bool {
 	var result []bool
-	for len(data) > 0 {
+	for data != "" {
 		n := len(data)
 		if len(sizes) > 0 {
 			n = min(sizes[0], n)

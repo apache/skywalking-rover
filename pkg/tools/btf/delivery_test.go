@@ -29,7 +29,7 @@ const slack = 20 * time.Millisecond
 // TestDeliveredThroughHoldsWhileQueued: an event the reader has read stays on its way, for DeliveredThrough, while
 // it waits in the batch of the reader or in the channel of its partition, and the time a reader is blocked on a
 // full partition does not run on the delivery clock
-func TestDeliveredThroughHoldsWhileQueued(t *testing.T) {
+func TestDeliveredThroughHoldsWhileQueued(t *testing.T) { //nolint:funlen // one scenario checked step by step
 	queue := NewEventQueue("delivery test", 1, 2, func(int) PartitionContext { return nil })
 	queue.TrackDelivery()
 	defer queue.untrackDeliveryForTest()

@@ -401,7 +401,7 @@ static __always_inline struct socket_data_last_id_t *socket_data_last_upload(__u
 // then named by at most one, and every one but the last by exactly one, whatever order the calls end and write
 // socket_data_last_id_map in, which stays where an upload starts looking (it is almost always the end of the chain).
 // The chain does not follow the data ids then: an upload may name one with a larger data id, which the user space
-// links the same way. Calls summarised or dropped take no place, as they upload nothing.
+// links the same way. Calls summarized or dropped take no place, as they upload nothing.
 struct socket_data_link_t {
     __u64 conid;
     __u64 random_id;

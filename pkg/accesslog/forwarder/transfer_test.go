@@ -18,6 +18,7 @@
 package forwarder
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
@@ -68,7 +69,7 @@ func legacyKernelTransferLogBuilder(event events.Event) *v3.AccessLogKernelLog {
 					EndTime:   legacyOffsetTimestamp(transferEvent.EndTime()),
 					Syscall:   parseReadSyscall(enums.SocketFunctionName(transferEvent.FunctionName)),
 					L2Metrics: &v3.AccessLogKernelReadL2Metrics{
-						TotalPackageCount: uint32(transferEvent.L4PackageCount),
+						TotalPackageCount: transferEvent.L4PackageCount,
 						TotalPackageSize:  transferEvent.L4TotalPackageSize,
 					},
 				},
@@ -107,7 +108,7 @@ func assertSameMessage(t *testing.T, expected, actual proto.Message) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(expectedBytes) != string(actualBytes) {
+	if !bytes.Equal(expectedBytes, actualBytes) {
 		t.Fatalf("encoded messages differ")
 	}
 }

@@ -53,13 +53,13 @@ func TestInflightChargeOfSmallEvents(t *testing.T) {
 func TestInflightBalanceWithDetach(t *testing.T) {
 	records := [][]byte{uploadRecord(t, []byte("settings-ack")), uploadRecord(t, bytes.Repeat([]byte{'d'}, 1500)),
 		uploadRecord(t, bytes.Repeat([]byte{'x'}, 9000)), uploadRecord(t, nil)}
-	before, _, _, _ := buffer.MemoryStats()
+	before, _, _, _ := buffer.MemoryStats() //nolint:dogsled // only the events in use are compared
 	inflightBefore := buffer.InflightBytes()
 	ch := make(chan *SocketDataUploadEvent, 64)
 	var analyzers sync.WaitGroup
 	for a := 0; a < 4; a++ {
 		analyzers.Add(1)
-		go func(a int) {
+		go func(_ int) {
 			defer analyzers.Done()
 			conn := buffer.NewBuffer()
 			n := 0

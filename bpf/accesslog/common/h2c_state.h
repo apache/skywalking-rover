@@ -83,12 +83,12 @@ struct h2c_direction_t {
     // summarize_h2c_payload (common/h2c_sum.h). stream is the stream id of the frame whose payload is still
     // to come (remaining above 0), valid when stream_known is set: the walk sets it when it reads the whole
     // header of that frame in the call (h2c_walk_reach), every other way to a payload leaves it unknown, and
-    // such a payload is not summarised.
+    // such a payload is not summarized.
     __u32 stream;
-    // the DATA payload bytes summarised since the last positional upload of the direction: the next one
+    // the DATA payload bytes summarized since the last positional upload of the direction: the next one
     // carries them (sum_before), so the parser counts them in front of it
     __u32 sum_pending;
-    // the minute of the last summarised call (h2c_sum_minute), what the close looks the summaries up by
+    // the minute of the last summarized call (h2c_sum_minute), what the close looks the summaries up by
     __u32 sum_minute;
     __u8 stream_known;
     // the function of the last call of the direction and a generation bumped whenever it changes: a summary
@@ -98,7 +98,7 @@ struct h2c_direction_t {
     // the upper 8 bits of sum_open (below)
     __u8 sum_open_hi;
     // a run (h2c_sum_call in syscalls/h2c.h): with sum_run_stream above 0, sum_pending is not payload of one frame
-    // but the bytes of sum_run_frames whole DATA frames of that stream, each summarised as the call it came in (the
+    // but the bytes of sum_run_frames whole DATA frames of that stream, each summarized as the call it came in (the
     // frame count in the lower 15 bits; H2C_SUM_RUN_HEAD when payload of the frame in front comes first, common/
     // h2c_sum.h)
     __u32 sum_run_stream;
@@ -213,7 +213,7 @@ struct h2c_stream_t {
     // H2C_STREAM_*
     __u32 mode;
     // the direction the client connection preface came in (the requests), 0 while not seen: the
-    // runs of whole DATA frames are only summarised in the other one (h2c_sum_call in syscalls/h2c.h)
+    // runs of whole DATA frames are only summarized in the other one (h2c_sum_call in syscalls/h2c.h)
     __u32 request_direction;
     __u8 header_gap[H2C_LINE_GAP];
     // batching (h2c_batch.h): per direction (indexed by the data direction - 1), the CPU and the batch generation

@@ -62,6 +62,7 @@ func headTestCompare(t *testing.T, first, next string) bool {
 		if err != nil || resp == nil || resp.Headers() == nil {
 			t.Fatalf("%q: the analyzer rejects the response: %v", first, err)
 		}
+		//nolint:bodyclose // the response is parsed from captured socket data, it has no body to close
 		if resp.Original().StatusCode != head.StatusCode {
 			t.Fatalf("%q: status %d, want %d", first, head.StatusCode, resp.Original().StatusCode)
 		}

@@ -67,7 +67,7 @@ const (
 
 // http2LinkPrevDataID is the previous data id an arrived event counts with in the chain of the uploads: the first
 // event of the analysis that is the 101 response of an h2c upgrade starts the chain (its previous upload is an
-// HTTP/1 call, analysed by the HTTP/1 parser)
+// HTTP/1 call, analyzed by the HTTP/1 parser)
 func http2LinkPrevDataID(links *http2Links, event buffer.SocketDataBuffer) uint64 {
 	if !links.started && event.DataSequence() == 0 && http2IsUpgradeResponseStart(event.BufferData()) {
 		return 0
@@ -133,16 +133,16 @@ func http2UpgradeRequestHeaders(headers *HTTP2Headers, request *reader.Request) 
 	if original == nil {
 		return
 	}
-	headers.emit(hpack.HeaderField{Name: ":method", Value: original.Method})
+	headers.emit(hpack.HeaderField{Name: http2FieldMethod, Value: original.Method})
 	if path, ok := http2UpgradePath(original); ok {
-		headers.emit(hpack.HeaderField{Name: ":path", Value: path})
+		headers.emit(hpack.HeaderField{Name: http2FieldPath, Value: path})
 	}
 	authority := request.Headers().Get("Host")
 	if authority == "" {
 		authority = original.Host
 	}
 	if authority != "" {
-		headers.emit(hpack.HeaderField{Name: ":authority", Value: authority})
+		headers.emit(hpack.HeaderField{Name: http2FieldAuthority, Value: authority})
 	}
 	for _, name := range []string{tracing.HeaderSW8, tracing.HeaderB3, tracing.HeaderB3TraceID, tracing.HeaderB3SpanID} {
 		if value := request.Headers().Get(name); value != "" {

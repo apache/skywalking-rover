@@ -142,6 +142,7 @@ type HTTP1AnalyzeUnFinished struct {
 	retryCount int
 }
 
+//nolint:gocyclo // per-connection HTTP/1 parse loop, its request/response states read best in one place
 func (p *HTTP1Protocol) Analyze(connection *PartitionConnection, _ *AnalyzeHelper) error {
 	metrics := connection.Metrics(enums.ConnectionProtocolHTTP).(*HTTP1Metrics)
 	buf := connection.Buffer(enums.ConnectionProtocolHTTP)

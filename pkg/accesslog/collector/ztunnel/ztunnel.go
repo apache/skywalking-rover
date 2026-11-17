@@ -298,7 +298,7 @@ func (z *Collector) Start(_ *module.Manager, ctx *common.AccessLogContext) error
 	// a reader with the default 1-page buffer falls behind under a high connection rate(the extra
 	// waypoint hop): the mapping events are then read tens of seconds late, after the connection has
 	// already flushed with the raw ClusterIP - the dominant residual "-|service|-" cause. The fix is
-	// the larger per-CPU buffer; extra reader goroutines are not one, because the library serialises
+	// the larger per-CPU buffer; extra reader goroutines are not one, because the library serializes
 	// the reads of a ring (see Linker.ReadEventAsyncWithBufferSize).
 	ctx.BPF.ReadEventAsyncWithBufferSize(ctx.BPF.ZtunnelLbSocketMappingEventQueue, z.handleMappingEvent,
 		os.Getpagesize()*ztunnelMappingQueuePerCPUBufferPages, 1, func() interface{} {
